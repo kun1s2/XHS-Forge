@@ -58,7 +58,10 @@ async def process_new_trend_background(keyword: str):
         # 步骤 2：利用主模型 (OpenAI 范式) 进行数据结构化蒸馏
         # ==========================================
         print(f"🧠 [后台主编] 搜索完毕，正交由主脑 {settings.LLM_MODEL} 进行信息蒸馏...")
-        prompt = f"请根据以下搜索结果提炼【{keyword}】的热点内容：\n{search_context}"
+        # ✨ 关键修复：Qwen 要求在开启 JSON Mode 时，Prompt 必须包含 "JSON" 字样
+        prompt = f"""请根据以下搜索结果提炼【{keyword}】的热点内容，并以 JSON 格式输出：
+{search_context}
+"""
         structured_llm = llm.with_structured_output(TrendDistillation)
         distilled_data = await structured_llm.ainvoke(prompt)
         

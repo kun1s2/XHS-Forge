@@ -78,7 +78,7 @@ async def intent_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "用户的最新指令：{{ query }}")
+        ("human", "请分析以下用户指令并以 JSON 格式输出：\n{{ query }}")
     ], template_format="jinja2")
     
     try:
