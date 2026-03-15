@@ -1,0 +1,33 @@
+# Web
+fastapi
+uvicorn[standard]
+
+# LangChain / LangGraph
+langchain-openai
+langchain-core
+langchain-community
+langgraph
+langsmith
+
+# 向量库与持久化（Postgres + PGVector）
+langchain-postgres
+psycopg[binary]
+asyncpg
+
+# 配置与校验
+pydantic
+pydantic-settings
+python-dotenv
+
+# HTTP 与存储
+httpx
+redis
+boto3
+
+# 业务与重试
+tenacity
+zhipuai
+sqlalchemy
+
+# 智谱视觉图片识别（asset_node / describe_image）
+zai

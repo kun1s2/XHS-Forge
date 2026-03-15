@@ -1,0 +1,25 @@
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+
+class BaseResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+
+class ForkResponse(BaseResponse):
+    new_thread_id: str
+    parent_checkpoint: str
+
+class CheckpointInfo(BaseModel):
+    checkpoint_id: str
+    intent: str
+
+class WorkspaceDataResponse(BaseResponse):
+    """首屏加载的完整状态数据"""
+    is_new: bool
+    messages: Dict[str, List[str]]  # 分面板的聊天记录
+    active_panel: str
+    selected_element_id: Optional[str]
+    data_dsl: Dict[str, Any]
+    style_dsl: Dict[str, Any]
+    oss_url: Optional[str]
+    checkpoints: List[CheckpointInfo]

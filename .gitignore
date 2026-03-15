@@ -1,0 +1,78 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# === Environment variables & Secrets ===
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+secret.json
+
+# === Logs & Databases ===
+*.log
+logs/
+*.sqlite3
+*.db
+.start_both.pid
+tmp/
+temp/
+.cache/
+
+# === IDE & OS Files ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.cursor/
+
+# === Node.js (Frontend) ===
+node_modules/
+dist/
+dist-ssr/
+.npm/
+.yarn/
+*.tsbuildinfo
+coverage/
+.nuxt/
+
+# === LangGraph / LangChain specific ===
+langchain_postgres_data/
+
+# === Temporary generation files ===
+AI_Frontend_IDE/generate/
+AI_Frontend_IDE/test/
+*.bak
+*.tmp

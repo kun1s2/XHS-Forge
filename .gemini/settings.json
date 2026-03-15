@@ -1,0 +1,8 @@
+{
+    "contextFileName": "GEMINI.md",
+    "mcpServers": {
+    "docs-langchain": {
+      "url": "https://docs.langchain.com/mcp"
+    }
+  }
+}

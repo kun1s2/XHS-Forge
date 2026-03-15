@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build:
+      context: ./AI_Frontend_IDE
+      dockerfile: Dockerfile
+    container_name: ai-ide-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./AI_Frontend_IDE/.env
+    restart: always
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./ai-frontend-ide
+      dockerfile: Dockerfile
+    container_name: ai-ide-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
