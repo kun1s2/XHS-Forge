@@ -60,7 +60,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "修改指令: {{ query }}")
+        ("human", "用户的最新修改指令：\n<user_input>\n{{ query }}\n</user_input>")
     ], template_format="jinja2")
 
     try:

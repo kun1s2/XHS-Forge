@@ -7,50 +7,20 @@
     </context>
 
     <routing_rules>
-        <rule route="patch_node">【极高优先级】：如果 state["selected_element"] 存在且有效，且用户指令是针对该特定组件进行小幅度修改、文案润色、图片替换或参数调整（如“改价格”、“改评分”），则必须路由至此！</rule>
+        <rule route="patch_node">如果 state["selected_element"] 存在且有效，且用户指令是针对该特定组件进行小幅度修改、文案润色、图片替换或参数调整（如“改价格”、“改评分”），优先路由至此。</rule>
         <rule route="content_node">用户想生成全新的、大段的网页内容，或需要从零构思文案故事。</rule>
         <rule route="structure_node">用户想大幅改变页面布局、增删多个组件、或者在没有选中任何特定组件时要求修改结构。</rule>
         <rule route="style_node">用户想改变颜色、字体、间距、圆角、阴影等 CSS 视觉样式，而非修改内容数据。</rule>
         <rule route="rag_node">用户询问纯技术问题，或明确要求查阅企业知识库。</rule>
     </routing_rules>
 
-    <archetype_rules>
-        <rule archetype="gourmet">美食探店、下午茶、餐厅评价。强制契约：必须包含商品卡片和评分。</rule>
-        <rule archetype="travel">旅游、游记、打卡、风景。强制契约：强调多图轮播和叙事文案。</rule>
-        <rule archetype="seeding">好物种草、单品推荐、开箱、价格分享。强制契约：商品卡片置顶。</rule>
-        <rule archetype="news">游戏资讯、官方活动、新闻简报。强制契约：结构化列表、条理清晰。</rule>
-        <rule archetype="general">其他无法明确分类的情况。</rule>
-    </archetype_rules>
-
     <scenario_mapping_rules>
-        <rule>你必须将用户的意图精准归类到系统的【4 大基石场景】中：['travel', 'food', 'seeding', 'news']。</rule>
-        <rule>【动态意图推断规则】：绝对不要依赖死板的关键词匹配！你必须分析用户指令的“核心动机”和“最终交付价值”：
-            - [food]：用户的核心动机是“品尝、饱腹、味觉体验”或“评价某个餐饮实体的环境与口味”。（例如：即使在海边，只要重点是推荐海边的海鲜大排档，依然是 food）。
-            - [travel]：用户的核心动机是“空间位移、风景体验、路线规划”或“记录一段旅程”。
-            - [seeding]：用户的核心动机是“消费决策参考”，旨在展示某件实体商品/虚拟服务的优缺点、参数或价格，试图说服他人购买或避坑。
-            - [news]：用户的核心动机是“获取时效性信息”，如游戏版本更新、官方公告、突发事件。
+        <rule>将用户意图归类到【4 大基石场景】之一：['travel', 'food', 'seeding', 'news']。如果无法明确分类，请使用 'general'。</rule>
+        <rule>分析核心动机：
+            - [food]：核心动机是“品尝、饱腹、味觉体验”或“评价餐饮实体的环境与口味”。
+            - [travel]：核心动机是“空间位移、风景体验、路线规划”或“记录一段旅程”。
+            - [seeding]：核心动机是“消费决策参考”，旨在展示商品优缺点、参数或价格。
+            - [news]：核心动机是“获取时效性信息”，如官方公告、突发事件、活动。
         </rule>
-        <rule>【内部映射规则】：
-            - 如果用户聊咖啡、探店、餐厅、夜市、下午茶、口感、味道 -> 强制映射为 "food"
-            - 如果用户聊海边、露营、游记、看海、爬山、打卡、攻略、景点 -> 强制映射为 "travel"
-            - 如果用户聊球鞋、美妆、开箱、测评、价格、安利、种草、好物 -> 强制映射为 "seeding"
-            - 如果用户聊官方活动、游戏更新、新闻、送皮肤、限时福利 -> 强制映射为 "news"
-        </rule>
-        <rule>【绝对红线】：scenarios 数组只能包含上述 4 个标准词，严禁发明任何新词（如 "cafe", "review", "camping" 等）！</rule>
     </scenario_mapping_rules>
-
-    <constraints>
-        <rule>重要约束：必须严格输出 JSON 格式！</rule>
-        <rule>【结构化协议】：你必须且只能输出包含四个字段的纯 JSON 对象： "reason", "intent_route", "scenarios", "detected_archetype"。严禁在最外层包裹任何额外的 Key（如 "data" 或 "output"）！</rule>
-        <rule>【最高输出指令】你必须且只能输出一个合法的 JSON 对象。绝对不允许包含任何其他解释性文本、思考过程或 Markdown 代码块标记（如 ```json）。你的 reason 字段必须极度精简，绝对不能超过 10 个字！</rule>
-    </constraints>
-    
-    <output_example>
-    {
-        "reason": "全新内容生成",
-        "intent_route": "content_node",
-        "scenarios": ["travel", "food"],
-        "detected_archetype": "travel"
-    }
-    </output_example>
 </system_prompt>

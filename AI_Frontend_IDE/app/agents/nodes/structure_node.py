@@ -65,8 +65,9 @@ async def structure_agent(state: UIProjectState) -> dict:
     # 4. ====== ✨ 现代化：构建 ChatPromptTemplate (Jinja2) ======
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "用户的最新排版指令: {{ user_query }}")
+        ("human", "用户的最新排版指令：\n<user_input>\n{{ user_query }}\n</user_input>")
     ], template_format="jinja2")
+
 
     try:
         # 5. 执行 LCEL 管道调用 (带重试机制)

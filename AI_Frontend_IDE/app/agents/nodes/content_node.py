@@ -53,27 +53,23 @@ async def content_agent(state: UIProjectState) -> dict:
     with open(prompt_path, "r", encoding="utf-8") as f:
         system_template = f.read()
 
-    # ✨ 强制要求以 JSON 格式输出，以提取 thought_process
+    # ✨ 使用 Jinja2 模板直接处理所有动态变量，避免 Python f-string 拼接
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "请分析以下用户指令并以 JSON 格式输出：\n{{ query }}")
+        ("human", "【当前创作者人设】：{{ creator_persona }}\n{% if user_stance %}【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{{ user_stance }}」。请务必严格遵守此立场！\n{% endif %}用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n请在创作文案的同时，规划创作思路。")
     ], template_format="jinja2")
 
     structured_llm = llm.with_structured_output(ContentOutput)
     
     try:
-        stance_instruction = ""
-        if user_stance:
-            stance_instruction = f"\n\n【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{user_stance}」。请务必严格遵守此立场！"
-
-        query_with_social = f"【当前创作者人设】：{creator_persona}\n\n{user_query}{stance_instruction}\n\n请在创作文案的同时，规划创作思路。"
-        
         inputs = {
             "is_update": is_update,
             "current_data": json.dumps(current_data_dsl, ensure_ascii=False) if current_data_dsl else "空",
             "selected_element": selected_element,
             "target_text": target_text,
-            "query": query_with_social,
+            "creator_persona": creator_persona,
+            "user_stance": user_stance,
+            "query": user_query,
             "scenarios": scenarios,
             "retrieved_knowledge": retrieved_knowledge
         }

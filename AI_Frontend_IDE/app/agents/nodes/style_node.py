@@ -88,7 +88,7 @@ async def style_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "用户的最新样式指令: {{ user_query }}")
+        ("human", "用户的最新样式指令：\n<user_input>\n{{ user_query }}\n</user_input>")
     ], template_format="jinja2")
 
     try:

@@ -3,7 +3,6 @@ import functools
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
-from langchain_community.callbacks import get_openai_callback
 
 # 引入我们定义的全局状态
 from app.agents.state import UIProjectState

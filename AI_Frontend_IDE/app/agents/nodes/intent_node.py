@@ -74,15 +74,14 @@ async def intent_agent(state: UIProjectState) -> dict:
 
     # 注入当前场景辅助上下文，减少模型“忘本”概率
     active_archetype = state.get("active_archetype", "general")
-    query_with_hint = f"{user_query}\n(当前场景背景: {active_archetype})"
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "请分析以下用户指令并以 JSON 格式输出：\n{{ query }}")
+        ("human", "【当前场景背景】: {{ active_archetype }}\n用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>")
     ], template_format="jinja2")
     
     try:
-        inputs = {"data_context": data_context, "selected_element": selected_element, "query": query_with_hint}
+        inputs = {"data_context": data_context, "selected_element": selected_element, "active_archetype": active_archetype, "query": user_query}
         
         # 4. ✨ 极速调用：弃用 astream，回归 ainvoke
         # 在您的网络环境下，一次性传输比碎片流式传输快 10 倍以上！

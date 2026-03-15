@@ -67,7 +67,7 @@ async def outline_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", outline_system),
-        ("human", "用户的最新指令: {{ user_query }}")
+        ("human", "用户的最新指令：\n<user_input>\n{{ user_query }}\n</user_input>")
     ], template_format="jinja2")
 
     try:
