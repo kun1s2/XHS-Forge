@@ -48,6 +48,9 @@ tmp/
 temp/
 .cache/
 
+# === 本地文档（不提交）===
+docs-local/
+
 # === IDE & OS Files ===
 .idea/
 .vscode/

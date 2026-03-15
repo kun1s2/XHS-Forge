@@ -124,16 +124,25 @@ class RiskControlCache:
         
         # 1. 检查精确词拦截 (Redis Set)
         try:
-            # 获取精确否决词列表
-            exact_words = await redis_client.smembers("aifrontend:veto:exact_words")
+            # 获取精确否决词列表 (确保 Redis 客户端已配置 decode_responses=True)
+            # 如果没配置，我们这里手动解码
+            raw_words = await redis_client.smembers("aifrontend:veto:exact_words")
+            exact_words = {w.decode("utf-8") if isinstance(w, bytes) else w for w in raw_words}
+            
             if not exact_words:
-                # 初始设定几个敏感词用于演示
-                default_veto = ["代写论文", "违禁品", "敏感话题"]
+                # 初始设定几个敏感词用于演示（实际生产环境建议对接专业风控 API）
+                default_veto = [
+                    "代写论文", "违禁品", "敏感话题", 
+                    "暴力破解", "脱库", "黑客教程", "破解补丁", 
+                    "病毒源码", "攻击脚本", "入侵教程"
+                ]
                 await redis_client.sadd("aifrontend:veto:exact_words", *default_veto)
                 exact_words = set(default_veto)
                 
             for word in exact_words:
                 if word in normalized:
+                    print(f"🚫 [风控拦截] 命中敏感词汇: {word}")
+                    return True
                     print(f"🚫 [风控拦截] 命中敏感词汇: {word}")
                     return True
         except Exception as e:

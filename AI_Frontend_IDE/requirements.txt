@@ -1,33 +1,39 @@
-# Web
-fastapi
-uvicorn[standard]
+# AI_Frontend_IDE 项目依赖（来自 conda 环境 LangChainProject 的 pip freeze，仅保留本工程直接使用的包）
 
-# LangChain / LangGraph
-langchain-openai
-langchain-core
-langchain-community
-langgraph
-langsmith
+# Web
+fastapi==0.133.0
+uvicorn[standard]==0.41.0
+python-multipart==0.0.22
+
+# LangChain / LangGraph（template_format="jinja2" 需安装 jinja2）
+langchain-openai==1.1.10
+langchain-core==1.2.15
+langchain-community==0.4.1
+langgraph==1.0.9
+langsmith==0.7.6
+jinja2==3.1.6
 
 # 向量库与持久化（Postgres + PGVector）
-langchain-postgres
-psycopg[binary]
-asyncpg
+langchain-postgres==0.0.17
+langgraph-checkpoint-postgres==3.0.4  # persistence: AsyncPostgresSaver / AsyncPostgresStore
+psycopg[binary]==3.3.3
+asyncpg==0.31.0
 
 # 配置与校验
-pydantic
-pydantic-settings
-python-dotenv
+pydantic==2.12.4
+pydantic-settings==2.13.1
+python-dotenv==1.2.1
 
 # HTTP 与存储
-httpx
-redis
-boto3
+httpx==0.28.1
+redis==7.3.0
+boto3==1.42.63
 
 # 业务与重试
-tenacity
-zhipuai
-sqlalchemy
+tenacity==9.1.2
+zhipuai==2.1.5.20250825
+sqlalchemy==2.0.45
 
-# 智谱视觉图片识别（asset_node / describe_image）
-zai
+# 智谱视觉识图 + CogView 图片生成（与 zhipuai 的 pyjwt 冲突，不写进上面 pip install -r，需单独装）
+# 安装完本文件其余依赖后执行: pip install zai-sdk==0.2.1 --no-deps
+# zai-sdk==0.2.1

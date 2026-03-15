@@ -134,88 +134,91 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                         })
                         continue
 
-                    payload = ChatWSPayload.model_validate_json(data)
-                except ValidationError as ve:
-                    await websocket.send_json({"type": "error", "message": f"请求格式错误: {ve}"})
+                except (json.JSONDecodeError, ValidationError) as _:
+                    await websocket.send_json({"type": "error", "message": "无效消息格式"})
                     continue
+
+                payload = ChatWSPayload.model_validate_json(data)
                 
-                # ✨ 极速嗅探：去 Redis 查有没有人问过一模一样的问题
+                # 🛡️ 【第一防御梯队：风控网关拦截】
+                # 在进入任何重逻辑（缓存、LangGraph、后台任务）之前，必须先进行安全审计！
                 user_query_str = payload.content
-                selected_el = payload.selected_element_id or "无 (全局修改)"
-                pending_urls = payload.image_urls or []
-                
-                # 🛡️ 前置风控网关：双栈否决检查
                 is_vetoed = await RiskControlCache.check_veto(user_query_str)
+                
                 if is_vetoed:
-                    print(f"🛑 [风控拦截] 拒绝为高危/争议话题提供生成服务: {user_query_str[:15]}")
+                    print(f"🛑 [绝对防御] 发现违规内容，已在入口点阻断: {user_query_str[:15]}")
                     
-                    # 构建优雅的兜底 DSL
+                    # 按照用户期望的规范，下发红色警告 DSL
                     veto_dsl = {
                         "page_order": ["title_1", "text_1"],
                         "title_1": {
                             "type": "TitleBlock",
-                            "title": "🚫 触发系统保护机制"
+                            "title": "🚫 触发系统安全保护"
                         },
                         "text_1": {
                             "type": "StoryText",
                             "paragraphs": [
-                                "您探讨的话题涉及敏感或高危领域，系统风控保护已开启。",
-                                "我们倡导健康绿色的网络环境，请换个话题试试吧~ ✨"
+                                "您探讨的话题涉及敏感、暴力或高危技术领域，已被系统风控拦截。",
+                                "XHS-Forge 致力于提供健康创作环境，请更换合法话题重试。✨"
                             ]
                         }
                     }
                     
+                    # 发送拦截 token 提示
                     await websocket.send_json({
-                        "type": "token",
+                        "event": "token",
                         "node": "risk_gateway",
-                        "content": "\n🛡️ 系统检测到高危内容，已触发风控拦截..."
+                        "data": "\n🛡️ 系统检测到高危/敏感内容，风控拦截已生效！生成任务已被阻断。"
                     })
                     
+                    # 强制下发 turn_end 并短路
                     await websocket.send_json({
-                        "type": "turn_end",
-                        "checkpoint_id": payload.parent_checkpoint_id or "veto_hit",
-                        "oss_url": None,
-                        "image_assets": payload.current_assets or [],
-                        "page_data": veto_dsl,
-                        "style_data": {
-                            "global_vars": {
-                                "--primary-vibe": "#ff2442",
-                                "--primary-vibe-light": "rgba(255,36,66,0.1)",
-                                "--accent-vibe": "#333333"
-                            }
-                        },
-                        "node_prompts": {"risk_gateway": [{"role": "system", "content": "风控系统触发，生成被阻断。"}]},
-                        "source_code": ""
-                    })
-                    continue # 结束本轮请求
-                
-                # 仅当没有新上传图片时，才使用缓存
-                if not pending_urls:
-                    cached_result = await get_trend_cache(user_query_str, selected_el)
-                    if cached_result:
-                        await websocket.send_json({
-                            "type": "token",
-                            "node": "cache_interceptor",
-                            "content": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"
-                        })
-                        await websocket.send_json({"type": "middleware", "node": "cache_interceptor", "status": "running"})
-                        
-                        await websocket.send_json({
-                            "type": "turn_end",
-                            "checkpoint_id": payload.parent_checkpoint_id or "cache_hit",
+                        "event": "turn_end",
+                        "data": {
+                            "checkpoint_id": payload.parent_checkpoint_id or "veto_hit",
                             "oss_url": None,
                             "image_assets": payload.current_assets or [],
-                            "page_data": cached_result,
-                            "style_data": {}, # 简化版，实际中最好也把样式缓存下来
-                            "node_prompts": {"cache": [{"role": "system", "content": "命中 Redis 缓存"}]},
+                            "page_data": veto_dsl,
+                            "style_data": {
+                                "global_vars": {
+                                    "--primary-vibe": "#ff2442",
+                                    "--primary-vibe-light": "rgba(255,36,66,0.1)",
+                                    "--accent-vibe": "#333333"
+                                }
+                            },
+                            "node_prompts": {"risk_gateway": [{"role": "system", "content": "Security veto triggered."}]},
                             "source_code": ""
-                        })
-                        continue # 直接进入下一次接收循环
-                    else:
-                        # ✨ 核心动作：如果缓存未命中，说明是一个全新的热点，将其挂载到后台进行异步收录
-                        if selected_el in ["无 (全局修改)", "none", None]:
-                            print(f"🔄 [任务挂载] 未命中缓存，已将「{user_query_str[:15]}...」加入后台热点收录队列")
-                            asyncio.create_task(process_new_trend_background(user_query_str))
+                        }
+                    })
+                    continue # ⚠️ 绝对短路，严禁流入下方逻辑
+                
+                # 2. 【第二阶段：极速嗅探】去 Redis 查缓存
+                selected_el = payload.selected_element_id or "无 (全局修改)"
+                pending_urls = payload.image_urls or []
+                cached_result = await get_trend_cache(user_query_str, selected_el)
+                if cached_result:
+                    await websocket.send_json({
+                        "type": "token",
+                        "node": "cache_interceptor",
+                        "content": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"
+                    })
+                    await websocket.send_json({"type": "middleware", "node": "cache_interceptor", "status": "running"})
+                    await websocket.send_json({
+                        "type": "turn_end",
+                        "checkpoint_id": payload.parent_checkpoint_id or "cache_hit",
+                        "oss_url": None,
+                        "image_assets": payload.current_assets or [],
+                        "page_data": cached_result,
+                        "style_data": {},
+                        "node_prompts": {"cache": [{"role": "system", "content": "命中 Redis 缓存"}]},
+                        "source_code": ""
+                    })
+                    continue
+                else:
+                    # ✨ 核心动作：如果缓存未命中，说明是一个全新的热点，将其挂载到后台进行异步收录
+                    if selected_el in ["无 (全局修改)", "none", None]:
+                        print(f"🔄 [任务挂载] 未命中缓存，已将「{user_query_str[:15]}...」加入后台热点收录队列")
+                        asyncio.create_task(process_new_trend_background(user_query_str))
 
                 # ✨ 核心重构：处理图片资产，打通多模态
                 # 我们不再直接同步整个 current_assets 数组到 inputs，因为这会触发 operator.add 导致重复。
