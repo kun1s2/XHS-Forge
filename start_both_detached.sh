@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# 后台同时启动前后端（适合云服务器，关闭终端后仍运行）
-# 用法：./start_both_detached.sh
-# 停止：./stop_both.sh
+# 【XHS-Forge 核心启动脚本 - 后台版】
+# 功能：强制清理旧进程 -> 加载最新配置 -> 后台启动前后端
 
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -12,33 +11,46 @@ LOG_DIR="$ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 
-# 可选：激活虚拟环境
-if [ -d "$ROOT/.venv" ] && [ -f "$ROOT/.venv/bin/activate" ]; then
-  source "$ROOT/.venv/bin/activate"
-elif [ -d "$BACKEND/.venv" ] && [ -f "$BACKEND/.venv/bin/activate" ]; then
-  source "$BACKEND/.venv/bin/activate"
-fi
-
-PYTHON="${PYTHON:-python3}"
-command -v "$PYTHON" &>/dev/null || PYTHON=python
-
-# 若已有 PID 文件，先尝试停止旧进程
+echo "🧹 [1/3] 正在强制清理旧进程，防止端口占用与变量残留..."
+# 杀死所有相关的 python 和 node/vite 进程
+pkill -f "python run.py" || true
+pkill -f "uvicorn app.main:app" || true
+pkill -f "vite" || true
+# 如果有 PID 文件，也尝试清理
 if [ -f "$PID_FILE" ]; then
-  echo "Found existing PID file. Run ./stop_both.sh first, or remove $PID_FILE"
-  exit 1
+  while read pid; do
+    kill -9 "$pid" 2>/dev/null || true
+  done < "$PID_FILE"
+  rm "$PID_FILE"
 fi
 
-echo "Starting backend and frontend in background..."
+echo "📂 [2/3] 正在准备运行环境..."
+# 尝试激活 Conda 环境 (LangChainProject)
+if command -v conda &>/dev/null; then
+    # 尝试多种方式激活，适配不同的 shell 配置
+    eval "$(conda shell.bash hook)"
+    conda activate LangChainProject || echo "⚠️ 未能激活指定 Conda 环境，将尝试使用系统 Python"
+fi
+
+echo "🚀 [3/3] 正在后台启动 XHS-Forge 服务..."
+
+# 启动后端
 cd "$BACKEND"
-nohup $PYTHON run.py >> "$LOG_DIR/backend.log" 2>&1 &
+# 强制使用最新的环境变量运行
+nohup python run.py >> "$LOG_DIR/backend.log" 2>&1 &
 echo $! >> "$PID_FILE"
+
+# 启动前端
 cd "$FRONTEND"
-[ ! -d "node_modules" ] && npm install
+[ ! -d "node_modules" ] && npm install --silent
 nohup npm run dev >> "$LOG_DIR/frontend.log" 2>&1 &
 echo $! >> "$PID_FILE"
-cd "$ROOT"
 
-echo "Backend: http://127.0.0.1:8000 (log: $LOG_DIR/backend.log)"
-echo "Frontend: http://localhost:5173 (log: $LOG_DIR/frontend.log)"
-echo "To stop: ./stop_both.sh"
-echo "PIDs saved in $PID_FILE"
+cd "$ROOT"
+echo "------------------------------------------------"
+echo "✅ 服务已成功在后台锻造完成！"
+echo "🌐 前端预览: http://localhost:5173"
+echo "📝 后端 API: http://localhost:8000"
+echo "📜 日志查看: tail -f logs/backend.log"
+echo "🛑 停止服务: ./stop_both.sh"
+echo "------------------------------------------------"

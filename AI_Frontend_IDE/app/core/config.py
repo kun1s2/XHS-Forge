@@ -37,7 +37,8 @@ class Settings(BaseSettings):
     POSTGRES_URL: str
     PGVector_URL: str
     EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_API_KEY: str
+    # 可选：使用 OpenAI 兼容接口的 Embedding 时填写；当前默认使用智谱 ZhipuAIEmbeddings(ZHI_PU_API_KEY)
+    EMBEDDING_API_KEY: Optional[str] = None
     EMBEDDING_BASE_URL: str = "https://api.openai.com/v1"
     S3_ENDPOINT_URL: str
     S3_ACCESS_KEY_ID: str

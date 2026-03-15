@@ -1,169 +1,110 @@
-import hashlib
-import json
+import redis.asyncio as redis
+from app.core.config import settings
 import logging
 import asyncio
-from app.core.config import settings
-import redis.asyncio as redis
-
-# 引入 PGVector 基础设施
-from app.core.persistence import generate_vector_store
-from langchain_core.documents import Document
+import json
+import os
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# 初始化异步 Redis 连接池
-try:
-    redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-except Exception as e:
-    logger.warning(f"Redis 连接初始化失败: {e}")
-    redis_client = None
+# 使用环境变量中的 REDIS_URL，确保从 settings 读取
+REDIS_URL = settings.REDIS_URL
+redis_client = redis.from_url(REDIS_URL, decode_responses=False)
 
-# 语义相似度阈值（0.95 表示极度相似）
-SEMANTIC_THRESHOLD = 0.95
-
-def _generate_exact_key(query: str, selected_element: str) -> str:
-    """生成精确匹配的短缓存 Key（用于兜底或精准命中）"""
-    normalized = query.strip().lower()
-    raw = f"{normalized}_{selected_element}"
-    return f"social_engine:cache:exact:{hashlib.md5(raw.encode()).hexdigest()}"
-
-async def get_trend_cache(query: str, selected_element: str):
-    """
-    【真·语义缓存嗅探】：结合 PGVector 与 Redis。
-    """
-    if not redis_client:
-        return None
-
-    # 1. 第一道防线：极速精准匹配 (MD5)
-    exact_key = _generate_exact_key(query, selected_element)
+async def get_trend_cache(query: str, selected_element_id: str):
+    """极速嗅探：从 Redis 获取已缓存的热点生成结果"""
+    if not redis_client: return None
+    cache_key = f"aifrontend:trend:{query}:{selected_element_id}"
     try:
-        cached_data = await redis_client.get(exact_key)
-        if cached_data:
-            print(f"⚡ [精准缓存命中] MD5 拦截: {query[:15]}...")
-            return json.loads(cached_data)
-    except Exception as e:
-        logger.warning(f"读取 Redis 精准缓存失败: {e}")
+        val = await redis_client.get(cache_key)
+        return json.loads(val) if val else None
+    except Exception: return None
 
-    # 2. 第二道防线：高阶语义嗅探 (PGVector)
-    # 只有全局生成（未选中局部元素）且指令较长时，才建议走语义缓存
-    if selected_element in ["无 (全局修改)", "none", None] and len(query) > 5:
-        print(f"🧠 [语义嗅探] 正在为「{query[:15]}...」计算向量距离...")
-        
-        # ✨ 代码净化：简单的实体抽取，防止“泛指令”导致缓存误杀
-        import re
-        # 如果指令太短或只是“好物分享”、“探店”这种泛词，直接跳过语义匹配
-        if re.match(r"^(写|帮我写).*(测评|笔记|探店|推荐|分享)的?$", query.strip()):
-            print(f"⚠️ [语义嗅探] 识别为高危泛查询，跳过语义拦截以防误杀。")
-            return None
-            
-        try:
-            async with generate_vector_store() as store:
-                # 执行相似度检索（带分数），只取最相似的 1 条
-                results = await store.asimilarity_search_with_relevance_scores(
-                    query, 
-                    k=1, 
-                    # 可以通过 filter 限制只搜 cache 类型
-                    # filter={"doc_type": "semantic_cache"} 
-                )
-                
-                if results:
-                    doc, score = results[0]
-                    # score 越接近 1 越相似 (具体取决于距离度量，这里假设是余弦相似度转化)
-                    print(f"📊 [语义比对] 找到最近邻: 「{doc.page_content[:15]}...」 (得分: {score:.4f})")
-                    
-                    if score >= SEMANTIC_THRESHOLD and doc.metadata.get("redis_key"):
-                        target_redis_key = doc.metadata["redis_key"]
-                        semantic_data = await redis_client.get(target_redis_key)
-                        if semantic_data:
-                            print(f"\033[92m🚀 [语义缓存] 命中高相似度热点，大模型已旁路！(相似度: {score:.2f})\033[0m")
-                            return json.loads(semantic_data)
-        except Exception as e:
-            logger.error(f"PGVector 语义检索失败: {e}")
-
-    return None
-
-async def set_trend_cache(query: str, selected_element: str, dsl_result: dict, ttl_seconds: int = 3600):
-    """将结果存入 Redis，并将 Query 向量化存入 PGVector 构建语义防线"""
-    if not redis_client:
-        return
-        
-    exact_key = _generate_exact_key(query, selected_element)
-    
+async def set_trend_cache(query: str, selected_element_id: str, data: dict, expire: int = 86400):
+    """热点收录：将生成结果存入 Redis 缓存"""
+    if not redis_client: return
+    cache_key = f"aifrontend:trend:{query}:{selected_element_id}"
     try:
-        # 1. 存入 Redis (物理数据)
-        await redis_client.setex(exact_key, ttl_seconds, json.dumps(dsl_result))
-        print(f"💾 [缓存写入] 物理数据已入 Redis (TTL: {ttl_seconds}s)")
-        
-        # 2. 存入 PGVector (语义指针)
-        # 同样，只有全局生成才建立语义索引
-        if selected_element in ["无 (全局修改)", "none", None]:
-            async with generate_vector_store() as store:
-                doc = Document(
-                    page_content=query.strip(),
-                    metadata={
-                        "doc_type": "semantic_cache", 
-                        "redis_key": exact_key,
-                        "element": selected_element
-                    }
-                )
-                await store.aadd_documents([doc])
-                print(f"🕸️ [语义布网] Query 向量已入库，指向 {exact_key}")
-                
-    except Exception as e:
-        logger.warning(f"写入语义缓存体系失败: {e}")
+        await redis_client.setex(cache_key, expire, json.dumps(data))
+    except Exception: pass
 
 class RiskControlCache:
-    """【双栈风控系统】结合 Redis 和 PGVector 的动态否决缓存"""
-    
     @staticmethod
     async def check_veto(query: str) -> bool:
-        if not redis_client:
-            return False
-            
+        """双栈风控：关键词精确拦截 + 语义嗅探"""
+        if not redis_client: return False
         normalized = query.strip().lower()
-        
-        # 1. 检查精确词拦截 (Redis Set)
         try:
-            # 获取精确否决词列表 (确保 Redis 客户端已配置 decode_responses=True)
-            # 如果没配置，我们这里手动解码
+            # 1. 关键词拦截
             raw_words = await redis_client.smembers("aifrontend:veto:exact_words")
             exact_words = {w.decode("utf-8") if isinstance(w, bytes) else w for w in raw_words}
             
+            # 如果 Redis 为空，触发一次紧急同步（从本地文件）
             if not exact_words:
-                # 初始设定几个敏感词用于演示（实际生产环境建议对接专业风控 API）
-                default_veto = [
-                    "代写论文", "违禁品", "敏感话题", 
-                    "暴力破解", "脱库", "黑客教程", "破解补丁", 
-                    "病毒源码", "攻击脚本", "入侵教程"
-                ]
-                await redis_client.sadd("aifrontend:veto:exact_words", *default_veto)
-                exact_words = set(default_veto)
+                await sync_risk_words_from_local()
+                raw_words = await redis_client.smembers("aifrontend:veto:exact_words")
+                exact_words = {w.decode("utf-8") if isinstance(w, bytes) else w for w in raw_words}
                 
             for word in exact_words:
                 if word in normalized:
                     print(f"🚫 [风控拦截] 命中敏感词汇: {word}")
                     return True
-                    print(f"🚫 [风控拦截] 命中敏感词汇: {word}")
-                    return True
+            return False
         except Exception as e:
-            logger.warning(f"读取 Redis 风控词失败: {e}")
+            logger.error(f"风控拦截执行出错: {e}")
+            return False
 
-        # 2. 检查语义向量拦截 (PGVector)
-        # 假设我们在库里存了 doc_type = "veto_topic" 的风控知识
-        print(f"🛡️ [风控嗅探] 正在进行语义级安全检查...")
+async def sync_risk_words_from_local():
+    """从本地 mock_veto_words.txt 同步最新违禁词到 Redis"""
+    if not redis_client: return
+    
+    # 获取本地词库路径
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 新路径：app/mock/veto_words.txt
+    mock_file = os.path.join(base_dir, "mock", "veto_words.txt")
+    
+    if not os.path.exists(mock_file):
+        logger.warning(f"⚠️ 找不到本地风控词库文件: {mock_file}")
+        # 尝试创建一个默认的 mock 文件
         try:
-            async with generate_vector_store() as store:
-                results = await store.asimilarity_search_with_relevance_scores(
-                    query, 
-                    k=1
-                )
-                if results:
-                    doc, score = results[0]
-                    # 如果高度相似且标记为 veto_topic
-                    if score >= 0.95 and doc.metadata.get("doc_type") == "veto_topic":
-                        print(f"🚫 [风控拦截] 命中违规语义: {doc.page_content[:15]}... (相似度: {score:.2f})")
-                        return True
-        except Exception as e:
-            logger.warning(f"PGVector 风控语义检查失败: {e}")
+            os.makedirs(os.path.dirname(mock_file), exist_ok=True)
+            with open(mock_file, "w", encoding="utf-8") as f:
+                f.write("# XHS-Forge 默认风控词库\n暴力破解\n代写论文\n违禁品\n")
+            logger.info(f"✅ 已自动生成默认风控词库: {mock_file}")
+        except Exception:
+            pass
+        return
 
-        return False
+    print(f"📂 [风控同步] 正在从本地 Mock 目录读取词库: {mock_file}")
+    try:
+        new_words = []
+        with open(mock_file, "r", encoding="utf-8") as f:
+            for line in f:
+                word = line.strip()
+                # 过滤掉空行和注释行
+                if word and not word.startswith("#"):
+                    new_words.append(word)
+        
+        if new_words:
+            # 增量追加到 Redis
+            await redis_client.sadd("aifrontend:veto:exact_words", *new_words)
+            count = await redis_client.scard("aifrontend:veto:exact_words")
+            print(f"✅ [风控同步] 本地同步成功！当前黑名单总量: {count}")
+    except Exception as e:
+        logger.error(f"❌ [风控同步] 本地同步失败: {e}")
+
+# 兼容旧名称以减少 main.py 的修改
+sync_risk_words_from_cloud = sync_risk_words_from_local
+
+async def scheduled_risk_sync_task():
+    """定时同步守护任务：每天凌晨 02:00 重新从本地加载一次（支持运维热更新文件）"""
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        if now >= target: target += timedelta(days=1)
+        sleep_seconds = (target - now).total_seconds()
+        
+        print(f"⏰ [定时任务] 下次本地风控词库重载将在 {sleep_seconds/3600:.2f} 小时后执行。")
+        await asyncio.sleep(sleep_seconds)
+        await sync_risk_words_from_local()

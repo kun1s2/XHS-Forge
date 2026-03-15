@@ -3,7 +3,7 @@ from langgraph.store.postgres import AsyncPostgresStore
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from app.core.config import settings
 from langchain_postgres import PGVector
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import ZhipuAIEmbeddings
 
 # 异步 Store 工厂 (保持不变)
 @contextlib.asynccontextmanager
@@ -20,11 +20,10 @@ async def generate_checkpointer():
         yield saver
 
 def get_embedding():
-    return OpenAIEmbeddings(
-        model=settings.EMBEDDING_MODEL,
-        api_key=settings.EMBEDDING_API_KEY,
-        base_url=settings.EMBEDDING_BASE_URL,
-        check_embedding_ctx_length=False,
+    """使用智谱官方 Embedding 模型构建向量库"""
+    return ZhipuAIEmbeddings(
+        api_key=settings.ZHI_PU_API_KEY,
+        model="embedding-3"
     )
 
 @contextlib.asynccontextmanager

@@ -2,12 +2,14 @@
 import warnings
 warnings.filterwarnings("ignore", message=".*Pydantic serializer warnings.*")
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.persistence import generate_checkpointer, generate_store,generate_vector_store
 from app.agents.graph import compile_my_graph
+from app.services.cache_service import sync_risk_words_from_cloud, scheduled_risk_sync_task
 
 # 导入拆分好的路由
 from app.api.workspace import router as workspace_router
@@ -16,6 +18,16 @@ from app.api.upload import router as upload_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ================= 启动阶段 (Startup) =================
+    print("🚀 [System] 正在初始化系统组件...")
+    
+    # 1. 项目启动时，在后台拉取一次最新词库（不阻塞主流程）
+    asyncio.create_task(sync_risk_words_from_cloud())
+    
+    # 2. 启动后台守护协程，执行定时同步 (已改为每天凌晨 02:00)
+    sync_task = asyncio.create_task(scheduled_risk_sync_task())
+    print("🛡️ [System] 风控词库云端定时同步守护进程已启动，将在每天凌晨 02:00 执行。")
+
     # 使用 async with 嵌套管理多个异步上下文
     async with generate_checkpointer() as checkpointer, \
                generate_store() as store, \
@@ -28,6 +40,14 @@ async def lifespan(app: FastAPI):
         
         print("✅ Backend Engine & PGVector Started Successfully")
         yield
+
+    # ================= 关闭阶段 (Shutdown) =================
+    print("🛑 [System] 正在优雅关闭系统组件...")
+    sync_task.cancel() # 停止后台同步任务
+    try:
+        await sync_task
+    except asyncio.CancelledError:
+        print("🛡️ [System] 定时同步守护进程已安全终止。")
 
 app = FastAPI(title="AI Frontend IDE Backend", lifespan=lifespan)
 

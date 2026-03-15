@@ -1,49 +1,39 @@
 #!/usr/bin/env bash
-# 同时启动后端 (AI_Frontend_IDE) 与前端 (ai-frontend-ide) — Linux / macOS
-# 用法：./start_both.sh  或  bash start_both.sh
+# 【XHS-Forge 前台开发启动脚本】
+# 功能：强制清理旧进程 -> 加载最新配置 -> 前台同步启动前后端（Ctrl+C 可停止）
 
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$ROOT/AI_Frontend_IDE"
 FRONTEND="$ROOT/ai-frontend-ide"
+PID_FILE="$ROOT/.start_both.pid"
 
-# 可选：若项目根目录或后端目录下有虚拟环境则自动激活
-if [ -d "$ROOT/.venv" ] && [ -f "$ROOT/.venv/bin/activate" ]; then
-  source "$ROOT/.venv/bin/activate"
-elif [ -d "$BACKEND/.venv" ] && [ -f "$BACKEND/.venv/bin/activate" ]; then
-  source "$BACKEND/.venv/bin/activate"
+echo "🧹 [1/3] 正在清理旧进程与残留变量..."
+# 杀死所有相关的 python 和 node/vite 进程，确保端口 8000 和 5173 释放
+pkill -f "python run.py" || true
+pkill -f "uvicorn app.main:app" || true
+pkill -f "vite" || true
+[ -f "$PID_FILE" ] && rm "$PID_FILE"
+
+echo "📂 [2/3] 正在加载运行环境..."
+if command -v conda &>/dev/null; then
+    eval "$(conda shell.bash hook)"
+    conda activate LangChainProject || echo "⚠️ 未能激活指定 Conda 环境"
 fi
 
-PYTHON="${PYTHON:-python3}"
-if ! command -v "$PYTHON" &>/dev/null; then
-  PYTHON=python
-fi
+echo "🚀 [3/3] 正在启动 XHS-Forge 锻造炉 (前台模式)..."
 
-echo "Backend: $BACKEND (port 8000)"
-echo "Frontend: $FRONTEND (port 5173)"
-echo ""
+# 定义退出函数：当用户按下 Ctrl+C 时，同时杀死前后端子进程
+trap "kill 0" EXIT
 
-# 启动后端（后台），并记录 PID
+# 启动后端 (不使用 nohup，直接输出到当前终端)
 cd "$BACKEND"
-$PYTHON run.py &
-BACKEND_PID=$!
-cd "$ROOT"
+python run.py &
 
-# 退出时清理后端进程
-cleanup() {
-  echo ""
-  echo "Stopping backend (PID $BACKEND_PID)..."
-  kill "$BACKEND_PID" 2>/dev/null || true
-  exit 0
-}
-trap cleanup SIGINT SIGTERM EXIT
-
-sleep 2
-
-# 启动前端（前台，占用当前终端）
+# 启动前端
 cd "$FRONTEND"
-if [ ! -d "node_modules" ]; then
-  echo "Installing frontend dependencies..."
-  npm install
-fi
-npm run dev
+[ ! -d "node_modules" ] && npm install --silent
+npm run dev &
+
+# 等待所有后台任务结束
+wait

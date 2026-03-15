@@ -1,67 +1,83 @@
-import json
-from zhipuai import ZhipuAI
 import asyncio
+from pydantic import BaseModel, Field
+from zhipuai import ZhipuAI
+from langchain_openai import ChatOpenAI
 from app.core.config import settings
 from app.core.persistence import generate_vector_store
 
-# 智谱官方 SDK 暂时不支持原生 AsyncZhipuAI
-client = ZhipuAI(api_key=settings.LLM_API_KEY)
+# 1. 智谱客户端：【仅用于联网搜索工具】使用原生 SDK
+zhipu_client = ZhipuAI(api_key=settings.ZHI_PU_API_KEY)
 
-# ✨ 代码净化：引入内存锁，防止高并发下的“后台任务踩踏” (Task Stampede)
+# 2. 主模型客户端：【走标准的 OpenAI 第三方接口范式】
+llm = ChatOpenAI(
+    api_key=settings.LLM_API_KEY,
+    base_url=settings.LLM_BASE_URL,
+    model=settings.LLM_MODEL,
+    temperature=0.1
+)
+
+# 3. 定义绝对严谨的结构化输出 Schema
+class TrendDistillation(BaseModel):
+    objective_facts: str = Field(description="客观事实，无感情色彩")
+    subjective_vibes: str = Field(description="主观舆论与网友槽点")
+    core_summary: str = Field(description="核心一句话摘要")
+
 _active_tasks = set()
 
 async def process_new_trend_background(keyword: str):
-    """后台异步清洗流水线：抓取 -> 蒸馏 -> 存入 PGVector"""
-    # 提取核心词作为锁的 Key
+    """后台异步清洗流水线：解耦搜索与蒸馏"""
     normalized_kw = keyword.strip().lower()
-    if normalized_kw in _active_tasks:
-        print(f"🛡️ [后台主编] 任务去重：热点「{normalized_kw}」正在被其他线程清洗，跳过本次触发。")
-        return
+    if normalized_kw in _active_tasks: return
         
     _active_tasks.add(normalized_kw)
     print(f"🕵️‍♂️ [后台主编] 嗅探到新热点: {keyword}，开始异步清洗...")
     
     try:
-        # 1. 大模型直连网搜 + 数据蒸馏 (合并为一次 API 调用以提升极速)
-        # 将同步调用放到线程池中执行以防止阻塞事件循环
-        def fetch_trend_data():
-            return client.chat.completions.create(
-                model="glm-4-flash", 
-                messages=[
-                    {"role": "system", "content": "你是一个无情的新闻主编。请结合联网搜索，提炼该热点事件。严格拆分为客观事实和主观舆论。必须输出纯合法的JSON，不要任何Markdown标记。格式：{\"objective_facts\": \"...\", \"subjective_vibes\": \"...\", \"core_summary\": \"...\"}"},
-                    {"role": "user", "content": f"请搜索最新关于【{keyword}】的网络热点。"}
-                ],
-                tools=[{"type": "web_search", "web_search": {"enable": True}}],
-                temperature=0.1
+        # ==========================================
+        # 步骤 1：利用智谱作为“外挂搜索引擎”获取生肉资料 (使用官方最新 web_search 接口)
+        # ==========================================
+        def fetch_search_results():
+            response = zhipu_client.web_search.web_search(
+                search_engine="search_pro",
+                search_query=keyword,
+                count=15,
+                content_size="high"
             )
+            # 提取搜索结果列表
+            res = getattr(response, "search_result", [])
+            lines = [
+                (item.get("content", "") if isinstance(item, dict) else getattr(item, "content", ""))
+                for item in res
+            ]
+            return "\n".join(lines)
+
+        print(f"🌐 [后台主编] 正在调用智谱官方 SDK 进行全网搜索...")
+        search_context = await asyncio.to_thread(fetch_search_results)
+
+        # ==========================================
+        # 步骤 2：利用主模型 (OpenAI 范式) 进行数据结构化蒸馏
+        # ==========================================
+        print(f"🧠 [后台主编] 搜索完毕，正交由主脑 {settings.LLM_MODEL} 进行信息蒸馏...")
+        prompt = f"请根据以下搜索结果提炼【{keyword}】的热点内容：\n{search_context}"
+        structured_llm = llm.with_structured_output(TrendDistillation)
+        distilled_data = await structured_llm.ainvoke(prompt)
         
-        response = await asyncio.to_thread(fetch_trend_data)
-        
-        raw_text = response.choices[0].message.content.strip()
-        # 极简清洗 JSON
-        clean_text = raw_text.replace("```json", "").replace("```", "").strip()
-        distilled_data = json.loads(clean_text)
-        
-        core_summary = distilled_data.get("core_summary", keyword)
-        facts = distilled_data.get("objective_facts", "")
-        vibes = distilled_data.get("subjective_vibes", "")
-        
-        # 2. ⚡ 强力注入 PGVector
+        # ==========================================
+        # 步骤 3：强力注入 PGVector (使用智谱 Embedding)
+        # ==========================================
         async with generate_vector_store() as store:
             await store.aadd_texts(
-                texts=[core_summary],
+                texts=[distilled_data.core_summary],
                 metadatas=[{
                     "doc_type": "trending_topic",
                     "keyword": keyword,
-                    "facts": facts,
-                    "vibes": vibes,
-                    "source": "background_distillation"
+                    "facts": distilled_data.objective_facts,
+                    "vibes": distilled_data.subjective_vibes,
                 }]
             )
-        print(f"✅ [后台主编] 热点 「{keyword}」 已成功清洗并注入 PGVector 武器库！")
+        print(f"✅ [后台主编] 热点 「{keyword}」 已成功蒸馏入库完成！")
         
     except Exception as e:
         print(f"❌ [后台主编] 处理热点 {keyword} 失败: {e}")
     finally:
-        # 确保无论成功失败，锁都会被释放
         _active_tasks.discard(normalized_kw)
