@@ -101,6 +101,7 @@ class ComponentData(BaseModel):
 
 class StructurePatchOutput(BaseModel):
     """排版大脑输出的 DSL 宪法结构"""
+    thought_process: str = Field(description="排版决策推理过程")
     page_title: str = Field(..., description="网页标签标题")
     page_order: List[str] = Field(..., description="组件 ID 的线性排列顺序")
     components: Dict[str, ComponentData] = Field(..., description="组件的具体数据负载")
@@ -108,6 +109,7 @@ class StructurePatchOutput(BaseModel):
 
 class SurgicalPatchOutput(BaseModel):
     """【手术刀模式】专用输出模型：仅修改单个组件内容"""
+    thought_process: str = Field(description="局部修改决策推理过程")
     reason: str = Field(..., description="修改该组件的极简理由。")
     updated_component: ComponentData = Field(..., description="被选中的组件更新后的完整数据对象。")
 
@@ -115,6 +117,7 @@ class SurgicalPatchOutput(BaseModel):
 
 class IntentOutput(BaseModel):
     """意图分析大脑的输出结构"""
+    thought_process: str = Field(description="思维链推理过程")
     reason: str = Field(..., description="极简理由（10字以内）。")
     intent_route: Literal["content_node", "structure_node", "style_node", "rag_node", "patch_node"] = Field(..., description="决定路由的节点名")
     scenarios: List[str] = Field(default_factory=list, description="识别的业务场景标签")
@@ -145,6 +148,7 @@ class ComponentStyle(BaseModel):
 
 class StylePatchOutput(BaseModel):
     """样式大脑输出的视觉宪法结构"""
+    thought_process: str = Field(description="视觉样式推理过程")
     global_tokens: StyleVibeTokens = Field(default_factory=StyleVibeTokens, description="从图片提取的全局视觉 Token")
     global_vars: Dict[str, str] = Field(default_factory=dict, description="注入 CSS 的全局变量")
     components: Dict[str, ComponentStyle] = Field(default_factory=dict, description="各组件的样式补丁")

@@ -115,6 +115,7 @@ async def structure_agent(state: UIProjectState) -> dict:
         archetype_str = "general"
 
     return {
+        "structure_result": result, # ✨ 供 WebSocket 截获思维链
         "data_dsl": dsl_patch,
         "active_archetype": archetype_str, # ✨ 更新当前原型 (字符串)
         "node_prompts": {"structure_node": prompt_data} # ✨ 保存结构化提示词

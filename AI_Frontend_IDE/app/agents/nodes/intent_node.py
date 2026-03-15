@@ -103,6 +103,7 @@ async def intent_agent(state: UIProjectState) -> dict:
         archetype_str = result.detected_archetype.value if hasattr(result.detected_archetype, 'value') else str(result.detected_archetype)
         
         return {
+            "intent_result": result, # ✨ 完整存入结果，供后续提取 thought_process
             "intent_route": result.intent_route,
             "scenarios": result.scenarios,
             "active_archetype": archetype_str,

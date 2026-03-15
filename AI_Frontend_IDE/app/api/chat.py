@@ -285,6 +285,37 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 async for event in agent.astream_events(inputs, config=config, version="v2"):
                     kind = event["event"]
                     
+                    # ✨ 【思维链实时透传】
+                    # 当节点运行结束时，从 output 中提取 thought_process
+                    if kind == "on_chain_end":
+                        # 如果是具体的业务节点结束
+                        node_name = event["name"]
+                        output = event["data"].get("output")
+                        
+                        thought = None
+                        # 逻辑：从不同节点的输出模型中提取 thought_process
+                        if isinstance(output, dict):
+                            # 情况 A: 输出是字典（通常由 intent_agent 等节点返回）
+                            if "intent_result" in output:
+                                thought = getattr(output["intent_result"], "thought_process", None)
+                            elif "structure_result" in output:
+                                thought = getattr(output["structure_result"], "thought_process", None)
+                            elif "style_result" in output:
+                                thought = getattr(output["style_result"], "thought_process", None)
+                            elif "content_result" in output:
+                                thought = getattr(output["content_result"], "thought_process", None)
+                            elif "thought_process" in output:
+                                thought = output["thought_process"]
+                        
+                        if thought:
+                            await websocket.send_json({
+                                "event": "thought_process",
+                                "data": {
+                                    "node": node_name,
+                                    "content": thought
+                                }
+                            })
+
                     # === 【核心修复：过滤流式输出，只播报特定节点】 ===
                     if kind == "on_chat_model_stream":
                         # 获取当前正在执行的节点名称 (优先从 metadata 取，这是 LangGraph 的标准位置)

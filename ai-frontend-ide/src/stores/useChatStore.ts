@@ -118,12 +118,66 @@ export const useChatStore = defineStore('chat', () => {
         nodeStreamOutput.value = '' // 切换节点时清空流式输出预览
         break
 
+      case 'thought_process':
+        // ✨ 处理思维链最终态（替换掉流式抓取的临时内容）
+        if (isAssistant) {
+          if (!lastMsg.thoughts) lastMsg.thoughts = []
+          
+          const nodeName = data.node
+          const nodeLabel = nodeMap[nodeName] || nodeName
+          
+          // 检查是否已有该节点的流式条目，有则更新，无则追加
+          const existingIdx = lastMsg.thoughts.findIndex(t => t.node === nodeLabel)
+          if (existingIdx !== -1) {
+            lastMsg.thoughts[existingIdx] = { node: nodeLabel, text: data.content, streaming: false }
+          } else {
+            lastMsg.thoughts.push({ node: nodeLabel, text: data.content, streaming: false })
+          }
+        }
+        break
+
       case 'token':
         const content = typeof data === 'string' ? data : (wsData.content || '')
         const sourceNode = wsData.node || currentNode.value
         
         if (sourceNode && !['content_node', 'direct_chat_node', 'rag_node'].includes(sourceNode)) {
-            nodeStreamOutput.value += content
+          // 1. 累积到缓冲区
+          nodeStreamOutput.value += content
+          
+          // 2. ✨ 【流式提取核心逻辑】：从 JSON 片段中抓取 thought_process 的值
+          // 逻辑：寻找 "thought_process": " 之后直到下一个未转义引号的内容
+          const buffer = nodeStreamOutput.value
+          const marker = '"thought_process":'
+          const startIdx = buffer.indexOf(marker)
+          
+          if (startIdx !== -1 && isAssistant) {
+            if (!lastMsg.thoughts) lastMsg.thoughts = []
+            const nodeLabel = nodeMap[sourceNode] || sourceNode
+            
+            // 提取引号内的内容
+            let extracted = ''
+            const afterMarker = buffer.substring(startIdx + marker.length).trim()
+            if (afterMarker.startsWith('"')) {
+              // 寻找结束引号，但要处理流式还没结束的情况
+              const contentStart = afterMarker.indexOf('"') + 1
+              const remaining = afterMarker.substring(contentStart)
+              // 这是一个简单的正则，提取到最后一个有效字符（处理转义引号）
+              const match = remaining.match(/^((?:[^"\\]|\\.)*)/)
+              if (match) {
+                extracted = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"')
+              }
+            }
+
+            if (extracted) {
+              const existingIdx = lastMsg.thoughts.findIndex(t => t.node === nodeLabel)
+              if (existingIdx !== -1) {
+                lastMsg.thoughts[existingIdx].text = extracted
+                lastMsg.thoughts[existingIdx].streaming = true
+              } else {
+                lastMsg.thoughts.push({ node: nodeLabel, text: extracted, streaming: true })
+              }
+            }
+          }
         } else if (isAssistant && content) {
           lastMsg.content += content
         }

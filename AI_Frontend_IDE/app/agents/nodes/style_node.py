@@ -124,6 +124,7 @@ async def style_agent(state: UIProjectState) -> dict:
             style_patch[comp_id] = {k: v for k, v in style_data.model_dump().items() if v is not None}
                 
         return {
+            "style_result": result, # ✨ 供 WebSocket 截获思维链
             "style_dsl": style_patch,
             "node_prompts": {"style_node": prompt_snapshot}
         }

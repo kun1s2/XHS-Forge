@@ -41,7 +41,7 @@
 
     <constraints>
         <rule>重要约束：必须严格输出 JSON 格式！</rule>
-        <rule>你的 JSON 输出必须包含四个字段： "reason" (简述理由), "intent_route" (节点名), "scenarios" (场景列表), "detected_archetype" (原型名)。</rule>
+        <rule>【结构化协议】：你必须且只能输出包含四个字段的纯 JSON 对象： "reason", "intent_route", "scenarios", "detected_archetype"。严禁在最外层包裹任何额外的 Key（如 "data" 或 "output"）！</rule>
         <rule>【最高输出指令】你必须且只能输出一个合法的 JSON 对象。绝对不允许包含任何其他解释性文本、思考过程或 Markdown 代码块标记（如 ```json）。你的 reason 字段必须极度精简，绝对不能超过 10 个字！</rule>
     </constraints>
     

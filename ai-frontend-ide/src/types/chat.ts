@@ -23,11 +23,13 @@ export interface ChatMessage {
   imageAssets?: ImageAsset[]
   /** 时间胶囊：该轮生成的 HTML 源码 */
   sourceCode?: string
+  /** ✨ 思维链实时透传记录 */
+  thoughts?: { node: string; text: string; streaming?: boolean }[]
 }
 
 export interface WSEvent {
   /** 新版协议：使用 event 和 data */
-  event?: 'token' | 'thought' | 'turn_end' | 'error' | 'action_required'
+  event?: 'token' | 'thought' | 'thought_process' | 'turn_end' | 'error' | 'action_required'
   data?: any
   
   /** 旧版协议兼容 (可选) */

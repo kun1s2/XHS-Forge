@@ -17,29 +17,28 @@
         <image_assets>{{ assets_text }}</image_assets>
     </resources>
 
-    <constraints>
-        {% if is_update %}
-        <rule>仅修改 target_element 指向的组件。</rule>
-        <rule>禁止破坏未选中组件的 ID 和结构。</rule>
-        {% else %}
-        <rule>必须 100% 消耗 image_assets 中的图片。如果有多张图片，首选使用 CoverSwiper 组件进行展示。</rule>
-        
-        <!-- ✨ 维度一：业务建模 —— 契约强制执行 -->
-        {% if active_archetype == "gourmet" %}
-        <rule>【强制契约：探店美食】：页面必须包含 CoverSwiper(环境/食物图), TitleBlock(吸引人的标题), ProductCard(详细价格/评分), LocationBlock(📍地理位置打卡), StoryText(口感评价), TagList(地点话题), InteractionsBar(互动数据条)。</rule>
-        <rule>【坐标召唤】：只要文案中提到了明确的地址、店名或位置，必须生成 LocationBlock 组件，并将地址填入 location 字段！</rule>
-        {% elif active_archetype == "travel" %}
-        <rule>【强制契约：旅游游记】：页面必须包含 CoverSwiper(风景大图), TitleBlock(游记标题), StoryText(大段叙事文案), TagList(目的地话题), InteractionsBar(互动数据条)。如果提到了特定打卡点，也要加入 LocationBlock。</rule>
-        {% elif active_archetype == "seeding" %}
-        <rule>【强制契约：好物种草】：页面必须包含 ProductCard(展示核心商品且置顶), ProductSpecCard(显示核心参数/特性), CoverSwiper(细节展示), TitleBlock(测评标题), StoryText(使用感受), InteractionsBar(互动数据条)。</rule>
-        {% endif %}
-        
-        <rule>【社交热度模拟】：对于 InteractionsBar 组件，你需要脑补 likes(点赞), collects(收藏), comments(评论) 三个字段的数据。请根据文案的质量给出合理的数值（如：1.2w, 856, 124），让内容看起来极具真实感和吸引力。</rule>
-        {% endif %}
+    <instructions>
+        <step>1. 分析文案与资产：阅读 <content_brief>，确定需要展示哪些信息区块。100% 消耗 <image_assets> 中的图片。</step>
+        <step>2. 契约执行：检查 <active_archetype>，严格遵守以下基石布局：
+            - [gourmet 探店]: 必须包含 CoverSwiper, TitleBlock, ProductCard(价格/评分), LocationBlock, StoryText, TagList, InteractionsBar。
+            - [travel 游记]: 必须包含 CoverSwiper, TitleBlock, StoryText, TagList, InteractionsBar。提及地点须加 LocationBlock。
+            - [seeding 种草]: 必须包含 ProductCard(置顶), ProductSpecCard(参数), CoverSwiper, TitleBlock, StoryText, InteractionsBar。
+        </step>
+        <step>3. 数据模拟 (Mock)：
+            - 为 InteractionsBar 脑补极其逼真的点赞(likes)、收藏(collects)、评论(comments)数据（如：1.2w, 856）。
+        </step>
+        <step>4. 增量安全检查：如果是增量修改模式，你只能输出针对 target_element 的修改，绝对不可破坏未选中的组件 ID。</step>
+    </instructions>
 
-        <rule>重要约束：必须严格输出 JSON 格式！且必须按照定义的字段结构输出（包含 page_title, page_order, components）。</rule>
-        <rule>绝对核心约束：components 中每个组件的 "type" 字段只能，且必须是以下八个值之一："CoverSwiper", "TitleBlock", "StoryText", "ProductCard", "TagList", "LocationBlock", "ProductSpecCard", "InteractionsBar"。</rule>
-        </constraints>
+    <output_constraints>
+        <rule>必须严格输出合法 JSON 格式。</rule>
+        <rule>JSON 的第一个字段必须是 "thought_process"，简述你选择这些组件的排版思路。</rule>
+        <rule>随后输出 "page_title", "page_order" (组件 ID 数组), "components" (组件字典)。</rule>
+        <rule>组件的 "type" 必须是合法组件集中的值（如 CoverSwiper, TitleBlock, StoryText, ProductCard, TagList, LocationBlock, ProductSpecCard, InteractionsBar）。</rule>
+        <rule>严禁在最外层包裹任何额外的 Key（如 "data", "output" 或业务模型名）！</rule>
+        <rule>绝对不允许包含任何 Markdown 标记（如 ```json）。</rule>
+    </output_constraints>
+
 
     <output_example>
     {

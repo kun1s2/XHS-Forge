@@ -46,7 +46,27 @@
           </div>
         </div>
 
-        <div v-else class="self-start max-w-[90%]">
+        <div v-else class="self-start max-w-[90%] w-full">
+          <!-- ✨ 思维链实时透传面板 -->
+          <div v-if="msg.thoughts && msg.thoughts.length > 0" class="mb-2 flex flex-col gap-1.5 w-full">
+            <details 
+              v-for="(thought, idx) in msg.thoughts" 
+              :key="idx" 
+              class="group/thought border border-[#3c3c3c] rounded-lg bg-[#252526]/50 transition-all duration-200"
+            >
+              <summary class="flex items-center cursor-pointer p-2 text-[10px] font-medium text-gray-400 hover:text-blue-400 hover:bg-[#2d2d2d] transition-colors rounded-lg list-none">
+                <span class="mr-2 opacity-70 group-open/thought:rotate-12 transition-transform">🧠</span>
+                <span>{{ thought.node }} 已完成思考</span>
+                <svg class="w-3 h-3 ml-auto transition-transform duration-200 group-open/thought:rotate-180 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div class="p-3 pt-1 text-[11px] text-gray-400 border-t border-[#3c3c3c]/50 leading-relaxed font-mono italic bg-[#1e1e1e]/30 rounded-b-lg">
+                {{ thought.text }}
+              </div>
+            </details>
+          </div>
+
           <div class="bg-[#2d2d2d] text-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm leading-relaxed whitespace-pre-wrap border border-[#3c3c3c] shadow-md relative">
             <span v-if="!msg.content && msg.streaming" class="animate-pulse text-gray-500 italic">正在思考文案...</span>
             <Typewriter :text="msg.content" :active="msg.streaming" :speed="10" />
