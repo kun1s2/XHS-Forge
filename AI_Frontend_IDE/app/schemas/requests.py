@@ -28,3 +28,5 @@ class ChatWSPayload(BaseModel):
     )
     # 本轮新上传的图片 URL，塞进 pending_images 由 asset_node 打标后并入 image_assets
     image_urls: Optional[List[str]] = Field(default_factory=list, description="待打标的新图片 URL 列表")
+    # ✨ 长期记忆新增
+    creator_persona: Optional[str] = Field("硬核数码博主", description="创作者人设")
