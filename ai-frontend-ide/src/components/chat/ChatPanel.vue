@@ -2,7 +2,7 @@
   <div class="flex flex-col h-full bg-[#1e1e1e] text-gray-300">
     <div class="h-14 border-b border-[#333] flex items-center px-4 shrink-0 bg-[#252526] gap-3">
       <h1 class="text-sm font-bold text-gray-100 flex items-center gap-2 whitespace-nowrap">
-        <span>⚡️</span> AI IDE
+        <span>⚡️</span> XHS-Forge
       </h1>
       
       <!-- ✨ 创作者人设切换器 -->

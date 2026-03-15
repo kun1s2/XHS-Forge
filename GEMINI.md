@@ -1,14 +1,14 @@
-# LangChainProject — 项目上下文与进化历程 (Social-Engine 1.0)
+# ⚡️ XHS-Forge — 小红书风格生成式 UI 锻造炉 (Social-Engine 1.0)
 
-本文档为 Gemini 提供项目根目录的工作上下文，定义了系统架构、工程标准以及最新的开发进度。
+本项目名为 **XHS-Forge**，旨在通过多 Agent 编排技术，为用户提供工业级的小红书风格前端页面生成能力。
 
 ---
 
-## 🏗️ 项目概述 (Social-Engine)
+## 🏗️ 项目概述 (Project Vision)
 
 - **目标**：根据用户输入的**文字与图片**，生成高保真、小红书风格的前端页面（笔记页）。
-- **形态**：基于 **LangGraph** 的多 Agent 编排平台。
 - **核心理念**：DSL 驱动 (Data/Style JSON)、场景原型约束 (Archetype)、以及可观测的交互体验 (Observable UX)。
+- **为什么叫 Forge?**：系统不只是简单的模板填充，而是像锻造炉一样，通过 **LangGraph** 复杂的计算流、**Vibe Engine** 的色彩提取以及 **Map-Reduce** 的并发处理，最终“锻造”出具备极致审美的交互式产物。
 
 ---
 
