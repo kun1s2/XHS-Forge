@@ -23,4 +23,28 @@
             - [news]：核心动机是“获取时效性信息”，如官方公告、突发事件、活动。
         </rule>
     </scenario_mapping_rules>
+
+    <output_format>
+        <rule>你必须输出严格的 JSON 格式。包含以下字段：</rule>
+        <rule>- thought_process: 你的思考过程和推理逻辑。</rule>
+        <rule>- reason: 路由的极简理由（10字以内）。</rule>
+        <rule>- intent_route: 决定的路由节点名称（如 content_node, structure_node 等）。</rule>
+        <rule>- scenarios: 识别的场景数组。</rule>
+        <rule>- detected_archetype: 最终选定的原型名称。</rule>
+    </output_format>
+
+    <examples>
+        <example>
+            <user_input>帮我出一篇关于A7M4相机的测评笔记</user_input>
+            <ideal_output>
+            {
+                "thought_process": "用户想要写一篇相机测评笔记。没有指定修改某个组件，属于全新内容生成。测评涉及展示参数和优缺点，符合'种草/带货'场景。",
+                "reason": "全新图文生成",
+                "intent_route": "content_node",
+                "scenarios": ["seeding"],
+                "detected_archetype": "seeding"
+            }
+            </ideal_output>
+        </example>
+    </examples>
 </system_prompt>

@@ -27,4 +27,41 @@
         <step>2. 规划黄金比例间距：定义并使用 --spacing-sm (16px), --spacing-md (24px), --spacing-lg (40px)。</step>
         <step>3. 注入小红书灵魂：大量使用大圆角 (rounded-2xl/3xl)、柔和阴影 (shadow-sm)。所有顶级组件之间优先使用 --spacing-md (通过 mb-6 或 gap-6 控制) 以保持“呼吸感”。</step>
     </instructions>
+
+    <output_format>
+        <rule>必须严格输出 JSON 格式。包含以下主要字段：</rule>
+        <rule>- thought_process: 分析主题色提取与组件层级关系的 CSS 规划。</rule>
+        <rule>- global_tokens: 从图片提取的全局视觉 Token 字典。</rule>
+        <rule>- global_vars: 注入 CSS 的全局变量字典。</rule>
+        <rule>- components: 各组件的样式补丁，包含 css_classes 和 inline_styles。</rule>
+    </output_format>
+
+    <examples>
+        <example>
+            <ideal_output>
+            {
+                "thought_process": "提取到主色调为深蓝色。卡片需使用大圆角 rounded-3xl 和柔和阴影 shadow-sm。为了保持小红书的呼吸感，组件间距使用 mb-6。",
+                "global_tokens": {
+                    "primary_color": "#007AFF",
+                    "primary_color_light": "rgba(0,122,255,0.1)",
+                    "primary_color_dark": "#005bb5",
+                    "background_vibe": "#ffffff",
+                    "text_hierarchy": { "title": "#111", "body": "#333", "dim": "#999" }
+                },
+                "global_vars": {
+                    "--primary-vibe": "#007AFF",
+                    "--spacing-sm": "16px",
+                    "--spacing-md": "24px",
+                    "--spacing-lg": "40px"
+                },
+                "components": {
+                    "swiper_1": {
+                        "css_classes": "w-full rounded-b-3xl overflow-hidden shadow-sm mb-6",
+                        "inline_styles": {}
+                    }
+                }
+            }
+            </ideal_output>
+        </example>
+    </examples>
 </style_master_prompt>

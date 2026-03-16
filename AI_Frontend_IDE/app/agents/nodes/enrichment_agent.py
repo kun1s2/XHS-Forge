@@ -2,7 +2,7 @@ import json
 from typing import Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.services.location_enricher import enrich_page_dsl
@@ -41,7 +41,7 @@ async def generate_images_tool(data_dsl_str: str, archetype: str) -> str:
         return f"Error: {e}"
 
 # 初始化工具调用的 LLM
-_tool_llm = ChatOpenAI(
+_tool_llm = create_llm(
     model=settings.LLM_MODEL,
     api_key=settings.LLM_API_KEY,
     base_url=settings.LLM_BASE_URL,

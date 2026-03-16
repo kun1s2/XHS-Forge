@@ -1,4 +1,5 @@
 import asyncio
+import json
 from app.agents.state import UIProjectState
 from app.tools.image_recognition import describe_image
 

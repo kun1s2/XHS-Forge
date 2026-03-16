@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, List
 from app.core.persistence import generate_vector_store
 from app.core.config import settings
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from pydantic import BaseModel, Field
 from app.services.vector_db import hybrid_search_rrf
 
@@ -17,14 +17,14 @@ async def _parse_self_query(query: str) -> QueryFilter:
     """
     【Self-Query 解析器】：利用 LLM 将自然语言解析为结构化过滤条件。
     """
-    llm = ChatOpenAI(
+    llm = create_llm(
         model=settings.LLM_SMALL_MODEL,
         api_key=settings.LLM_API_KEY,
         base_url=settings.LLM_BASE_URL,
         temperature=0
     )
     # 使用结构化输出确保返回合法的过滤字典
-    structured_llm = llm.with_structured_output(QueryFilter)
+    structured_llm = llm.with_structured_output(QueryFilter, method="function_calling")
     
     prompt = f"""你是一个数据库查询专家。请将用户的自然语言指令解析为针对 PostgreSQL JSONB 字段的过滤条件。
     

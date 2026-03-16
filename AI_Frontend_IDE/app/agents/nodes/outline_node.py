@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
@@ -13,7 +13,7 @@ _llm_instance = None
 def get_outline_llm():
     global _llm_instance
     if _llm_instance is None:
-        _llm_instance = ChatOpenAI(
+        _llm_instance = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
@@ -33,7 +33,8 @@ async def outline_agent(state: UIProjectState) -> dict:
     【裂变大纲节点】：只负责输出组件的 ID 列表和类型（Map 阶段的准备）。
     """
     llm = get_outline_llm()
-    structured_llm = llm.with_structured_output(OutlineOutput, method="json_mode")
+    # ✨ 针对 OpenAI 模型使用 function_calling 更稳健
+    structured_llm = llm.with_structured_output(OutlineOutput, method="function_calling")
     
     # 提取当前状态
     current_data_dsl = state.get("data_dsl", {})
@@ -63,11 +64,11 @@ async def outline_agent(state: UIProjectState) -> dict:
         raise FileNotFoundError(f"致命错误：未找到提示词文件 {prompt_path}")
 
     # 包装一个新的系统提示，强制它只输出大纲
-    outline_system = system_template + "\n\n【注意】：你现在是 Outline Agent。你只需要输出 page_title 和 page_order（包含组件 ID 和 type）。不要输出 components 细节数据！"
+    outline_system = system_template + "\n\n【注意】：你现在是 Outline Agent。你只需要输出 page_title 和 page_order（必须是包含 id 和 type 字段的对象列表！）。不要输出 components 细节数据！"
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", outline_system),
-        ("human", "用户的最新指令：\n<user_input>\n{{ user_query }}\n</user_input>")
+        ("human", "用户的最新指令：\n<user_input>\n{{ user_query }}\n</user_input>\n(请以 JSON 格式输出)")
     ], template_format="jinja2")
 
     try:

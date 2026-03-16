@@ -3,7 +3,7 @@ import re
 import os
 import httpx
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
@@ -20,7 +20,7 @@ def get_intent_llm():
         os.environ["LANGSMITH_TRACING"] = "false"
         
         # ✨ 代码净化：移除之前的硬编码物理直连，交还给系统的标准 httpx
-        _llm_instance = ChatOpenAI(
+        _llm_instance = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
@@ -77,7 +77,7 @@ async def intent_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "【当前场景背景】: {{ active_archetype }}\n用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>")
+        ("human", "【当前场景背景】: {{ active_archetype }}\n用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n(请以 JSON 格式输出)")
     ], template_format="jinja2")
     
     try:
@@ -90,13 +90,14 @@ async def intent_agent(state: UIProjectState) -> dict:
         t_start = time.perf_counter()
         
         # ✨ 最新技术栈：直接使用 with_structured_output
-        structured_llm = llm.with_structured_output(IntentOutput)
+        structured_llm = llm.with_structured_output(IntentOutput, method="function_calling")
         result = await structured_llm.ainvoke(prompt.format_messages(**inputs))
         
         print(f"⏱️ [内部计时] 极速响应耗时: {time.perf_counter() - t_start:.2f}s")
         
         # ✨ 记录提示词快照
-        prompt_data = [{"role": "system", "content": system_template}, {"role": "user", "content": query_with_hint}]
+        rendered_messages = prompt.format_messages(**inputs)
+        prompt_data = [{"role": m.type, "content": m.content} for m in rendered_messages]
 
         # 统一转为字符串，确保全站逻辑一致
         archetype_str = result.detected_archetype.value if hasattr(result.detected_archetype, 'value') else str(result.detected_archetype)

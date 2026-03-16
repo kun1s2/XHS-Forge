@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
@@ -14,7 +14,7 @@ _llm_instance = None
 def get_style_llm():
     global _llm_instance
     if _llm_instance is None:
-        _llm_instance = ChatOpenAI(
+        _llm_instance = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
@@ -31,7 +31,7 @@ async def invoke_with_retry(chain, inputs):
 
 async def style_agent(state: UIProjectState) -> dict:
     """
-    【极速样式大脑】：采用“狂暴 JSON 模式”，解决生成大段 CSS 时工具调用导致的严重延迟。
+    【智能样式守卫】：如果工兵已经产出了样式且用户没提视觉修改要求，则直接跳过，保护性能。
     """
     llm = get_style_llm()
     
@@ -43,6 +43,18 @@ async def style_agent(state: UIProjectState) -> dict:
     
     style_msgs = state.get("style_messages", [])
     user_style_request = style_msgs[-1].content if style_msgs else "请根据当前主题生成初始样式。"
+    
+    # ✨ 核心破局：智能判断是否真的需要请求大模型
+    # 如果 data_dsl 里的所有组件在 current_style_dsl 中都有了样式，且意图不是 style_node，则直接透传
+    intent = state.get("intent_route", "")
+    page_order = data_dsl.get("page_order", [])
+    has_all_styles = all(comp_id in current_style_dsl for comp_id in page_order)
+    
+    if has_all_styles and intent != "style_node" and current_style_dsl.get("global_vars"):
+        print("⚡ [样式守卫] 样式已齐备且无视觉修改指令，跳过 LLM 请求。")
+        return {"style_dsl": current_style_dsl}
+
+    print(f"🎨 [视觉渲染大脑] 正在为您设计高定版页面样式...")
     
     # ✨ 提取视觉 Vibe：确保取到的是字符串，修复 Enum 比较失败问题
     image_assets = state.get("image_assets", [])
@@ -88,7 +100,7 @@ async def style_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "用户的最新样式指令：\n<user_input>\n{{ user_query }}\n</user_input>")
+        ("human", "用户的最新样式指令：\n<user_input>\n{{ user_query }}\n</user_input>\n(请以 JSON 格式输出)")
     ], template_format="jinja2")
 
     try:
@@ -103,7 +115,8 @@ async def style_agent(state: UIProjectState) -> dict:
         }
         
         # 1. 直接获取结构化输出
-        structured_llm = llm.with_structured_output(StylePatchOutput)
+        # ✨ 优化：针对 OpenAI 模型，强制使用 function_calling 代替 json_schema 模式
+        structured_llm = llm.with_structured_output(StylePatchOutput, method="function_calling")
         result = await invoke_with_retry(prompt | structured_llm, inputs)
         
         # ✨ 记录提示词快照

@@ -5,7 +5,7 @@ import re
 import asyncio
 from typing import List, Dict, Any
 from app.tools.network_search import search_network_structured_async
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ _cleaner_llm = None
 def get_cleaner_llm():
     global _cleaner_llm
     if _cleaner_llm is None:
-        _cleaner_llm = ChatOpenAI(
+        _cleaner_llm = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 

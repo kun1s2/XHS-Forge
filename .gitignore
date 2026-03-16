@@ -79,3 +79,5 @@ AI_Frontend_IDE/generate/
 AI_Frontend_IDE/test/
 *.bak
 *.tmp
+AI_Frontend_IDE/docs/控制台输出
+AI_Frontend_IDE/docs/html生成

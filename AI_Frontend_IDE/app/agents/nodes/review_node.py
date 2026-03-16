@@ -1,5 +1,5 @@
 from app.agents.state import UIProjectState
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from app.core.config import settings
 from pydantic import BaseModel, Field
 
@@ -15,13 +15,13 @@ async def controversy_sniffer_node(state: UIProjectState) -> dict:
     if not knowledge:
         return {"has_controversy": False}
 
-    llm = ChatOpenAI(
+    llm = create_llm(
         model=settings.LLM_SMALL_MODEL, 
         api_key=settings.LLM_API_KEY, 
         base_url=settings.LLM_BASE_URL,
         temperature=0
     )
-    structured_llm = llm.with_structured_output(ControversyOutput)
+    structured_llm = llm.with_structured_output(ControversyOutput, method="function_calling")
 
     prompt = f"""你是一个舆情分析专家。请快速阅读以下背景资料，判断该话题是否存在明显的争议、极性冲突或多方博弈（例如：一半人疯狂安利，一半人避雷吐槽）。
 

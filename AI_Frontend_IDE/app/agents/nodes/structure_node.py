@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
@@ -15,7 +15,7 @@ _llm_instance = None
 def get_structure_llm():
     global _llm_instance
     if _llm_instance is None:
-        _llm_instance = ChatOpenAI(
+        _llm_instance = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
@@ -34,7 +34,7 @@ async def structure_agent(state: UIProjectState) -> dict:
     # 1. 初始化具有结构化输出能力的 LLM —— 强绑定全局契约
     llm = get_structure_llm()
     # ✨ 性能优化：显式使用 json_mode
-    structured_llm = llm.with_structured_output(StructurePatchOutput, method="json_mode")
+    structured_llm = llm.with_structured_output(StructurePatchOutput, method="function_calling")
     
     # 2. 提取当前状态
     current_data_dsl = state.get("data_dsl", {})
@@ -65,7 +65,7 @@ async def structure_agent(state: UIProjectState) -> dict:
     # 4. ====== ✨ 现代化：构建 ChatPromptTemplate (Jinja2) ======
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "用户的最新排版指令：\n<user_input>\n{{ user_query }}\n</user_input>")
+        ("human", "用户的最新排版指令：\n<user_input>\n{{ user_query }}\n</user_input>\n(请以 JSON 格式输出)")
     ], template_format="jinja2")
 
 

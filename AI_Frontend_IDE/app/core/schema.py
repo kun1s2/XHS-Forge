@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Dict, Optional, Literal, Any
+from typing import List, Dict, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field, field_validator
 import re
 
@@ -61,9 +61,31 @@ class OutlineOutput(BaseModel):
     page_order: List[ComponentOutline] = Field(..., description="页面的组件大纲序列")
     detected_archetype: ArchetypeEnum = Field(default=ArchetypeEnum.GENERAL, description="本次排版最终确定的业务原型")
 
+    @field_validator('page_order', mode='before')
+    @classmethod
+    def handle_string_ids(cls, v: Any) -> Any:
+        """【极限容错】：如果模型只吐了 ID 列表，尝试自动恢复类型"""
+        if isinstance(v, list) and len(v) > 0 and isinstance(v[0], str):
+            new_order = []
+            for item_id in v:
+                # 根据 ID 前缀尝试推断类型，推断失败默认用 StoryText
+                lower_id = item_id.lower()
+                inferred_type = "StoryText"
+                if "swiper" in lower_id: inferred_type = "CoverSwiper"
+                elif "title" in lower_id: inferred_type = "TitleBlock"
+                elif "product" in lower_id: inferred_type = "ProductCard"
+                elif "spec" in lower_id: inferred_type = "ProductSpecCard"
+                elif "tags" in lower_id: inferred_type = "TagList"
+                elif "location" in lower_id: inferred_type = "LocationBlock"
+                elif "social" in lower_id or "interaction" in lower_id: inferred_type = "InteractionsBar"
+                
+                new_order.append({"id": item_id, "type": inferred_type})
+            return new_order
+        return v
+
 class ComponentData(BaseModel):
     """组件参数规范 (ComponentPayload)"""
-    type: Literal["CoverSwiper", "TitleBlock", "StoryText", "ProductCard", "TagList", "LocationBlock", "ProductSpecCard"] = Field(..., description="组件类型标识符")
+    type: Literal["CoverSwiper", "TitleBlock", "StoryText", "ProductCard", "TagList", "LocationBlock", "ProductSpecCard", "InteractionsBar"] = Field(..., description="组件类型标识符")
     title: Optional[str] = Field(None, description="主标题内容")
     subtitle: Optional[str] = Field(None, description="副标题内容")
     paragraphs: Optional[List[str]] = Field(None, description="正文文本段落")
@@ -84,9 +106,16 @@ class ComponentData(BaseModel):
     core_features: Optional[List[str]] = Field(None, description="核心参数/特性列表（用于 ProductSpecCard）")
 
     # ✨ 互动数据增强
-    likes: Optional[str] = Field(None, description="点赞数（如 1.2w）")
-    collects: Optional[str] = Field(None, description="收藏数")
-    comments: Optional[str] = Field(None, description="评论数")
+    likes: Optional[Union[str, int]] = Field(None, description="点赞数（如 1.2w）")
+    collects: Optional[Union[str, int]] = Field(None, description="收藏数")
+    comments: Optional[Union[str, int]] = Field(None, description="评论数")
+
+    @field_validator('likes', 'collects', 'comments', mode='before')
+    @classmethod
+    def ensure_string_metrics(cls, v: Any) -> Optional[str]:
+        """【强制补丁】：如果模型吐了数字，自动转为字符串"""
+        if v is None: return None
+        return str(v)
 
     @field_validator('rating', mode='before')
     @classmethod

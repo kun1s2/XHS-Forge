@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
@@ -14,7 +14,7 @@ _llm_instance = None
 def get_patch_llm():
     global _llm_instance
     if _llm_instance is None:
-        _llm_instance = ChatOpenAI(
+        _llm_instance = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
@@ -35,7 +35,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
     """
     llm = get_patch_llm()
     # ✨ 性能优化：使用 json_mode
-    structured_llm = llm.with_structured_output(SurgicalPatchOutput, method="json_mode")
+    structured_llm = llm.with_structured_output(SurgicalPatchOutput, method="function_calling")
     
     # 1. 锁定修改目标
     selected_id = state.get("selected_element_id")
@@ -60,7 +60,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "用户的最新修改指令：\n<user_input>\n{{ query }}\n</user_input>")
+        ("human", "用户的最新修改指令：\n<user_input>\n{{ query }}\n</user_input>\n(请以 JSON 格式输出)")
     ], template_format="jinja2")
 
     try:

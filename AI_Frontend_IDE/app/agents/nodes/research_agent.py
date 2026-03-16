@@ -2,7 +2,7 @@ import json
 from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 from app.agents.state import UIProjectState
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from app.core.config import settings
 from app.agents.tools_registry import RESEARCH_TOOLS
 from app.agents.memory_utils import get_trimmed_messages
@@ -18,7 +18,7 @@ class DisambiguationEval(BaseModel):
     )
 
 # 初始化支持 Tool Calling 的 LLM
-llm = ChatOpenAI(
+llm = create_llm(
     model=settings.LLM_MODEL,
     api_key=settings.LLM_API_KEY,
     base_url=settings.LLM_BASE_URL,
@@ -48,7 +48,8 @@ async def research_agent(state: UIProjectState) -> dict:
 用户提供的视觉线索: 【{image_desc}】
 
 请结合以上背景，自主决定调用工具进行深度调研。
-如果搜索结果存在多义性（例如：一个词既是宠物名又是二次元角色），请务必结合当前场景和线索进行逻辑推理。
+如果搜索结果存在多义性，请务必结合当前场景和线索进行逻辑推理。
+请确保输出符合工具调用的 JSON 格式规范。
 """
     
     # 构造请求消息
@@ -66,14 +67,14 @@ async def research_agent(state: UIProjectState) -> dict:
         # 只有在没有 user_choice 时才进行评估，防止循环中断
         # 这里为了演示，我们假设如果已经消歧过了，就不再评估
         
-        eval_llm = ChatOpenAI(
+        eval_llm = create_llm(
             model=settings.LLM_SMALL_MODEL,
             api_key=settings.LLM_API_KEY,
             base_url=settings.LLM_BASE_URL,
             temperature=0
-        ).with_structured_output(DisambiguationEval)
+        ).with_structured_output(DisambiguationEval, method="function_calling")
         
-        eval_prompt = f"""请评估以下调研结论的准确性。
+        eval_prompt = f"""请评估以下调研结论的准确性，并以 JSON 格式输出评估结果。
 场景: {active_archetype}
 线索: {image_desc}
 结论: {response.content}

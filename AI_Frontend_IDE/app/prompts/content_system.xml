@@ -54,4 +54,22 @@
         <rule>【✨ 交叉混合魔法】：这是一篇混合了多种主题（{{ scenarios }}）的笔记，请巧妙地将上述各个主题融合在一起，使文章过渡自然、情绪饱满。</rule>
         {% endif %}
     </scenario_rules>
+
+    <output_format>
+        <rule>必须严格输出 JSON 格式。包含以下两个字段：</rule>
+        <rule>- thought_process: 文案创作思路与钩子设计推理。</rule>
+        <rule>- final_content: 最终生成的小红书文案主体文本。</rule>
+    </output_format>
+
+    <examples>
+        <example>
+            <user_input>写一个广州武康路咖啡店的探店</user_input>
+            <ideal_output>
+            {
+                "thought_process": "场景为美食探店(food)。用户想看广州某咖啡店的探店。核心受众喜欢出片率高、有氛围感的地方。前两句需要用Emoji吸引眼球，强调'广州也有武康路'这种地域反差感。文末加上地址和相关话题。",
+                "final_content": "广州居然也有自己的“武康路”了？！☕️✨\n\n周末和闺蜜无意间逛到这里，一秒穿梭到上海街头！这家藏在老城区的复古咖啡馆，门头真的太好拍了📸，随便一个抓拍都像是在拍法式电影！\n\n🍰【关于出品】\n点了一杯海盐焦糖拿铁和招牌开心果伯爵卷。蛋糕体超级绵软，甜度刚刚好，完全不会腻！🤤\n\n趁着现在刚开业人还不多，各位广州的姐妹们赶紧冲呀！👗\n\n📍地址：广州市越秀区XX街XX号\n#广州探店 #广州周末去哪儿 #高颜值咖啡馆 #氛围感"
+            }
+            </ideal_output>
+        </example>
+    </examples>
 </system_prompt>

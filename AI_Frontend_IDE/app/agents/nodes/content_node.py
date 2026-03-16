@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
+from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
@@ -18,7 +18,7 @@ _llm_instance = None
 def get_content_llm():
     global _llm_instance
     if _llm_instance is None:
-        _llm_instance = ChatOpenAI(
+        _llm_instance = create_llm(
             model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
@@ -56,10 +56,10 @@ async def content_agent(state: UIProjectState) -> dict:
     # ✨ 使用 Jinja2 模板直接处理所有动态变量，避免 Python f-string 拼接
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "【当前创作者人设】：{{ creator_persona }}\n{% if user_stance %}【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{{ user_stance }}」。请务必严格遵守此立场！\n{% endif %}用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n请在创作文案的同时，规划创作思路。")
+        ("human", "【当前创作者人设】：{{ creator_persona }}\n{% if user_stance %}【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{{ user_stance }}」。请务必严格遵守此立场！\n{% endif %}用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n请在创作文案的同时，规划创作思路并以 JSON 格式输出。")
     ], template_format="jinja2")
 
-    structured_llm = llm.with_structured_output(ContentOutput)
+    structured_llm = llm.with_structured_output(ContentOutput, method="function_calling")
     
     try:
         inputs = {
@@ -77,7 +77,10 @@ async def content_agent(state: UIProjectState) -> dict:
         rendered_messages = prompt.format_messages(**inputs)
         prompt_data = [{"role": m.type, "content": m.content} for m in rendered_messages]
         
-        result = await structured_llm.ainvoke(inputs)
+        # ✨ 修复：使用管道模式调用，让 LangChain 自动处理变量注入
+        chain = prompt | structured_llm
+        result = await chain.ainvoke(inputs)
+        
         new_content = result.final_content
         thought = result.thought_process
     except Exception as e:

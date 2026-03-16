@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     # 高德地图 Web 服务（地理编码、逆地理、输入提示、POI 搜索等）
     AMAP_WEB_SERVICE_KEY: Optional[str] = None
 
-    AGENT_RECURSION_LIMIT: int = 70
+    # 是否开启调试模式（开启后会打印全量 Node IO 日志）
+    XHS_FORGE_DEBUG: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
