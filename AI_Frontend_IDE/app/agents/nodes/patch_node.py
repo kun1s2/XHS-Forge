@@ -4,6 +4,7 @@ import random
 from pathlib import Path
 from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import AIMessage
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.schema import SurgicalPatchOutput
@@ -38,7 +39,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
     """
     llm = get_patch_llm()
     # ✨ 统一切换为 function_calling
-    structured_llm = llm.with_structured_output(SurgicalPatchOutput, method="function_calling")
+    structured_llm = llm.with_structured_output(SurgicalPatchOutput)
     
     # 1. 锁定修改目标
     selected_id = state.get("selected_element_id")
@@ -118,8 +119,8 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
 
         print(f"💉 [手术刀修改成功] 目标: {selected_id} | 理由: {result.reason}")
         
-        # 4. 构建补丁包
-        updated_data = {k: v for k, v in result.updated_component.model_dump().items() if v is not None}
+        # 4. 构建补丁包（保留 None 作为“墓碑标志”，配合 merge_dsl 进行删除）
+        updated_data = result.updated_component.model_dump(exclude_unset=True)
         dsl_patch = {
             selected_id: updated_data
         }
@@ -132,11 +133,17 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
             "data_snapshot": updated_data,
             "agent_thought": result.thought_process
         }
+
+        # ✨ 补齐局部记忆：将本次成功修改写入内容通道，便于后续上下文理解
+        ai_memory_msg = AIMessage(
+            content=f"已成功对组件 {selected_id} 进行局部修改。理由：{result.reason}。思考过程：{result.thought_process}"
+        )
         
         return {
             "data_dsl": dsl_patch,
             "patch_tracks": {selected_id: [track_entry]},
-            "node_prompts": {"patch_node": prompt_snapshot}
+            "node_prompts": {"patch_node": prompt_snapshot},
+            "content_messages": [ai_memory_msg],
         }
         
     except Exception as e:

@@ -46,7 +46,7 @@ def merge_patch_tracks(left: dict, right: dict) -> dict:
 
 def restore_component_version(state: Any, element_id: str, version_index: int) -> dict:
     """
-    【局部回溯逻辑】：从 patch_tracks 中提取特定版本的数据并覆盖 data_dsl
+    【局部回溯逻辑】：从 patch_tracks 提取快照，并构造绝对覆盖的补丁，消除幽灵数据。
     """
     tracks = state.get("patch_tracks", {})
     if element_id not in tracks or version_index >= len(tracks[element_id]):
@@ -59,8 +59,16 @@ def restore_component_version(state: Any, element_id: str, version_index: int) -
     if not data_snapshot:
         return {}
         
+    # ✨ 核心修复：构造“毒药补丁”，杀死当前存在但快照里没有的 Key
+    current_component_data = state.get("data_dsl", {}).get(element_id, {})
+    rollback_patch = data_snapshot.copy()
+    
+    for k in current_component_data.keys():
+        if k not in data_snapshot:
+            rollback_patch[k] = None  # 利用 merge_dsl 的机制将其 pop 掉
+            
     return {
-        "data_dsl": {element_id: data_snapshot}
+        "data_dsl": {element_id: rollback_patch}
     }
 
 class UIProjectState(TypedDict):
