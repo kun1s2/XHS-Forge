@@ -12,7 +12,7 @@
         <step>1. 请基于 &lt;target_text&gt; 原文案进行扩写或润色。</step>
         <step>2. 保持 &lt;current_data_dsl&gt; 原有故事的背景和设定。</step>
         <step>3. 使用第一人称，语气亲切自然，多用感叹号和生动的 Emoji。</step>
-        <step>4. 只允许输出最终的文案内容，立即开始：</step>
+        <step>4. 你必须按照底部规定的 JSON 格式输出结果，包含推理过程与正文：</step>
     </instructions>
     {% else %}
     <task_mode>全新文案构思</task_mode>
@@ -20,7 +20,7 @@
         <step>1. 请根据用户的指令，构思富有吸引力、连贯且极具情绪价值的社交媒体（小红书）风格文案。</step>
         <step>2. 使用第一人称，情感丰富，像是在和闺蜜/兄弟分享日常。合理穿插具有视觉冲击力的 Emoji。</step>
         <step>3. 结构建议：可以用带有 Emoji 的短句作为段落开头（类似小标题），结尾一定要带上几个相关的 #话题标签。</step>
-        <step>4. 只允许输出最终的故事/文案大纲，立即开始：</step>
+        <step>4. 你必须按照底部规定的 JSON 格式输出结果，包含推理过程与文案大纲：</step>
     </instructions>
     {% endif %}
 

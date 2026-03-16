@@ -54,7 +54,7 @@ async def process_new_trend_background(keyword: str, websocket: Optional[WebSock
             response = zhipu_client.web_search.web_search(
                 search_engine="search_pro",
                 search_query=keyword,
-                count=15,
+                count=8, # ✨ 减少搜索数量，降低 Token 压力
                 content_size="high"
             )
             res = getattr(response, "search_result", [])
@@ -62,7 +62,9 @@ async def process_new_trend_background(keyword: str, websocket: Optional[WebSock
                 (item.get("content", "") if isinstance(item, dict) else getattr(item, "content", ""))
                 for item in res
             ]
-            return "\n".join(lines)
+            # ✨ 物理截断：强制限制在 20000 字符以内，留出 10000 字符给 System Prompt 和 思考空间
+            full_text = "\n".join(lines)
+            return full_text[:20000]
 
         search_context = await asyncio.to_thread(fetch_search_results)
         

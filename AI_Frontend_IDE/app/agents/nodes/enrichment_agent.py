@@ -3,7 +3,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from app.core.llm_factory import create_llm
-from app.agents.state import UIProjectState
+from app.agents.state import UIProjectState, merge_dsl
 from app.core.config import settings
 from app.services.location_enricher import enrich_page_dsl
 from app.services.search_enricher import enrich_product_data
@@ -36,11 +36,12 @@ async def generate_images_tool(data_dsl_str: str, archetype: str) -> str:
     try:
         data_dsl = json.loads(data_dsl_str)
         enriched_dsl, new_assets = await auto_generate_images(data_dsl, archetype)
+        # 注意：这里我们返回一个特殊的结构，以便后续解析
         return json.dumps({"data_dsl": enriched_dsl, "new_assets": new_assets}, ensure_ascii=False)
     except Exception as e:
         return f"Error: {e}"
 
-# 初始化工具调用的 LLM
+# 初始化工具调用的 LLM (已对齐 ChatOpenAI)
 _tool_llm = create_llm(
     model=settings.LLM_MODEL,
     api_key=settings.LLM_API_KEY,
@@ -48,17 +49,18 @@ _tool_llm = create_llm(
     temperature=0.1
 )
 
-# 使用 langgraph.prebuilt 快速构建一个 ReAct Agent（包含 LLM 节点和 Tool 节点的主循环）
+# 使用 langgraph.prebuilt 快速构建一个 ReAct Agent
 tools = [enrich_product_tool, enrich_location_tool, generate_images_tool]
 enrichment_react_agent = create_react_agent(_tool_llm, tools)
 
 async def enrichment_node_v2(state: UIProjectState) -> dict:
     """
     【最新技术栈：Tool Calling 代理引擎】
-    抛弃原先呆板的串行调用，让大模型自主决定需要调用哪些增强工具。
+    让大模型自主决定增强时机，实现“状态感知”的智能补全。
     """
     data_dsl = state.get("data_dsl", {})
     active_archetype = state.get("active_archetype", "general")
+    image_assets = state.get("image_assets", [])
     
     if not data_dsl:
         return {}
@@ -69,18 +71,62 @@ async def enrichment_node_v2(state: UIProjectState) -> dict:
 {json.dumps(data_dsl, ensure_ascii=False)}
 
 请分析以上数据，并使用提供的工具对其进行增强。
-- 如果有商品卡片 (ProductCard) 或参数卡片 (ProductSpecCard)，请调用 enrich_product_tool。
-- 如果有位置打卡 (LocationBlock) 且缺少坐标，请调用 enrich_location_tool。
-- 如果有组件缺少图片 (image_urls 为空)，请调用 generate_images_tool。
+- 如果有商品卡片或参数卡片，请调用 enrich_product_tool。
+- 如果有位置打卡且缺少坐标，请调用 enrich_location_tool。
+- 如果有组件缺少图片（URL为空），请调用 generate_images_tool。
 
-你可以并行或串行调用工具。所有需要的增强完成后，请回复“增强完毕”。"""
+你可以并行或串行调用工具。所有需要的增强完成后，请直接输出最终增强后的 JSON 数据，不要带有 Markdown 代码块。"""
 
-    # 运行内部的 ReAct Agent 图
-    print(f"🧠 [Tool Calling 引擎] 启动增强管家，赋予其 3 项增强武器...")
+    print(f"🧠 [Tool Calling 引擎] 启动增强管家，正在执行自主增强...")
+    
+    # 运行内部 Agent
     result = await enrichment_react_agent.ainvoke({"messages": [("user", prompt)]})
     
-    # 提取经过工具反复修改后的最终结果
-    # 因为我们的工具是无状态的字符串传递，Agent 可能会在回复中输出最终的 JSON，或者我们需要从工具调用的返回值里去提取。
-    # 为了保证生产稳定性（防止大模型弄坏 JSON），在实际业务中我们通常让工具直接修改外部状态。
-    # 这里为了演示“大脑 -> 工具 -> 大脑”的纯正范式：
-    pass
+    # === ✨ 核心闭环逻辑：从工具调用历史中收刮最终状态 ===
+    # 使用 merge_dsl 确保不会丢失原始数据
+    final_data_dsl = data_dsl
+    final_new_assets = []
+    
+    # 遍历消息历史，寻找工具执行的结果
+    for msg in result["messages"]:
+        # 尝试从回复的文本中寻找 JSON (针对模型最后直接输出的情况)
+        if hasattr(msg, "content") and msg.content:
+            try:
+                import re
+                # 寻找最外层的 JSON 结构
+                json_match = re.search(r'\{.*\}', msg.content, re.DOTALL)
+                if json_match:
+                    potental_json = json.loads(json_match.group())
+                    if "page_order" in potental_json or "components" in str(potental_json): 
+                        final_data_dsl = merge_dsl(final_data_dsl, potental_json)
+            except:
+                pass
+        
+        # 从工具返回的消息中直接提取数据并合并
+        if msg.type == "tool":
+            try:
+                tool_res = json.loads(msg.content)
+                if isinstance(tool_res, dict):
+                    # 关键修复：只有当 tool_res 本身包含 page_order 或 components 时，才将其视为 DSL 直接合并
+                    # 且为了防止模型将 {"data_dsl": {...}} 误传为顶级结构，我们优先提取 data_dsl
+                    if "data_dsl" in tool_res:
+                        final_data_dsl = merge_dsl(final_data_dsl, tool_res["data_dsl"])
+                        
+                        if "new_assets" in tool_res:
+                            final_new_assets.extend(tool_res["new_assets"])
+                        continue
+
+                    if "page_order" in tool_res or "components" in tool_res:
+                        final_data_dsl = merge_dsl(final_data_dsl, tool_res)
+                        
+                    if "new_assets" in tool_res:
+                        final_new_assets.extend(tool_res["new_assets"])
+            except:
+                pass
+
+    print(f"✅ [Tool Calling 引擎] 增强完毕，已同步至全局状态。")
+    
+    return {
+        "data_dsl": final_data_dsl,
+        "image_assets": final_new_assets
+    }

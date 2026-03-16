@@ -57,6 +57,7 @@ class ComponentOutline(BaseModel):
 
 class OutlineOutput(BaseModel):
     """大纲大脑输出的页面结构"""
+    thought_process: str = Field(description="大纲排版与组件选型的推理过程")
     page_title: str = Field(..., description="网页标签标题")
     page_order: List[ComponentOutline] = Field(..., description="页面的组件大纲序列")
     detected_archetype: ArchetypeEnum = Field(default=ArchetypeEnum.GENERAL, description="本次排版最终确定的业务原型")
@@ -68,7 +69,6 @@ class OutlineOutput(BaseModel):
         if isinstance(v, list) and len(v) > 0 and isinstance(v[0], str):
             new_order = []
             for item_id in v:
-                # 根据 ID 前缀尝试推断类型，推断失败默认用 StoryText
                 lower_id = item_id.lower()
                 inferred_type = "StoryText"
                 if "swiper" in lower_id: inferred_type = "CoverSwiper"
@@ -95,17 +95,11 @@ class ComponentData(BaseModel):
     desc: Optional[str] = Field(None, description="描述性短文案")
     tags: Optional[List[str]] = Field(None, description="话题标签数组")
     rating: Optional[float] = Field(None, description="评分（0-5）")
-    
-    # ✨ 坐标与地理位置增强
     location: Optional[str] = Field(None, description="详细地址信息")
     poi_name: Optional[str] = Field(None, description="POI 地点名称（用于搜索）")
     lat: Optional[float] = Field(None, description="纬度")
     lng: Optional[float] = Field(None, description="经度")
-
-    # ✨ 事实增强与参数卡片
     core_features: Optional[List[str]] = Field(None, description="核心参数/特性列表（用于 ProductSpecCard）")
-
-    # ✨ 互动数据增强
     likes: Optional[Union[str, int]] = Field(None, description="点赞数（如 1.2w）")
     collects: Optional[Union[str, int]] = Field(None, description="收藏数")
     comments: Optional[Union[str, int]] = Field(None, description="评论数")
@@ -113,19 +107,36 @@ class ComponentData(BaseModel):
     @field_validator('likes', 'collects', 'comments', mode='before')
     @classmethod
     def ensure_string_metrics(cls, v: Any) -> Optional[str]:
-        """【强制补丁】：如果模型吐了数字，自动转为字符串"""
         if v is None: return None
         return str(v)
 
     @field_validator('rating', mode='before')
     @classmethod
     def clean_rating(cls, v: Any) -> Any:
-        """【鲁棒性增强】：自动清洗大模型输出的带单位评分（如 '4.7分' -> 4.7）"""
         if isinstance(v, str):
-            # 使用正则提取数字部分
             match = re.search(r"[-+]?\d*\.\d+|\d+", v)
             if match:
                 return float(match.group())
+        return v
+
+class ComponentStyle(BaseModel):
+    """单组件样式协议"""
+    css_classes: str = Field("", description="Tailwind CSS 类名")
+    inline_styles: Dict[str, str] = Field(default_factory=dict, description="动态注入的内联样式")
+
+class ComponentBuilderOutput(BaseModel):
+    """单组件构建输出模型"""
+    thought_process: str = Field(description="组件数据与全局文案/知识库对齐的思考过程")
+    data: ComponentData = Field(..., description="组件的具体数据负载")
+    style: ComponentStyle = Field(..., description="组件的样式数据")
+
+    @field_validator('style', mode='before')
+    @classmethod
+    def ensure_style_object(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return {"css_classes": v, "inline_styles": {}}
+        if isinstance(v, list):
+            return {"css_classes": " ".join([str(i) for i in v]), "inline_styles": {}}
         return v
 
 class StructurePatchOutput(BaseModel):
@@ -142,7 +153,34 @@ class SurgicalPatchOutput(BaseModel):
     reason: str = Field(..., description="修改该组件的极简理由。")
     updated_component: ComponentData = Field(..., description="被选中的组件更新后的完整数据对象。")
 
-# --- ✨ 维度四：意图路由 —— Intent 宪法 ---
+# --- ✨ 维度四：视觉视觉 —— Style 宪法 ---
+
+class StyleVibeTokens(BaseModel):
+    """视觉感知引擎生成的 Vibe Tokens（呼吸感核心）"""
+    primary_color: str = Field("#ff2442", description="提取的主题色/品牌色")
+    primary_color_light: str = Field("rgba(255, 36, 66, 0.1)", description="浅色背景变体（呼吸感背景用）")
+    primary_color_dark: str = Field("#e01d37", description="深色点击变体")
+    background_vibe: str = Field("#ffffff", description="背景调性色")
+    text_hierarchy: Dict[str, str] = Field(
+        default={"title": "#111111", "body": "#333333", "dim": "#999999"},
+        description="文字颜色层级"
+    )
+
+# 🌟 核心重构：新增静态样式补丁对象，消除模型对 Dict Key 的幻觉风险
+class ComponentStylePatch(BaseModel):
+    component_id: str = Field(..., description="组件的唯一 ID，例如 'cover_1', 'product_1'")
+    style: ComponentStyle = Field(..., description="该组件的具体样式配置")
+
+class StylePatchOutput(BaseModel):
+    """样式大脑输出的视觉宪法结构"""
+    thought_process: str = Field(description="视觉样式推理过程")
+    global_tokens: StyleVibeTokens = Field(default_factory=StyleVibeTokens, description="从图片提取的全局视觉 Token")
+    global_vars: Dict[str, str] = Field(default_factory=dict, description="注入 CSS 的全局变量")
+    
+    # 🌟 核心指令：将 Dict[str, ComponentStyle] 替换为 List[ComponentStylePatch]
+    components: List[ComponentStylePatch] = Field(default_factory=list, description="各组件的样式补丁列表")
+
+# --- ✨ 维度五：意图路由 —— Intent 宪法 ---
 
 class IntentOutput(BaseModel):
     """意图分析大脑的输出结构"""
@@ -158,26 +196,3 @@ class IntentOutput(BaseModel):
         if not isinstance(v, list): return []
         ALLOWED = {"travel", "food", "seeding", "news"}
         return [item for item in v if item in ALLOWED]
-
-class StyleVibeTokens(BaseModel):
-    """视觉感知引擎生成的 Vibe Tokens（呼吸感核心）"""
-    primary_color: str = Field("#ff2442", description="提取的主题色/品牌色")
-    primary_color_light: str = Field("rgba(255, 36, 66, 0.1)", description="浅色背景变体（呼吸感背景用）")
-    primary_color_dark: str = Field("#e01d37", description="深色点击变体")
-    background_vibe: str = Field("#ffffff", description="背景调性色")
-    text_hierarchy: Dict[str, str] = Field(
-        default={"title": "#111111", "body": "#333333", "dim": "#999999"},
-        description="文字颜色层级"
-    )
-
-class ComponentStyle(BaseModel):
-    """单组件样式协议"""
-    css_classes: str = Field("", description="Tailwind CSS 类名")
-    inline_styles: Dict[str, str] = Field(default_factory=dict, description="动态注入的内联样式")
-
-class StylePatchOutput(BaseModel):
-    """样式大脑输出的视觉宪法结构"""
-    thought_process: str = Field(description="视觉样式推理过程")
-    global_tokens: StyleVibeTokens = Field(default_factory=StyleVibeTokens, description="从图片提取的全局视觉 Token")
-    global_vars: Dict[str, str] = Field(default_factory=dict, description="注入 CSS 的全局变量")
-    components: Dict[str, ComponentStyle] = Field(default_factory=dict, description="各组件的样式补丁")

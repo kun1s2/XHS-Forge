@@ -2,6 +2,7 @@ from langchain_core.tools import tool
 from app.services.rag_service import retrieve_brand_knowledge
 from app.tools.image_recognition import describe_image
 from app.tools.network_search import search_network_async
+from app.tools.serpapi_search import search_google_images
 import asyncio
 
 @tool
@@ -26,5 +27,13 @@ async def analyze_uploaded_images(image_urls: list[str]) -> str:
         results.append(f"图片 {url} 分析结果：{res}")
     return "\n".join(results)
 
+@tool
+async def google_image_search_tool(query: str) -> str:
+    """当用户要求更换图片、配图，或者组件缺少真实视觉素材时，调用此工具获取 Google 高清图片直链。"""
+    links = await search_google_images(query, num=3)
+    if not links:
+        return "未能搜寻到相关图片，请尝试更换关键词。"
+    return "\n".join(links)
+
 # 注册给大脑的所有工具
-RESEARCH_TOOLS = [retrieve_private_knowledge, search_public_internet, analyze_uploaded_images]
+RESEARCH_TOOLS = [retrieve_private_knowledge, search_public_internet, analyze_uploaded_images, google_image_search_tool]

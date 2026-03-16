@@ -28,6 +28,41 @@ def merge_dsl(left: dict, right: dict) -> dict:
             
     return merged
 
+def merge_patch_tracks(left: dict, right: dict) -> dict:
+    """
+    专门为生长档案设计的合并器：将新记录追加到对应组件的 list 中
+    """
+    if not isinstance(left, dict): left = {}
+    if not isinstance(right, dict): return left
+    
+    merged = left.copy()
+    for k, v in right.items():
+        if isinstance(v, list):
+            if k in merged and isinstance(merged[k], list):
+                merged[k] = merged[k] + v
+            else:
+                merged[k] = v
+    return merged
+
+def restore_component_version(state: Any, element_id: str, version_index: int) -> dict:
+    """
+    【局部回溯逻辑】：从 patch_tracks 中提取特定版本的数据并覆盖 data_dsl
+    """
+    tracks = state.get("patch_tracks", {})
+    if element_id not in tracks or version_index >= len(tracks[element_id]):
+        print(f"⚠️ [回溯失败] 未找到组件 {element_id} 的版本 {version_index}")
+        return {}
+    
+    target_version = tracks[element_id][version_index]
+    data_snapshot = target_version.get("data_snapshot")
+    
+    if not data_snapshot:
+        return {}
+        
+    return {
+        "data_dsl": {element_id: data_snapshot}
+    }
+
 class UIProjectState(TypedDict):
     # 5大独立消息通道 (自带 add_messages 聚合器，自动追加防覆盖)
     main_messages: Annotated[list[BaseMessage], add_messages]
@@ -67,6 +102,9 @@ class UIProjectState(TypedDict):
     # 核心字典，绑定了你极其强大的深度合并 Reducer
     data_dsl: Annotated[dict, merge_dsl]
     style_dsl: Annotated[dict, merge_dsl]
+    
+    # ✨ 核心新增：组件级生长档案
+    patch_tracks: Annotated[dict, merge_patch_tracks]
     
     # ✨ 新增：用于调试的提示词检查槽位 { "node_name": "full_prompt_text" }
     node_prompts: Annotated[dict, merge_dsl]

@@ -255,5 +255,7 @@ async def _run_graph_loop(agent, inputs, config, websocket):
 def _extract_thought(output):
     if not isinstance(output, dict): return None
     for key in ["intent_result", "structure_result", "style_result", "content_result"]:
-        if key in output: return getattr(output[key], "thought_process", None)
+        res_obj = output.get(key)
+        if res_obj is not None:
+            return getattr(res_obj, "thought_process", None)
     return output.get("thought_process")

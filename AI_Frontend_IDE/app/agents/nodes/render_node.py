@@ -93,7 +93,7 @@ def render_component(comp_id: str, comp_data: dict, comp_style: dict) -> str:
             inner_html += '<div class="text-center py-2 text-xs text-gray-400 italic">正在通过互联网获取参数...</div>'
         inner_html += '</div></div>'
         
-    # 5. 渲染 TagList (底部话题标签)
+    # 6. 渲染 TagList (底部话题标签)
     elif comp_type == "TagList":
         inner_html += '<div class="flex flex-wrap gap-2 mt-2">'
         for tag in comp_data.get("tags", []):
@@ -101,6 +101,26 @@ def render_component(comp_id: str, comp_data: dict, comp_style: dict) -> str:
             display_tag = tag if str(tag).startswith('#') else f'#{tag}'
             inner_html += f'<span class="text-[#13386c] bg-blue-50/50 px-2 py-0.5 rounded text-[13px] font-medium cursor-pointer hover:bg-blue-100 transition-colors">{display_tag}</span>'
         inner_html += '</div>'
+
+    # ✨ 任务 2：新增 InteractionsBar (社交互动条) 的渲染逻辑
+    elif comp_type == "InteractionsBar":
+        likes = comp_data.get("likes", "0")
+        collects = comp_data.get("collects", "0")
+        comments = comp_data.get("comments", "0")
+        
+        inner_html += f'''
+        <div class="flex items-center justify-between w-full">
+            <div class="flex gap-6 items-center text-gray-500">
+                <div class="flex items-center gap-1.5"><span class="text-base">🤍</span><span class="text-[13px] font-medium">{likes}</span></div>
+                <div class="flex items-center gap-1.5"><span class="text-base">⭐</span><span class="text-[13px] font-medium">{collects}</span></div>
+                <div class="flex items-center gap-1.5"><span class="text-base">💬</span><span class="text-[13px] font-medium">{comments}</span></div>
+            </div>
+            <div class="flex gap-3">
+                <button class="px-5 py-2 bg-gray-100 text-gray-800 text-[13px] font-bold rounded-full hover:bg-gray-200 transition-colors">分享</button>
+                <button class="px-5 py-2 bg-[#ff2442] text-white text-[13px] font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注</button>
+            </div>
+        </div>
+        '''
         
     # 兜底：如果是不认识的组件，直接把数据打出来
     else:

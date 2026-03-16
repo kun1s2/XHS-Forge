@@ -115,29 +115,43 @@ async def style_agent(state: UIProjectState) -> dict:
         }
         
         # 1. 直接获取结构化输出
-        # ✨ 优化：针对 OpenAI 模型，强制使用 function_calling 代替 json_schema 模式
+        # ✨ 架构升级：使用 List 结构消除模型对 Dict Key 的注意力幻觉
         structured_llm = llm.with_structured_output(StylePatchOutput, method="function_calling")
-        result = await invoke_with_retry(prompt | structured_llm, inputs)
+        
+        try:
+            result = await invoke_with_retry(prompt | structured_llm, inputs)
+        except Exception as e:
+            print(f"❌ [Style Agent] 结构化解析彻底失败: {e}")
+            raise e # 允许重试或抛出，不再进行自杀式降级
         
         # ✨ 记录提示词快照
         rendered_messages = prompt.format_messages(**inputs)
         prompt_snapshot = [{"role": m.type, "content": m.content} for m in rendered_messages]
 
-        # 6. 组装增量补丁
+        # 6. 组装增量补丁（将 List 重新转回全局 State 兼容的 Dict）
         style_patch = {}
         style_patch["global_vars"] = {
             "--primary-vibe": primary_vibe,
             "--primary-vibe-light": primary_vibe_light,
             "--accent-vibe": accent_vibe,
-            **result.global_vars
         }
+        
+        # 合并全局变量
+        if hasattr(result, 'global_vars') and result.global_vars:
+            style_patch["global_vars"].update(result.global_vars)
             
-        for comp_id, style_data in result.components.items():
-            # 过滤 None 确保补丁纯净
-            style_patch[comp_id] = {k: v for k, v in style_data.model_dump().items() if v is not None}
+        # 🌟 核心重构：List -> Dict 无损组装
+        if hasattr(result, 'components') and isinstance(result.components, list):
+            for patch_item in result.components:
+                comp_id = patch_item.component_id
+                style_data = patch_item.style
+                
+                # 过滤 None 并转为纯 Dict 存入 Patch
+                if style_data:
+                    style_patch[comp_id] = {k: v for k, v in style_data.model_dump().items() if v is not None}
                 
         return {
-            "style_result": result, # ✨ 供 WebSocket 截获思维链
+            "style_result": result,
             "style_dsl": style_patch,
             "node_prompts": {"style_node": prompt_snapshot}
         }
