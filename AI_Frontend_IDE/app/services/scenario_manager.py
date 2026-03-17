@@ -38,13 +38,17 @@ class ScenarioManager:
                 }
                 print(f"📦 [场景管理器] 已挂载插件: {name}")
 
-    def get_config(self, scenario_id: str) -> Dict[str, Any]:
-        """获取场景配置"""
-        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("config", {})
+    def get_style_mappings(self, scenario_id: str) -> Dict[str, Dict[str, str]]:
+        """获取场景专属的样式翻译词典"""
+        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("config", {}).get("style_mappings", {})
 
-    def get_prompt(self, scenario_id: str) -> str:
-        """获取场景专属提示词"""
-        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("prompt", "")
+    def get_tools_whitelist(self, scenario_id: str) -> List[str]:
+        """获取场景工具白名单"""
+        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("config", {}).get("tools_whitelist", [])
+
+    def get_contract(self, scenario_id: str) -> Dict[str, Any]:
+        """获取业务原型契约"""
+        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("config", {}).get("contract", {})
 
 # 全局单例
 scenario_manager = ScenarioManager()

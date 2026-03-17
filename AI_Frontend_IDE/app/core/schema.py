@@ -3,53 +3,24 @@ from typing import List, Dict, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field, field_validator
 import re
 
-# --- ✨ 维度一：业务建模 —— Archetype 宪法 ---
+# --- ✨ 维度一：业务建模 —— Archetype 协议 ---
 
 class ArchetypeEnum(str, Enum):
-    """业务场景原型枚举"""
-    GENERAL = "general"      # 通用/未分类
-    GOURMET = "gourmet"      # 探店美食
-    TRAVEL = "travel"        # 旅游游记
-    SEEDING = "seeding"      # 好物种草/带货
-    NEWS = "news"            # 资讯攻略
-    OOTD = "ootd"            # 每日穿搭/美妆
+    """业务场景原型枚举 (保留常用枚举，建议使用字符串标签以实现完全解耦)"""
+    GENERAL = "general"
+    GOURMET = "gourmet"
+    TRAVEL = "travel"
+    SEEDING = "seeding"
+    NEWS = "news"
 
 class ArchetypeContract(BaseModel):
-    """场景契约：规定了该场景下【必须】包含的组件类型"""
-    archetype: ArchetypeEnum
-    required_components: List[str]
-    suggested_order: List[str]
-    description: str
+    """场景契约：定义了该场景下【必须】包含的组件与排版规范"""
+    scenario_id: str
+    required_components: List[str] = Field(default_factory=list)
+    suggested_order: List[str] = Field(default_factory=list)
+    description: str = ""
 
-# 契约映射表：确保生成式 UI 的确定性
-ARCHETYPE_CONTRACTS: Dict[ArchetypeEnum, ArchetypeContract] = {
-    ArchetypeEnum.GOURMET: ArchetypeContract(
-        archetype=ArchetypeEnum.GOURMET,
-        required_components=["CoverSwiper", "TitleBlock", "ProductCard", "LocationBlock", "TagList", "InteractionsBar"],
-        suggested_order=["CoverSwiper", "TitleBlock", "ProductCard", "LocationBlock", "StoryText", "TagList", "InteractionsBar"],
-        description="探店美食契约：必须包含商品/店铺卡片、评分以及地理位置打卡。"
-    ),
-    ArchetypeEnum.TRAVEL: ArchetypeContract(
-        archetype=ArchetypeEnum.TRAVEL,
-        required_components=["CoverSwiper", "TitleBlock", "StoryText", "TagList", "InteractionsBar"],
-        suggested_order=["CoverSwiper", "TitleBlock", "StoryText", "TagList", "InteractionsBar"],
-        description="旅游游记契约：强调多图轮播与大段文字叙事。"
-    ),
-    ArchetypeEnum.SEEDING: ArchetypeContract(
-        archetype=ArchetypeEnum.SEEDING,
-        required_components=["CoverSwiper", "ProductCard", "ProductSpecCard", "StoryText", "TagList", "InteractionsBar"],
-        suggested_order=["CoverSwiper", "ProductCard", "ProductSpecCard", "TitleBlock", "StoryText", "TagList", "InteractionsBar"],
-        description="种草带货契约：必须将商品卡片和参数规格置于显眼位置。"
-    ),
-    ArchetypeEnum.NEWS: ArchetypeContract(
-        archetype=ArchetypeEnum.NEWS,
-        required_components=["TitleBlock", "StoryText", "TagList", "InteractionsBar"],
-        suggested_order=["TitleBlock", "StoryText", "TagList", "InteractionsBar"],
-        description="资讯攻略契约：强调标题的即时性与内容的条理性。"
-    )
-}
-
-# --- ✨ 维度三：工程契约 —— DSL 规范 ---
+# --- ✨ 维度二：工程契约 —— DSL 规范 ---
 
 class UINode(BaseModel):
     """UI 抽象语法树的核心节点"""
