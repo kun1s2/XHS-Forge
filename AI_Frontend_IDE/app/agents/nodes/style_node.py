@@ -5,25 +5,40 @@ from app.services.scenario_manager import scenario_manager
 
 def apply_visual_styles(node: Dict[str, Any], scenario_id: str) -> Dict[str, Any]:
     """
-    【递归样式映射引擎】：遍历 AST，将语义 Props 翻译为物理类名
+    【递归样式映射引擎 3.0】：递归翻译 AST，支持场景规则 + 通用布局拦截
     """
     props = node.get("props", {})
     computed_classes = []
     
-    # 动态获取当前场景的自治词典
+    # 1. 动态获取场景自治规则 (variant, animation 等)
     scenario_config = scenario_manager.get_config(scenario_id)
     visual_rules = scenario_config.get("visual_rules", {})
     
-    # 执行映射
     for category, mappings in visual_rules.items():
         val = props.get(category)
         if val and val in mappings:
             computed_classes.append(mappings[val])
             
-    # 注入类名
+    # 2. ✨ [新增长官指令]：通用布局拦截器 (Infrastructure Props)
+    # 处理跨列
+    if "col_span" in props:
+        computed_classes.append(f"col-span-{props['col_span']}")
+    
+    # 处理视觉优先级 (动态调节阴影和缩放)
+    priority = props.get("visual_priority", "medium")
+    if priority == "high":
+        computed_classes.append("shadow-2xl z-10 scale-[1.03] ring-2 ring-primary/20")
+    elif priority == "low":
+        computed_classes.append("opacity-80 scale-95 grayscale-[10%]")
+
+    # 处理破屏感 (Negative Margin)
+    if props.get("negative_margin") == "true":
+        computed_classes.append("-mt-8 -mx-2 rotate-1 z-20")
+
+    # 3. 注入翻译后的物理类名
     node["computed_classes"] = " ".join(computed_classes)
     
-    # 递归处理子节点
+    # 4. 递归处理
     for child in node.get("children", []):
         if isinstance(child, dict):
             apply_visual_styles(child, scenario_id)

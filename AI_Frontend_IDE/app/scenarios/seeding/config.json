@@ -1,25 +1,25 @@
 {
   "scenario_id": "seeding",
-  "name": "感性手账种草赛道",
-  "description": "拒绝说明书，回归真实博主视角的拼贴手账风种草",
+  "name": "小红书精美种草赛道",
+  "description": "回归经典 XHS 纯净排版，高转化大圆角视觉体系",
   "contract": {
-    "required_components": ["CollageContainer", "PolaroidImage", "HandwrittenText", "InteractionsBar"],
-    "suggested_order": ["CollageContainer", "TitleBlock", "PolaroidImage", "HandwrittenText", "StoryText", "ProductCard", "InteractionsBar"]
+    "required_components": ["CoverSwiper", "BentoGrid", "StoryText", "TagList", "InteractionsBar"],
+    "suggested_order": ["CoverSwiper", "TitleBlock", "StoryText", "BentoGrid", "TagList", "InteractionsBar"]
   },
   "visual_rules": {
     "variant": {
-      "paper-cut": "bg-[#FFFDF9] shadow-[2px_2px_0px_rgba(0,0,0,0.05)] border-l-4 border-rose-200",
-      "washi-tape": "border-t-[12px] border-dashed border-rose-300/40 relative before:content-[''] before:absolute before:-top-4 before:left-4 before:w-12 before:h-8 before:bg-rose-100/60 before:-rotate-3"
+      "xhs-clean": "bg-white rounded-[32px] shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-gray-50 p-6",
+      "glassmorphism": "bg-white/70 backdrop-blur-md rounded-[32px] p-5 shadow-xl border border-white/50"
     },
     "animation": {
-      "bouncy-pop": "hover:scale-105 active:scale-95 transition-all duration-500 ease-out",
-      "handwritten-fade": "animate-in fade-in duration-1000 slide-in-from-left-2"
+      "smooth-fade": "animate-in fade-in duration-700 slide-in-from-bottom-2",
+      "bouncy-pop": "hover:scale-[1.02] active:scale-[0.98] transition-all duration-300"
     }
   },
   "allowed_tools": ["network_search", "image_vibe"],
   "visual_preference": {
-    "variant": "paper-cut",
-    "color_palette": "warm-peach"
+    "variant": "xhs-clean",
+    "color_palette": "#ff2442"
   },
-  "search_strategy": "优先搜索：{product_name} + 缺点/吐槽/踩雷/真实评价。要求 AI 先进行【痛点对冲】，禁止盲目吹捧参数。"
+  "search_strategy": "深度挖掘真实用户槽点，为欲扬先抑提供素材"
 }
