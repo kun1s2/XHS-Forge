@@ -44,6 +44,8 @@ class OutlineOutput(BaseModel):
     page_title: str = Field(..., description="网页标签标题")
     page_theme: Dict[str, str] = Field(default_factory=dict, description="全局 CSS 变量字典，如 {'--primary': '#FF2D55', '--radius': '16px'}")
     root: UINode = Field(description="页面的根节点，通常是一个 Container")
+    
+    # ✅ 已重构：ArchetypeEnum -> str
     detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
 
 class ComponentData(BaseModel):
@@ -115,6 +117,8 @@ class StructurePatchOutput(BaseModel):
     page_title: str = Field(..., description="网页标签标题")
     page_order: List[str] = Field(..., description="组件 ID 的线性排列顺序")
     components: Dict[str, ComponentData] = Field(..., description="组件的具体数据负载")
+    
+    # ✅ 已重构：ArchetypeEnum -> str
     detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
 
 class SurgicalPatchOutput(BaseModel):
