@@ -51,7 +51,8 @@
     <div class="flex-1 relative overflow-hidden bg-[#141414] flex">
 
       <div v-show="viewMode === 'preview'" class="w-full h-full overflow-y-auto bg-[#141414] flex items-start justify-center custom-scrollbar">
-        <DynamicRenderer v-if="pageData && Object.keys(pageData).length > 0" class="shadow-2xl my-8 border border-[#333]/50 rounded-xl" />
+        <!-- ✨ 哨兵回归：放弃脆弱的 Iframe，使用内存级原生渲染 -->
+        <DynamicRenderer v-if="pageData && (pageData as any).root" class="shadow-2xl my-8 border border-[#333]/50 rounded-xl" />
         <div v-else class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 bg-[#141414]">
           <div class="w-20 h-20 rounded-full bg-[#1e1e1e] border border-[#333] flex items-center justify-center mb-6 shadow-inner">
             <span class="text-4xl animate-pulse">🎨</span>

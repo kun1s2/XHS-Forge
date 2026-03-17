@@ -7,6 +7,8 @@ export const MATERIAL_MAP: Record<string, string> = {
   "paper-cut": "bg-white shadow-[0_4px_10px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] border-b-4 border-gray-200 transition-transform active:translate-y-1",
   holographic: "bg-gradient-to-br from-fuchsia-500/20 via-cyan-500/20 to-lime-500/20 backdrop-blur-md border border-white/30",
   "flat-dark": "bg-gray-900 text-gray-100 border border-gray-800 shadow-2xl",
+  "paper-cut": "bg-[#FFFDF9] shadow-[2px_4px_12px_rgba(0,0,0,0.08)] border border-stone-200/50",
+  "washi-tape": "relative before:absolute before:-top-3 before:left-1/2 before:-translate-x-1/2 before:w-16 before:h-6 before:bg-rose-200/50 before:-rotate-2 before:backdrop-blur-sm before:content-[''] before:z-20",
 };
 
 export const PRIORITY_MAP: Record<string, string> = {

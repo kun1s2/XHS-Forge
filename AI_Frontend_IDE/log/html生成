@@ -3,136 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>小米最新旗舰手机测评</title>
+    <title>GLM大模型测评</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        :root { --primary-vibe: #FF2D55; --primary-vibe-light: rgba(255, 45, 85, 0.1); --accent-vibe: #FFCC00; --spacing-sm: 16px; --spacing-md: 24px; --spacing-lg: 40px }
+        :root {  }
         body { 
-            background-color: var(--bg-color, #f5f5f5); 
-            color: var(--text-color, #333333); 
+            background-color: var(--bg-color, #f9fafb); 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
+            margin: 0; padding: 0;
+            display: flex; justify-content: center;
         }
-        /* 为前端鼠标悬停锁定提供高亮特效 */
-        [data-comp-id]:hover {
-            outline: 2px dashed #ff2442;
-            outline-offset: -2px;
-            cursor: pointer;
-        }
-        /* 模拟手机容器 */
-        .mobile-container {
-            width: 100%;
-            max-width: 420px;
-            background-color: #ffffff;
+        .font-serif { font-family: 'Caveat', serif; }
+        [data-comp-id]:hover { outline: 2px dashed #ff2442; outline-offset: -2px; cursor: pointer; }
+        .mobile-viewport {
+            width: 100%; max-width: 420px;
             min-height: 100vh;
-            box-shadow: 0 0 20px rgba(0,0,0,0.05);
-            position: relative;
-            overflow-x: hidden;
-        }
-        /* 隐藏滚动条 */
-        .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-        }
-        .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+            background-color: #ffffff;
+            box-shadow: 0 0 40px rgba(0,0,0,0.05);
+            padding: 24px 16px 80px 16px;
         }
     </style>
 </head>
 <body>
-    <div class="mobile-container pb-20">
-        <!-- 顶部导航栏模拟 -->
-        <div class="sticky top-0 z-50 bg-white/95 backdrop-blur-md px-4 py-3 flex justify-between items-center border-b border-gray-100">
-            <div class="text-xl font-bold cursor-pointer hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded-full transition-colors">←</div>
-            <div class="flex gap-5 text-[15px]">
-                <span class="text-gray-500 font-medium">发现</span>
-                <span class="text-gray-500 font-medium">附近</span>
-                <span class="text-gray-900 border-b-2 border-[#ff2442] pb-1 font-semibold">北京</span>
+    <div class="mobile-viewport">
+        <div id="collage_glm_1" data-comp-id="collage_glm_1" class="relative w-full py-8 px-4 flex flex-col items-center "><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-1 mb-4" style="z-index: 10">
+        <div id="polaroid_glm_1" data-comp-id="polaroid_glm_1" class="bg-white p-3 pb-10 shadow-xl border border-gray-100 flex flex-col gap-3 group ">
+            <div class="aspect-square bg-gray-50 overflow-hidden relative">
+                <img src="https://picsum.photos/seed/xhs/800/800" class="w-full h-full object-cover" />
+                <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none"></div>
             </div>
-            <div class="text-xl cursor-pointer hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded-full transition-colors">🔍</div>
+            <div class="text-center font-serif italic text-stone-500 text-sm tracking-wide">Moment in 2026</div>
         </div>
-
-        <!-- 动态生成的笔记内容 -->
-        <div class="w-full">
-            <div id="product_1" data-comp-id="product_1" class="bg-white shadow-sm rounded-2xl p-4 mb-6 relative" ><div class="flex bg-gray-50 rounded-xl p-3 items-center border border-gray-100/50"><img src="https://example.com/xiaomi_13_pro.jpg" class="w-16 h-16 object-cover rounded-lg mr-3 shadow-sm border border-gray-200/50"/><div class="flex-1 min-w-0"><div class="text-sm text-gray-800 line-clamp-2 mb-1.5 font-medium">小米 13 Pro</div><div class="text-[#ff2442] font-bold text-base">￥4999 起</div></div><button class="ml-3 shrink-0 bg-[#ff2442] text-white text-xs px-4 py-2 rounded-full font-medium">去看看</button></div></div>
-<div id="spec_1" data-comp-id="spec_1" class="bg-white shadow-sm rounded-2xl p-4 mb-6 relative" ><div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100/50"><div class="flex items-center gap-2 mb-3">  <div class="w-1 h-4 rounded-full bg-[var(--primary-vibe)]"></div>  <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Product Specs</h3></div><div class="grid grid-cols-1 gap-2">
-        <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
-          <span class="text-[var(--primary-vibe)] text-xs">✓</span>
-          <span class="text-xs text-gray-700 leading-tight">处理器: 高通骁龙8 Gen 1</span>
-        </div>
-        
-        <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
-          <span class="text-[var(--primary-vibe)] text-xs">✓</span>
-          <span class="text-xs text-gray-700 leading-tight">屏幕: 6.73英寸 2K LTPO AMOLED</span>
-        </div>
-        
-        <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
-          <span class="text-[var(--primary-vibe)] text-xs">✓</span>
-          <span class="text-xs text-gray-700 leading-tight">分辨率: 3200*1440</span>
-        </div>
-        
-        <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
-          <span class="text-[var(--primary-vibe)] text-xs">✓</span>
-          <span class="text-xs text-gray-700 leading-tight">摄像头: 后置三摄系统，包含50MP主摄</span>
-        </div>
-        
-        <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
-          <span class="text-[var(--primary-vibe)] text-xs">✓</span>
-          <span class="text-xs text-gray-700 leading-tight">电池: 5160mAh</span>
-        </div>
-        </div></div></div>
-<div id="title_1" data-comp-id="title_1" class="text-xl font-bold text-gray-800 mb-6 relative" ><h1 class="text-xl font-bold text-gray-900 leading-snug">小米手机测评：硬核数码的最佳选择</h1></div>
-<div id="text_1" data-comp-id="text_1" class="text-gray-800 p-4 mb-6 relative" ><p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">作为一名硬核数码博主，今天我来给大家带来最新的小米手机测评。小米在手机市场的表现一直备受关注，而这款新机型更是将其创新和性价比推向了一个新的高度。</p><p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">首先，外观设计上，小米手机延续了简约而不失时尚的风格，采用了全新的玻璃材质，手感极佳。屏幕的色彩表现也非常出色，适合各种场景下的使用。</p><p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">性能方面，这款小米手机搭载了最新的处理器，配合高达12GB的内存，日常使用和大型游戏都能流畅运行。</p><p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">在拍照方面，小米手机的相机系统再次升级，尤其是在夜景模式下表现尤为突出，能够捕捉到更多细节，满足摄影爱好者的需求。</p><p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">最后，续航能力也让人满意，4500mAh的电池配合优化的系统，日常使用完全可以撑过一天。</p><p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">总的来说，这款小米手机在各个方面都表现优异，值得推荐给广大用户。</p></div>
-<div id="social_1" data-comp-id="social_1" class="flex justify-between items-center p-4 bg-gray-100 rounded-2xl shadow-sm relative" >
-    <div class="flex items-center justify-between w-full">
-        <div class="flex gap-6 items-center text-gray-500">
-            <div class="flex items-center gap-1.5"><span class="text-base">🤍</span><span class="text-[13px] font-medium">1.2w</span></div>
-            <div class="flex items-center gap-1.5"><span class="text-base">⭐</span><span class="text-[13px] font-medium">856</span></div>
-            <div class="flex items-center gap-1.5"><span class="text-base">💬</span><span class="text-[13px] font-medium">432</span></div>
-        </div>
-        <div class="flex gap-3">
-            <button class="px-5 py-2 bg-gray-100 text-gray-800 text-[13px] font-bold rounded-full hover:bg-gray-200 transition-colors">分享</button>
-            <button class="px-5 py-2 bg-[#ff2442] text-white text-[13px] font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注</button>
-        </div>
-    </div>
-    </div>
-
-        </div>
-        
-        <!-- 底部互动栏模拟 -->
-        <div class="fixed bottom-0 w-full max-w-[420px] bg-white border-t border-gray-100 px-4 py-2.5 flex justify-between items-center z-50">
-            <div class="bg-gray-100 rounded-full px-4 py-2 text-[13px] text-gray-500 flex-1 mr-4 cursor-text">说点什么...</div>
-            <div class="flex gap-5 text-xl">
-                <span class="cursor-pointer hover:scale-110 transition-transform">🤍</span>
-                <span class="cursor-pointer hover:scale-110 transition-transform">⭐</span>
-                <span class="cursor-pointer hover:scale-110 transition-transform">💬</span>
+        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 rotate-1 mb-4" style="z-index: 11">
+        <div id="handwritten_mood_1" data-comp-id="handwritten_mood_1" class="p-4 transform -rotate-1 ">
+            <div class="relative inline-block">
+                <div class="absolute -bottom-1 -left-1 w-full h-3 bg-rose-100/40 -z-10 rounded-full"></div>
+                <p class="text-stone-700 font-serif italic text-[16px] leading-relaxed">"博主的碎碎念..."</p>
             </div>
         </div>
+        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-2 mb-4" style="z-index: 12"><div id="story_glm_1" data-comp-id="story_glm_1" class="px-2 "><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">最近体验了一把GLM大模型，简直颠覆了我对AI的认知！不管是文本生成还是数据处理，它都能做到快速、精准！</p><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">GLM在数据处理方面的速度真是令人惊叹，几乎没有等待的时间，快速响应让我在工作中大大提高了效率。</p><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">就拿我平时的工作需求来说，GLM不仅能生成高质量的文本，还能理解复杂的指令，真的是太智能了！每次使用都能让我感受到AI的魅力。</p><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">总的来说，GLM大模型是一个值得尝试的强大工具，尤其适合需要高效数据处理的朋友们！快来体验一下吧！</p></div></div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 rotate-2 mb-4" style="z-index: 13">
+        <div id="handwritten_mood_2" data-comp-id="handwritten_mood_2" class="p-4 transform -rotate-1 ">
+            <div class="relative inline-block">
+                <div class="absolute -bottom-1 -left-1 w-full h-3 bg-rose-100/40 -z-10 rounded-full"></div>
+                <p class="text-stone-700 font-serif italic text-[16px] leading-relaxed">"博主的碎碎念..."</p>
+            </div>
+        </div>
+        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-1 mb-4" style="z-index: 14">
+        <div id="polaroid_glm_2" data-comp-id="polaroid_glm_2" class="bg-white p-3 pb-10 shadow-xl border border-gray-100 flex flex-col gap-3 group ">
+            <div class="aspect-square bg-gray-50 overflow-hidden relative">
+                <img src="https://picsum.photos/seed/xhs/800/800" class="w-full h-full object-cover" />
+                <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none"></div>
+            </div>
+            <div class="text-center font-serif italic text-stone-500 text-sm tracking-wide">Moment in 2026</div>
+        </div>
+        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 rotate-1 mb-4" style="z-index: 15">
+        <div id="handwritten_mood_3" data-comp-id="handwritten_mood_3" class="p-4 transform -rotate-1 ">
+            <div class="relative inline-block">
+                <div class="absolute -bottom-1 -left-1 w-full h-3 bg-rose-100/40 -z-10 rounded-full"></div>
+                <p class="text-stone-700 font-serif italic text-[16px] leading-relaxed">"博主的碎碎念..."</p>
+            </div>
+        </div>
+        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-2 mb-4" style="z-index: 16">
+        <div id="interactions_glm_1" data-comp-id="interactions_glm_1" class="flex items-center justify-between py-4 border-t border-gray-50 ">
+            <div class="flex gap-6 text-gray-400">
+                <div class="flex items-center gap-1"><span>🤍</span><span class="text-xs font-bold">0</span></div>
+                <div class="flex items-center gap-1"><span>⭐</span><span class="text-xs font-bold">0</span></div>
+            </div>
+            <button class="px-6 py-2 bg-[#ff2442] text-white text-xs font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注博主</button>
+        </div>
+        </div></div>
     </div>
-    
-    <!-- 注入前端通信脚手架 -->
     <script>
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', e => {
             const comp = e.target.closest('[data-comp-id]');
-            if (comp) {
-                const compId = comp.getAttribute('data-comp-id');
-                window.parent.postMessage({ type: 'SELECT_REGION', id: compId }, '*');
-            }
-        });
-        document.addEventListener('mouseover', function(e) {
-            const comp = e.target.closest('[data-comp-id]');
-            if (comp) {
-                window.parent.postMessage({ type: 'HOVER_REGION', id: comp.getAttribute('data-comp-id') }, '*');
-            }
-        });
-        document.addEventListener('mouseout', function(e) {
-            const comp = e.target.closest('[data-comp-id]');
-            if (comp) {
-                window.parent.postMessage({ type: 'UNHOVER_REGION' }, '*');
-            }
+            if (comp) window.parent.postMessage({ type: 'SELECT_REGION', id: comp.dataset.compId }, '*');
         });
     </script>
 </body>

@@ -1,7 +1,7 @@
 import logging
 import base64
 import asyncio
-from typing import Optional
+from typing import Optional, Union
 from zhipuai import ZhipuAI
 from app.core.config import settings
 
@@ -17,24 +17,34 @@ def _get_zhipu_client():
         logger.warning("获取智谱 Client 失败: %s", e)
         return None
 
-def describe_image(image_bytes: bytes, prompt: str = "请详细描述这张图片的内容。") -> Optional[str]:
-    """[多模态感知] 使用智谱 GLM-4.6V-FlashX 进行图片解析"""
+def describe_image(image_input: Union[bytes, str], prompt: str = "请详细描述这张图片的内容。") -> Optional[str]:
+    """
+    [多模态感知] 使用智谱 GLM-4.6V-FlashX 进行图片解析。
+    支持 image_bytes (bytes) 或 image_url (str)。
+    """
     client = _get_zhipu_client()
     if not client: return "未配置智谱 API Key。"
 
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    # 处理输入类型
+    if isinstance(image_input, bytes):
+        base64_image = base64.b64encode(image_input).decode("utf-8")
+        image_url_obj = {"url": f"data:image/jpeg;base64,{base64_image}"}
+    else:
+        # 假设是 URL
+        image_url_obj = {"url": image_input}
+
     messages = [
         {
             "role": "user",
             "content": [
                 {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                {"type": "image_url", "image_url": image_url_obj}
             ]
         }
     ]
 
     def _do_recognition():
-        # 指挥官指令：使用 glm-4.6v-flashx
+        # 使用智谱多模态大模型
         return client.chat.completions.create(
             model="glm-4.6v-flashx",
             messages=messages,
@@ -48,5 +58,6 @@ def describe_image(image_bytes: bytes, prompt: str = "请详细描述这张图�
         logger.error("智谱识图异常: %s", e)
         return f"识图失败: {e}"
 
-async def describe_image_async(image_bytes: bytes, prompt: str = "请详细描述这张图片的内容。") -> Optional[str]:
-    return await asyncio.to_thread(describe_image, image_bytes, prompt)
+async def describe_image_async(image_input: Union[bytes, str], prompt: str = "请详细描述这张图片的内容。") -> Optional[str]:
+    """异步封装"""
+    return await asyncio.to_thread(describe_image, image_input, prompt)

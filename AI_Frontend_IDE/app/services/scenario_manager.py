@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 class ScenarioManager:
     """
@@ -37,6 +37,14 @@ class ScenarioManager:
                     "path": scenario_dir
                 }
                 print(f"📦 [场景管理器] 已挂载插件: {name}")
+
+    def get_config(self, scenario_id: str) -> Dict[str, Any]:
+        """【通用配置网关】：获取场景插件的原始 JSON 配置"""
+        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("config", {})
+
+    def get_prompt(self, scenario_id: str) -> str:
+        """【专属提示词网关】：获取场景插件的 prompts.xml 内容"""
+        return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("prompt", "")
 
     def get_style_mappings(self, scenario_id: str) -> Dict[str, Dict[str, str]]:
         """获取场景专属的样式翻译词典"""

@@ -79,6 +79,8 @@ async def outline_agent(state: UIProjectState) -> dict:
         
         # 3. 处理 AST 输出
         ast_root = result.root.model_dump(exclude_none=True)
+        # ✨ 哨兵纠偏：确保 Archetype 是字符串标签
+        final_archetype = str(result.detected_archetype) if result.detected_archetype else active_archetype
         
         # 初始化 data_dsl 的大纲部分
         dsl_patch = {
@@ -92,7 +94,7 @@ async def outline_agent(state: UIProjectState) -> dict:
         return {
             "page_outline": ast_root,
             "data_dsl": dsl_patch,
-            "active_archetype": active_archetype
+            "active_archetype": final_archetype
         }
                 
     except Exception as e:

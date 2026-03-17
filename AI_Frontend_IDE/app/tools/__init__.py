@@ -14,6 +14,11 @@ from app.tools.amap import (
     input_tips_structured_async,
     place_search_async,
     place_search_structured_async,
+    amap_weather_query,
+)
+from app.tools.image_recognition import (
+    describe_image,
+    describe_image_async,
 )
 
 __all__ = [
@@ -28,4 +33,7 @@ __all__ = [
     "input_tips_structured_async",
     "place_search_async",
     "place_search_structured_async",
+    "amap_weather_query",
+    "describe_image",
+    "describe_image_async",
 ]

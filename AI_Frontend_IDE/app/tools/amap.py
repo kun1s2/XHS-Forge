@@ -323,3 +323,41 @@ async def place_search_structured_async(
     if not data or data.get("status") != "1":
         return []
     return data.get("pois") or []
+
+
+# ---------- 天气查询 ----------
+
+
+async def amap_weather_query(
+    city: str,
+    extensions: str = "base",
+    api_key: Optional[str] = None,
+) -> str:
+    """
+    根据城市名称或 Adcode 查询实时或预报天气。
+    extensions: base 为实时，all 为预报。
+    """
+    key = (api_key or "").strip() or _get_key()
+    if not key:
+        return "[高德] 未配置 AMAP_WEB_SERVICE_KEY。"
+    if not (city or "").strip():
+        return "[高德] 天气查询：城市不能为空。"
+    
+    # 尝试先获取 adcode (高德天气 API 强依赖 adcode)
+    geo_data = await geocode_structured_async(city)
+    if not geo_data:
+        return f"[高德] 天气查询：未找到城市「{city}」。"
+    
+    adcode = geo_data[0].get("adcode") or geo_data[0].get("district") # 兼容处理
+    # 重新请求天气
+    params = {"key": key, "city": city, "output": "json", "extensions": extensions}
+    data = await _get(f"{AMAP_BASE}/v3/weather/weatherInfo", params)
+    if not data or data.get("status") != "1":
+        return f"[高德] 天气查询失败: {data.get('info', '未知')}。"
+    
+    lives = data.get("lives") or []
+    if not lives:
+        return f"[高德] 未找到「{city}」的天气信息。"
+    
+    w = lives[0]
+    return f"【{w.get('city')}】天气: {w.get('weather')} | 温度: {w.get('temperature')}°C | 风向: {w.get('winddirection')} | 湿度: {w.get('humidity')}%"

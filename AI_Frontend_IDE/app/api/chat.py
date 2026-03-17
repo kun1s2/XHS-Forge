@@ -176,6 +176,10 @@ async def _run_graph_loop(agent, inputs, config, websocket):
     current_inputs = inputs
     resume_count = 0
     MAX_RESUME = 10
+    
+    # 🌟 哨兵监控：实时捕获最后一公里产生的物理资产
+    final_oss_url = None
+    final_html = ""
 
     while resume_count < MAX_RESUME:
         if websocket.client_state != WebSocketState.CONNECTED:
@@ -186,6 +190,14 @@ async def _run_graph_loop(agent, inputs, config, websocket):
             if websocket.client_state != WebSocketState.CONNECTED: return
             kind = event["event"]
             
+            # 1. 物理资产捕获 (render 节点产出)
+            if kind == "on_chain_end" and event["name"] == "render":
+                output = event["data"].get("output", {})
+                final_oss_url = output.get("final_oss_url")
+                final_html = output.get("final_html", "")
+                if settings.XHS_FORGE_DEBUG:
+                    print(f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else 'None'}...")
+
             # --- DEBUG 日志输出 ---
             if settings.XHS_FORGE_DEBUG:
                 if kind == "on_chain_start" and event["name"] != "LangGraph":
@@ -228,15 +240,16 @@ async def _run_graph_loop(agent, inputs, config, websocket):
         snapshot = await agent.aget_state(config)
         if not snapshot.next:
             # 运行结束，下发最终结果
+            # ✨ 哨兵补丁：优先使用实时捕获的结果，如果没捕获到再用快照兜底
             await websocket.send_json({
                 "event": "turn_end",
                 "data": {
                     "checkpoint_id": snapshot.config["configurable"]["checkpoint_id"],
-                    "oss_url": snapshot.values.get("final_oss_url"),
+                    "oss_url": final_oss_url or snapshot.values.get("final_oss_url"),
                     "image_assets": snapshot.values.get("image_assets", []),
                     "page_data": snapshot.values.get("data_dsl", {}),
                     "style_data": snapshot.values.get("style_dsl", {}),
-                    "source_code": snapshot.values.get("final_html", ""),
+                    "source_code": final_html or snapshot.values.get("final_html", ""),
                 }
             })
             return

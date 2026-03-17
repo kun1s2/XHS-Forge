@@ -3,12 +3,17 @@ import { defineProps, computed } from 'vue';
 import { resolveNodeStyles } from '../../utils/StyleDictionary';
 import { resolveResponsiveLayout, getCurrentBreakpoint } from '../../utils/LayoutSolver';
 
+// 引入新原子组件
+import CollageContainer from './blocks/CollageContainer.vue';
+import PolaroidImage from './blocks/PolaroidImage.vue';
+import HandwrittenText from './blocks/HandwrittenText.vue';
+
 // 模拟窗口宽度，实际开发中可以接入 ResizeObserver
 const windowWidth = window.innerWidth;
 const breakpoint = getCurrentBreakpoint(windowWidth);
 
 interface UINode {
-  id: str;
+  id: string;
   component_type: string;
   props: Record<string, any>;
   children?: UINode[];
@@ -25,7 +30,7 @@ const props = defineProps<{
 const computedClasses = computed(() => {
   const baseStyles = resolveNodeStyles(props.node.props);
   const layoutStyles = resolveResponsiveLayout(props.node.props.col_span || 1, breakpoint);
-  return `${baseStyles} ${layoutStyles}`.strip();
+  return `${baseStyles} ${layoutStyles}`.trim();
 });
 
 // 2. 动效延迟计算
@@ -59,6 +64,10 @@ const nodeData = computed(() => props.pageData[props.node.id] || {});
       </div>
     </template>
 
+    <template v-else-if="node.component_type === 'CollageContainer'">
+      <CollageContainer :node="node" :pageData="pageData" />
+    </template>
+
     <template v-else-if="node.component_type === 'BentoGrid'">
       <div :class="['grid gap-4 w-full', `grid-cols-${node.props.cols || 2}`]">
         <XForgeRenderer 
@@ -90,9 +99,17 @@ const nodeData = computed(() => props.pageData[props.node.id] || {});
         <img v-if="nodeData.image_url" :src="nodeData.image_url" class="w-16 h-16 rounded-lg object-cover" />
         <div class="flex-1">
           <div class="font-bold text-sm line-clamp-1">{{ nodeData.title }}</div>
-          <div class="text-primary font-bold">{{ nodeData.price }}</div>
+          <div class="text-rose-500 font-bold">{{ nodeData.price }}</div>
         </div>
       </div>
+    </template>
+
+    <template v-else-if="node.component_type === 'PolaroidImage'">
+      <PolaroidImage :node="node" :pageData="pageData" />
+    </template>
+
+    <template v-else-if="node.component_type === 'HandwrittenText'">
+      <HandwrittenText :node="node" :pageData="pageData" />
     </template>
 
     <!-- 3. 递归默认分支 -->
