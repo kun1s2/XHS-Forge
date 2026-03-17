@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.schema import FocusedKnowledge
 from app.services.mock_rag_service import retrieve_from_mock_db
 from app.services.scenario_manager import scenario_manager
-from app.agents.tools_registry import RESEARCH_TOOLS
+from app.agents.tools_registry import TOOL_POOL
 
 # 🗡️ 选用逻辑模型进行强类型蒸馏，确保面试级稳定性
 structured_research_llm = create_llm(
@@ -19,25 +19,28 @@ structured_research_llm = create_llm(
 
 async def research_agent(state: UIProjectState) -> dict:
     """
-    【Vulcan-Prime 3.0】：阻塞式 RAG 与场景工具自治
+    【Vulcan-Prime 3.0】：阻塞式 RAG 与工具池权限隔离
     """
     print("▶️ [NODE START]: research_node (场景自治调研)")
     
-    # 1. 场景探测与工具动态裁剪
+    # 1. 场景探测与工具动态挂载
     scenarios = state.get("scenarios", [])
     scenario_id = scenarios[0] if scenarios else "general"
     
     scenario_config = scenario_manager.get_config(scenario_id)
-    allowed_list = scenario_config.get("allowed_tools", [])
+    allowed_names = scenario_config.get("allowed_tools", [])
     
-    # 物理过滤：只在白名单内的工具会被绑定给大模型
-    available_tools = [t for t in RESEARCH_TOOLS if t.name in allowed_list] if allowed_list else RESEARCH_TOOLS
+    # 物理过滤：仅挂载白名单内的工具
+    available_tools = [TOOL_POOL[name] for name in allowed_names if name in TOOL_POOL]
+    # 安全兜底：若白名单为空则仅给基础搜索
+    if not available_tools:
+        available_tools = [TOOL_POOL["network_search"]]
     
-    # 动态绑定授权工具
+    # 动态绑定工具
     llm_with_tools = structured_research_llm.bind_tools(available_tools)
     
     # 2. 提取用户指令与热缓存
-    print(f"🔧 [调研工兵] 场景 [{scenario_id}] 已激活授权工具: {[t.name for t in available_tools]}")
+    active_panel = state.get("active_panel", "main")
     main_msgs = state.get("main_messages", [])
     if not main_msgs:
         return {"retrieved_knowledge": None}
@@ -49,11 +52,10 @@ async def research_agent(state: UIProjectState) -> dict:
     raw_context = await retrieve_from_mock_db(user_query)
     
     if not raw_context:
-        print(f"⚠️ [RAG 层] 未命中热缓存，当前可用场景工具: {[t.name for t in available_tools]}")
-        # 这里预留了 Cache Miss 后的 Tool 调用逻辑，大模型会根据 available_tools 决定是否调用网络搜索
+        print(f"⚠️ [RAG 层] 未命中热缓存，当前场景可用工具: {[t.name for t in available_tools]}")
         raw_context = "未匹配到热缓存事实数据。"
 
-    # 3. 强制结构化蒸馏：调用场景增强的大脑
+    # 3. 强制结构化蒸馏
     distill_prompt = f"""你是一个专业的数据结构化专家。
 当前场景：{scenario_id}
 请利用可用工具或提供的原始资料，将内容蒸馏为 FocusedKnowledge 格式。
@@ -62,13 +64,12 @@ async def research_agent(state: UIProjectState) -> dict:
 {raw_context}
 
 【指令】:
-1. 如果资料不全，请优先尝试调用可用工具进行补全。
-2. entity_name 必须是识别出的产品或地点全称。
-3. 严禁捏造，必须 100% 还原事实。
+1. entity_name 必须是识别出的产品或地点全称。
+2. 严禁捏造，必须 100% 还原事实。
 """
     
     try:
-        print(f"🧠 [RAG 蒸馏器] 执行场景转换，激活工具数: {len(available_tools)}")
+        print(f"🧠 [RAG 蒸馏器] 执行场景转换，已激活工具: {[t.name for t in available_tools]}")
         knowledge: FocusedKnowledge = await llm_with_tools.ainvoke(distill_prompt)
         
         if not knowledge:
@@ -77,7 +78,7 @@ async def research_agent(state: UIProjectState) -> dict:
         print(f"✅ [NODE END]: research_node -> 结构化主体: {knowledge.entity_name}")
         
         # 4. 加载场景契约
-        contract = scenario_manager.get_contract(scenario_id)
+        contract = scenario_manager.get_config(scenario_id).get("contract", {})
         
         return {
             "retrieved_knowledge": knowledge.model_dump(),

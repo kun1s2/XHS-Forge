@@ -1,39 +1,16 @@
+# app/agents/tools_registry.py
+from app.tools.amap import amap_poi_search, amap_weather_query
+from app.tools.network_search import search_network_structured_async
+from app.tools.image_recognition import analyze_image_vibe_async
 from langchain_core.tools import tool
-from app.services.rag_service import retrieve_brand_knowledge
-from app.tools.image_recognition import describe_image
-from app.tools.network_search import search_network_async
-from app.tools.serpapi_search import search_google_images
-import asyncio
 
-@tool
-async def retrieve_private_knowledge(query: str) -> str:
-    """当用户指令涉及品牌、特定产品或需要内部机密时，调用此工具检索私域知识库 (PGVector)。"""
-    knowledge = await retrieve_brand_knowledge(query)
-    return knowledge if knowledge else "未找到相关私域知识。"
+# 🛠️ 【X-Forge 全球工具池】：所有原子能力在此注册
+TOOL_POOL = {
+    "amap_search": amap_poi_search,
+    "weather_api": amap_weather_query,
+    "network_search": search_network_structured_async,
+    "image_vibe": analyze_image_vibe_async
+}
 
-@tool
-async def search_public_internet(query: str) -> str:
-    """当询问最新热点、本地知识库缺失的当日新闻或新发布商品时，必须调用此工具。"""
-    result = await search_network_async(query)
-    return result if result else "全网检索未找到有效信息。"
-
-@tool
-async def analyze_uploaded_images(image_urls: list[str]) -> str:
-    """当用户上传了图片（提供了URL），调用此工具利用视觉模型分析图片内容，并提取主色调 (Primary Hex) 和点缀色 (Accent Hex)。"""
-    results = []
-    for url in image_urls:
-        prompt = "描述图片内容并提取主色调和点缀色，格式如：主要内容是...，主色：#xxxxxx，点缀色：#xxxxxx"
-        res = await asyncio.to_thread(describe_image, url, prompt)
-        results.append(f"图片 {url} 分析结果：{res}")
-    return "\n".join(results)
-
-@tool
-async def google_image_search_tool(query: str) -> str:
-    """当用户要求更换图片、配图，或者组件缺少真实视觉素材时，调用此工具获取 Google 高清图片直链。"""
-    links = await search_google_images(query, num=3)
-    if not links:
-        return "未能搜寻到相关图片，请尝试更换关键词。"
-    return "\n".join(links)
-
-# 注册给大脑的所有工具
-RESEARCH_TOOLS = [retrieve_private_knowledge, search_public_internet, analyze_uploaded_images, google_image_search_tool]
+# 兼容性导出：默认全量工具集
+RESEARCH_TOOLS = list(TOOL_POOL.values())

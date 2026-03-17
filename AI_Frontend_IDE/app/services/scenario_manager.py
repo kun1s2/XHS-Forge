@@ -50,5 +50,9 @@ class ScenarioManager:
         """获取业务原型契约"""
         return self.scenarios.get(scenario_id, self.scenarios.get("general", {})).get("config", {}).get("contract", {})
 
+    def list_all_scenarios(self) -> List[str]:
+        """列出当前系统内所有已安装的场景插件 ID"""
+        return list(self.scenarios.keys())
+
 # 全局单例
 scenario_manager = ScenarioManager()
