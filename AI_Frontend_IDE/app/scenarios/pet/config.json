@@ -1,0 +1,19 @@
+{
+  "scenario_id": "pet",
+  "name": "哈基米萌宠专家",
+  "visual_rules": {
+    "variant": {
+      "claymorphism": "bg-pink-50 shadow-[inset_0_-8px_12px_rgba(255,182,193,0.2),0_20px_40px_rgba(255,105,180,0.15)] rounded-[50px] border-4 border-white",
+      "soft-paper": "bg-[#FFF9F9] shadow-sm border-b-4 border-pink-100 rounded-3xl"
+    },
+    "animation": {
+      "bouncy-pop": "hover:scale-110 active:scale-90 transition-transform duration-500",
+      "wobble": "animate-bounce"
+    }
+  },
+  "allowed_tools": ["network_search", "image_vibe"],
+  "visual_preference": {
+    "variant": "claymorphism",
+    "color_palette": "rose"
+  }
+}

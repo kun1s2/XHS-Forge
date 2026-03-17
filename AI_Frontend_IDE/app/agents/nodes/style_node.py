@@ -5,25 +5,25 @@ from app.services.scenario_manager import scenario_manager
 
 def apply_visual_styles(node: Dict[str, Any], scenario_id: str) -> Dict[str, Any]:
     """
-    【递归样式映射引擎】：不再拥有自身意识，完全执行插件字典指令。
+    【递归样式映射引擎 3.0】：零硬编码逻辑，全量执行插件词典。
     """
     props = node.get("props", {})
     computed_classes = []
     
-    # 动态获取当前场景的自治词典 (style_rules)
+    # 彻底解耦：从 scenario_manager 实时获取该场景的视觉规则
     scenario_config = scenario_manager.get_config(scenario_id)
-    style_rules = scenario_config.get("style_rules", {})
+    visual_rules = scenario_config.get("visual_rules", {})
     
-    # 执行映射匹配
-    for category, mappings in style_rules.items():
+    # 执行语义翻译 (props -> tailwind classes)
+    for category, mappings in visual_rules.items():
         val = props.get(category)
         if val and val in mappings:
             computed_classes.append(mappings[val])
             
-    # 写入翻译后的 Tailwind 类名
+    # 注入翻译后的物理类名
     node["computed_classes"] = " ".join(computed_classes)
     
-    # 递归遍历 AST
+    # 递归遍历 AST 树
     for child in node.get("children", []):
         if isinstance(child, dict):
             apply_visual_styles(child, scenario_id)
@@ -32,18 +32,21 @@ def apply_visual_styles(node: Dict[str, Any], scenario_id: str) -> Dict[str, Any
 
 async def style_agent(state: UIProjectState) -> dict:
     """
-    【视觉翻译官】：将语义 Props 转化为物理类名
+    【视觉翻译官】：不再拥有个人偏好，完全尊重场景自治配置。
     """
     data_dsl = state.get("data_dsl", {})
     ast_root = data_dsl.get("root")
-    scenario_id = state.get("scenarios", ["general"])[0]
+    
+    # 获取识别到的主场景 ID
+    scenarios = state.get("scenarios", ["general"])
+    scenario_id = scenarios[0]
     
     if not ast_root:
         return {}
         
     print(f"🎨 [Style Agent] 正在根据场景 [{scenario_id}] 执行自治样式翻译...")
     
-    # 注入样式
+    # 执行递归映射
     styled_ast = apply_visual_styles(ast_root, scenario_id)
     data_dsl["root"] = styled_ast
     

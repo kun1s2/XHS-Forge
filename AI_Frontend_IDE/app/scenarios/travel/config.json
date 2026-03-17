@@ -1,22 +1,19 @@
 {
   "scenario_id": "travel",
   "name": "环球旅行家赛道",
-  "description": "专注高保真叙事、风景大图与行程规划的旅行手账风格",
   "contract": {
     "required_components": ["MapCard", "Timeline", "PhotoGallery"],
     "suggested_order": ["PhotoGallery", "TitleBlock", "MapCard", "StoryText", "Timeline", "InteractionsBar"]
   },
-  "style_rules": {
+  "visual_rules": {
     "variant": {
       "paper-cut": "bg-white shadow-[0_4px_10px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] border-b-4 border-stone-200",
+      "glassmorphism": "bg-white/40 backdrop-blur-xl border border-white/50 shadow-xl",
       "holographic": "bg-gradient-to-br from-indigo-500/10 via-sky-500/10 to-emerald-500/10 backdrop-blur-lg border border-white/20"
     },
     "animation": {
       "smooth-fade": "transition-opacity duration-1000",
       "organic-float": "hover:-translate-y-1 transition-transform duration-500"
-    },
-    "typography": {
-      "serif": "font-serif italic tracking-tight"
     }
   },
   "allowed_tools": ["amap_search", "weather_api", "network_search"],
