@@ -1,0 +1,12 @@
+{
+  "scenario_id": "travel",
+  "name": "环球旅行家赛道",
+  "visual_preference": {
+    "variant": "paper-cut",
+    "color_palette": "stone",
+    "corner_style": "asymmetric",
+    "animation": "smooth-fade"
+  },
+  "allowed_components": ["Timeline", "MapCard", "PhotoGallery", "StoryText"],
+  "bento_strategy": "organic"
+}
