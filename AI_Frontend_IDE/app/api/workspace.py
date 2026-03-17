@@ -155,6 +155,33 @@ async def get_workspace_data(thread_id: str, request: Request):
         checkpoints=checkpoints
     )
 
+@router.get("/{thread_id}/inspect")
+async def inspect_agent_state(thread_id: str, request: Request):
+    """
+    【白盒探针】：获取当前会话 Agent 的核心记忆与决策状态
+    """
+    agent = get_agent(request)
+    config = {"configurable": {"thread_id": thread_id}}
+    state_snapshot = await agent.aget_state(config)
+    
+    if not state_snapshot or not state_snapshot.values:
+        return {"status": "empty", "data": None}
+        
+    values = state_snapshot.values
+    
+    # ✨ 核心逻辑：过滤掉庞大的 DSL 和对话记录，只提取“有意义”的元数据
+    meaningful_state = {
+        "creator_persona": values.get("creator_persona", "未设定"), # 当前人设
+        "active_archetype": values.get("active_archetype", "未激活"), # 当前激活的排版原型
+        "scenarios": values.get("scenarios", []), # 识别到的场景标签
+        "intent_route": values.get("intent_route", "等待指令"), # 上一步的路由决策
+        "retrieved_knowledge": values.get("retrieved_knowledge", ""), # 搜索引擎抓取到的干货
+        "has_controversy": values.get("has_controversy", False), # 是否触发黑红榜风控
+        "needs_disambiguation": values.get("needs_disambiguation", False) # 是否需要人类消歧
+    }
+    
+    return {"status": "success", "data": meaningful_state}
+
 @router.post("/fork", response_model=ForkResponse)
 async def fork_thread(req: ForkRequest, request: Request):
     """

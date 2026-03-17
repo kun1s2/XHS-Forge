@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     XHS_FORGE_DEBUG: bool = True
     # 开发模式：设为 True 则节点报错不再兜底，直接抛出异常
     DEBUG_MODE: bool = True
+    
+    # ✨ 哨兵总控：是否开启人工干预 (Human-In-The-Loop)
+    HITL_ENABLED: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

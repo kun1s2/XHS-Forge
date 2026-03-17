@@ -37,10 +37,36 @@ export const useChatStore = defineStore('chat', () => {
   const hoveredComponentId = ref<string | null>(null)
   const activeCheckpointId = ref<string | null>(null)
   const creatorPersona = ref<string>("硬核数码博主")
+  
+  // ✨ 哨兵白盒化：Agent 决策元数据
+  const agentMeta = ref({
+    creator_persona: '',
+    active_archetype: '',
+    intent_route: '',
+    retrieved_knowledge: '',
+    scenarios: [],
+    has_controversy: false,
+    needs_disambiguation: false
+  })
 
   let ws: WebSocket | null = null
 
   // === Actions (动作) ===
+
+  // 拉取 Agent 内部状态 (白盒探针)
+  const fetchAgentMeta = async () => {
+    if (!threadId.value) return
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/${threadId.value}/inspect`)
+      const data = await res.json()
+      if (data.status === 'success') {
+        agentMeta.value = data.data
+      }
+    } catch (e) {
+      console.error('获取 Agent 状态失败:', e)
+    }
+  }
 
   const getBaseUrl = (protocol: 'http' | 'ws' = 'http') => {
     // 假设后端始终在 8000 端口
@@ -88,13 +114,16 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = data.messages?.main || []
       pageData.value = data.data_dsl || {}
       styleData.value = data.style_dsl || {}
+      nodePrompts.value = data.node_prompts || {} // ✨ 补齐提示词还原
       previewUrl.value = data.oss_url || null
       sourceCode.value = data.source_code || ''
       activeCheckpointId.value = data.checkpoints?.[0]?.checkpoint_id || null
       
+      fetchAgentMeta()
       connectWebSocket()
     } catch (e) {
       console.error('切换会话失败:', e)
+      fetchAgentMeta()
       connectWebSocket()
     }
   }
@@ -269,6 +298,9 @@ export const useChatStore = defineStore('chat', () => {
         if (data.node_prompts) nodePrompts.value = data.node_prompts
         if (data.image_assets) imageAssets.value = data.image_assets
         if (data.source_code !== undefined) sourceCode.value = data.source_code
+        
+        // ✨ 哨兵自动化：生成结束后，立即拉取 Agent 脑电图
+        fetchAgentMeta()
         break
 
       case 'action_required':
@@ -366,6 +398,7 @@ export const useChatStore = defineStore('chat', () => {
     thoughtText,
     isSidebarOpen,
     sessions,
+    agentMeta,
     setSelectedComponent,
     setCreatorPersona,
     setHoveredComponent,
@@ -377,6 +410,7 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     fetchSessions,
     switchSession,
-    createNewSession
+    createNewSession,
+    fetchAgentMeta
   }
 })

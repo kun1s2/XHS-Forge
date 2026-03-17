@@ -117,8 +117,8 @@ class UIProjectState(TypedDict):
     # ✨ 新增：用于调试的提示词检查槽位 { "node_name": "full_prompt_text" }
     node_prompts: Annotated[dict, merge_dsl]
     
-    # ✨ 核心新增：RAG 检索到的私域知识
-    retrieved_knowledge: str
+    # ✨ 核心重构：RAG 检索到的私域知识 (现已支持结构化字典)
+    retrieved_knowledge: Any
     
     # ✨ HITL 机制新增
     has_controversy: bool      # 标记是否发现争议
@@ -131,8 +131,8 @@ class UIProjectState(TypedDict):
     needs_disambiguation: bool      # 是否需要人类协助消歧
     disambiguation_options: List[Dict[str, str]] # 消歧选项列表 [{"label": "...", "value": "..."}]
     
-    # ✨ 战役 D：Map-Reduce 动态并发引擎新增
-    page_outline: List[Dict[str, str]] # 页面大纲 [{"id": "title_1", "type": "TitleBlock"}, ...]
+    # ✨ AST 自由之树：页面大纲现已升级为支持嵌套的虚拟 DOM 树
+    page_outline: dict # 存储 UINode 根节点字典
     
     final_oss_url: Optional[str]
     # 生成的 HTML 源码，供前端「源码」面板展示与时间胶囊回滚
@@ -142,6 +142,7 @@ class UIProjectState(TypedDict):
 class ComponentTaskState(TypedDict):
     component_id: str
     component_type: str
+    content_brief: str # ✨ 哨兵新增：承载主编下发的任务简报
     user_query: str
     active_archetype: str
     retrieved_knowledge: str

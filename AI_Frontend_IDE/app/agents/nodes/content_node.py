@@ -62,8 +62,37 @@ async def content_agent(state: UIProjectState) -> dict:
 
     structured_llm = llm.with_structured_output(ContentOutput, method="function_calling")
     
+    # ✨ 哨兵三轨制：创作大脑切换为最强的 BRAIN 模型
+    # 并强制适配结构化 RAG 数据
+    retrieved_knowledge = state.get("retrieved_knowledge", {})
+    
+    fact_details = ""
+    if isinstance(retrieved_knowledge, dict) and retrieved_knowledge.get("entity_name"):
+        fact_details = f"""
+【核心事实依据 (结构化 JSON)】：
+- 实体名称: {retrieved_knowledge.get('entity_name')}
+- 核心参数: {json.dumps(retrieved_knowledge.get('core_attributes'), ensure_ascii=False)}
+- 核心卖点: {retrieved_knowledge.get('key_selling_points')}
+- 避雷点: {retrieved_knowledge.get('known_issues')}
+- 结论摘要: {retrieved_knowledge.get('summary')}
+
+【⚠️ 绝对服从令】：
+1. 你必须 100% 依据上述 JSON 中的参数进行创作。
+2. 严禁捏造任何不在上述列表中的新型号、价格或黑科技。
+3. 如果 core_attributes 为空，请基于 entity_name 进行通用创作，但依然严禁捏造具体数值。
+"""
+    
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d")
+    
+    fact_constraint = f"""
+{fact_details}
+(今日日期: {current_time})
+"""
+
     try:
         inputs = {
+            "fact_constraint": fact_constraint, # ✨ 强制注入
             "is_update": is_update,
             "current_data": json.dumps(current_data_dsl, ensure_ascii=False) if current_data_dsl else "空",
             "selected_element": selected_element,
@@ -94,12 +123,17 @@ async def content_agent(state: UIProjectState) -> dict:
         result = None
 
     content_msgs = state.get("content_messages", [])
-    from langchain_core.messages import SystemMessage
+    main_msgs = state.get("main_messages", [])
+    from langchain_core.messages import SystemMessage, AIMessage
     content_msgs.append(SystemMessage(content=new_content))
+    
+    # ✨ 拟人化回音：向主对话流追加一条干净的 AIMessage
+    hummanized_reply = AIMessage(content=f"✨ 文案工坊已出炉：\n\n{new_content}")
     
     return {
         "content_result": result, # ✨ 供 WebSocket 截获思维链
         "content_messages": content_msgs,
+        "main_messages": [hummanized_reply], # ✨ LangGraph 会自动根据 Reducer 追加
         "node_prompts": {"content_node": prompt_data},
         "has_controversy": False,
         "user_stance": "" 

@@ -25,8 +25,12 @@
     {% endif %}
 
     {% if retrieved_knowledge %}
+    <critical_rules>
+        <rule>1. ⚠️ 绝对服从事实：你必须 100% 依据 <knowledge_context> 中提供的产品型号、参数和价格进行创作。</rule>
+        <rule>2. 严禁捏造：禁止使用你训练数据中的陈旧机型（如小米 13 Pro）来填充当前笔记。如果事实提到的是最新款，必须以此为准！</rule>
+        <rule>3. 语气对齐：在保持事实准确的同时，必须符合小红书的高情绪价值表达风格。</rule>
+    </critical_rules>
     <private_knowledge_base>
-        <rule>请基于以下系统为您检索到的该品牌/产品的真实信息进行文案创作。</rule>
         <knowledge_context>
         {{ retrieved_knowledge }}
         </knowledge_context>

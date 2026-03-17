@@ -6,6 +6,7 @@ from langgraph.store.base import BaseStore
 
 # 引入我们定义的全局状态
 from app.agents.state import UIProjectState
+from app.core.config import settings
 
 # 引入节点（含资产打标）
 from app.agents.nodes.asset_node import asset_processor_node
@@ -81,19 +82,19 @@ async def enrichment_node(state: UIProjectState) -> dict:
 
 def route_intent(state: UIProjectState) -> str:
     """
-    【核心路由守卫 - 增强版】：使用模糊匹配，防止大模型偷懒少写后缀。
+    【核心路由守卫 - 哨兵加固版】：强制要求新内容生成必须先经过调研。
     """
     route = state.get("intent_route", "").lower()
     
     print(f"🧭 [路由守卫] 截获的原始意图: {route}")
     
-    # 模糊匹配，极大地增强了系统的鲁棒性
+    # 模糊匹配
     if "patch" in route:
         return "patch_node"
-    elif "rag" in route or "search" in route or "image" in route or "图" in route:
-        return "research_agent" # ✨ 统一路由给带工具的 Research Agent
-    elif "content" in route or "文案" in route:
-        return "content_node"
+    # ✨ 核心重构：无论是 RAG、搜索还是生成全新文案，统一先去 research_agent 报到
+    elif any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]):
+        print("🔍 [路由守卫] 判定为生成任务，强制进入阻塞式调研模式。")
+        return "research_agent" 
     elif "structure" in route or "结构" in route:
         return "structure_node"
     elif "style" in route or "样式" in route:
@@ -105,17 +106,38 @@ def route_intent(state: UIProjectState) -> str:
 
 def map_components(state: UIProjectState) -> list:
     """
-    【动态并发路由】：读取页面大纲，为每个组件派发一个 ComponentTaskState。
-    使用 LangGraph 的 Send API 实现真正的并发执行！
+    【AST 调度器】：遍历整棵虚拟 DOM 树，提取所有需要并发生成的叶子节点任务。
     """
-    outline = state.get("page_outline", [])
-    if not outline:
-        print("⚠️ [并发调度] 大纲为空，跳过并发阶段。")
-        # 如果没有大纲，直接去下一步（或者 END）
-        # 这里为了稳妥，如果没有组件，我们直接跳到后续增强节点
-        return ["enrichment_node"]
+    ast_root = state.get("page_outline")
+    if not ast_root:
+        print("⚠️ [并发调度] AST 大纲为空，跳过并发阶段。")
+        return ["style_node"]
         
-    print(f"🚀 [并发调度] 发射 {len(outline)} 个组件构建特种兵！")
+    tasks = []
+    
+    # 递归遍历 AST 提取任务
+    def extract_tasks(node: dict):
+        # 只要节点配置了 content_brief，就说明它需要大模型填空
+        if node.get("content_brief"):
+            tasks.append({
+                "id": node.get("id"),
+                "type": node.get("component_type"),
+                "brief": node.get("content_brief")
+            })
+        
+        # 继续遍历子节点
+        children = node.get("children") or []
+        for child in children:
+            if isinstance(child, dict):
+                extract_tasks(child)
+                
+    extract_tasks(ast_root)
+    
+    if not tasks:
+        print("⚠️ [并发调度] AST 中未找到需要填充数据的叶子节点。")
+        return ["style_node"]
+        
+    print(f"🚀 [并发调度] 发射 {len(tasks)} 个组件构建特种兵！")
     
     # 构造共享上下文
     main_msgs = state.get("main_messages", [])
@@ -130,14 +152,15 @@ def map_components(state: UIProjectState) -> list:
     # 派发任务！
     return [
         Send("component_builder", {
-            "component_id": comp["id"],
-            "component_type": comp["type"],
+            "component_id": t["id"],
+            "component_type": t["type"],
+            "content_brief": t["brief"],
             "user_query": user_query,
             "active_archetype": active_archetype,
             "retrieved_knowledge": retrieved_knowledge,
             "creator_persona": creator_persona
         })
-        for comp in outline
+        for t in tasks
     ]
 
 def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None):
@@ -167,15 +190,13 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     # 起点先走资产打标（有待处理图片则打标并入图库），再走意图
     workflow.add_edge(START, "asset_processor")
     workflow.add_edge("asset_processor", "intent_agent")
-
     # 4. 动态分发 (Conditional Edges)
     workflow.add_conditional_edges(
         "intent_agent",
         route_intent,
         {
-            "patch_node": "patch_node", # ✨ 局部微调快速通道
-            "research_agent": "research_agent", # ✨ Tool Calling 调研入口
-            "content_node": "content_node",
+            "patch_node": "patch_node",
+            "research_agent": "research_agent", # ✨ content / rag / search 现在统一走这里
             "structure_node": "structure_node",
             "style_node": "style_node",
             END: END
@@ -183,48 +204,41 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     )
 
     # 5. 【瀑布流式级联向下】(Cascading Edges)
-    # 这是我们架构的精髓所在：一旦切入某个节点，就会顺流而下，直到渲染完毕。
-    
-    # ✨ 手术刀快速通道：微调完直接渲染，不走全局重排！
+    # 这是我们架构的精髓所在：调研先行，事实为本。
+
+    # 手术刀通道：微调完直接渲染
     workflow.add_edge("patch_node", "render")
 
-    # ✨ Tool Calling 核心循环
-    workflow.add_conditional_edges("research_agent", should_continue_research)
-    workflow.add_edge("tools", "research_agent")
-    
-    # 调研完毕，执行争议嗅探
+    # 核心生成链路：必须保证【调研 -> 文案 -> 结构 -> 渲染】的死命令时序
+    # 第一步：调研完成后，嗅探舆情
     workflow.add_edge("research_agent", "controversy_sniffer")
-    
-    # 嗅探完毕，进入文案生成（如果 has_controversy=True，这里会被 interrupt_before 拦截）
+
+    # 第二步：舆情过关，主编写文案
     workflow.add_edge("controversy_sniffer", "content_node")
-    
-    # 📝 战役 D：Map-Reduce 重构
-    # 原逻辑：content_node -> structure_node -> enrichment_node
-    # 新逻辑：content_node -> outline_node -> [并发 component_builder] -> enrichment_node
+
+    # 第三步：文案定调，策划出大纲
     workflow.add_edge("content_node", "outline_node")
-    
-    # 使用条件边触发 Send API 裂变
-    workflow.add_conditional_edges("outline_node", map_components, ["enrichment_node", "component_builder"])
-    
-    # 所有 component_builder 执行完毕后，统一收束到 enrichment_node
-    workflow.add_edge("component_builder", "enrichment_node")
-    
-    # 增强完所有数据，再分配 CSS 样式
-    workflow.add_edge("enrichment_node", "style_node")
-    
-    # 分配完 CSS，必须物理渲染成 HTML
+
+    # 第四步：大纲出完，裂变工兵并行拼装
+    workflow.add_conditional_edges("outline_node", map_components, ["style_node", "component_builder"])
+
+    # 第五步：工兵收束，严禁再次发起任何网络搜索！直接进入样式层
+    # 彻底废弃 enrichment_node 在后端的 RAG 权力，防止“童颜针”式事故二次发生
+    workflow.add_edge("component_builder", "style_node")
+
+    # 第六步：物理渲染
     workflow.add_edge("style_node", "render")
-    
-    # 渲染完毕，本轮图执行彻底结束
+    # 终点
     workflow.add_edge("render", END)
 
-    # 6. 注入灵魂：带上记忆系统，正式编译！
-    # 引入我们配置好的 Postgres Checkpointer
-    # ✨ HITL 核心：设置强制中断点，等待人类立场决策或实体消歧
+    # 6. 注入灵魂：正式编译！
+    # ✨ 哨兵全自动升级：根据配置动态决定是否开启 HITL 中断点
+    interrupt_nodes = ["content_node", "controversy_sniffer"] if settings.HITL_ENABLED else []
+    
     app_graph = workflow.compile(
         checkpointer=checkpointer, 
         store=store,
-        interrupt_before=["content_node", "controversy_sniffer"]
+        interrupt_before=interrupt_nodes
     )
     
     return app_graph

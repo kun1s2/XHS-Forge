@@ -54,22 +54,30 @@ async def outline_agent(state: UIProjectState) -> dict:
     assets_text = json.dumps(assets, ensure_ascii=False) if assets else "无"
     is_update = bool(current_data_dsl and current_data_dsl.get("page_order"))
 
-    # 复用排版的提示词，或者可以建立专用的 outline_system.xml
-    # 为简单起见，这里假设 outline_system.xml 存在并专门指导输出 OutlineOutput
-    prompt_path = Path(__file__).parents[2] / "prompts" / "structure_system.xml" 
-    
-    try:
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            system_template = f.read()
-    except FileNotFoundError:
-        raise FileNotFoundError(f"致命错误：未找到提示词文件 {prompt_path}")
+    # ✨ 【审美多样性爆发】：赋予大纲大脑“艺术策展人”人格
+    outline_system = f"""你是一个顶级的 Generative UI 视觉策展人。你的任务是将内容转化为一棵极具审美冲击力的 AST 树。
 
-    # 包装一个新的系统提示，强制它只输出大纲
-    outline_system = system_template + "\n\n【注意】：你现在是 Outline Agent。你只需要输出 page_title 和 page_order（必须是包含 id 和 type 字段的对象列表！）。不要输出 components 细节数据！"
+    【审美进阶法则 (最高优先级)】:
+    1. 非对称 Bento 布局：你可以在 BentoGrid 的 props 中定义 `layout_vibe: "organic"`。此时，你可以大胆使用奇数跨列（如 col_span: 1 与 col_span: 2 混搭），制造视觉上的跳跃感。
+    2. 视觉权重分配：你必须为每一个子组件在 props 中标注 `visual_priority` ("high", "medium", "low")。
+    - high: 对应核心卖点卡片或情绪引言，将获得更强的阴影和动效。
+    - low: 对应次要参数或辅助文案，将获得更轻的视觉分量。
+    3. 材质嗅探：根据文案情绪，在 root 节点的 props 中建议一种材质（variant）。
+    - 科技测评 -> neon / flat-dark
+    - 生活种草 -> claymorphism / glassmorphism
+    - 文艺复古 -> paper-cut / asymmetric corner_style
+
+    【输出规范】:
+    - 必须包含 page_title, page_theme。
+    - root 节点必须包含整体的视觉旋钮配置。
+    - 每个组件必须有合理的 visual_priority。
+
+    【当前业务原型】: {active_archetype}
+    """
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", outline_system),
-        ("human", "用户的最新指令：\n<user_input>\n{{ user_query }}\n</user_input>\n(请以 JSON 格式输出)")
+        ("human", "请基于以下生成的文案，策划一场“审美爆发”的 UI 视觉盛宴：\n<content>\n{{ content_context }}\n</content>\n(请通过调用工具输出 JSON 格式结果)")
     ], template_format="jinja2")
 
     try:
@@ -91,19 +99,20 @@ async def outline_agent(state: UIProjectState) -> dict:
         if archetype_str == "general" and active_archetype != "general":
             archetype_str = active_archetype
 
-        # 转换为字典列表
-        page_outline = [{"id": comp.id, "type": comp.type} for comp in result.page_order]
+        # 获取根节点的 AST 字典表示
+        ast_root = result.root.model_dump(exclude_none=True)
         
         # 初始化 data_dsl 的大纲部分
         dsl_patch = {
             "page_title": result.page_title,
-            "page_order": [comp["id"] for comp in page_outline]
+            "page_theme": result.page_theme,
+            "root": ast_root
         }
         
-        print(f"🗺️ [大纲裂变] 生成了 {len(page_outline)} 个组件任务准备并发。")
+        print(f"🗺️ [大纲裂变] AST 树生成完毕，根节点 ID: {result.root.id}")
 
         return {
-            "page_outline": page_outline,
+            "page_outline": ast_root,
             "data_dsl": dsl_patch, # 先把大纲塞进去
             "active_archetype": archetype_str
         }
@@ -112,4 +121,4 @@ async def outline_agent(state: UIProjectState) -> dict:
         print(f"❌ Outline Agent 最终失败: {e}")
         if settings.DEBUG_MODE:
             raise e
-        return {"page_outline": []}
+        return {"page_outline": {}}

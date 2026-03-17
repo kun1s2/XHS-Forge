@@ -140,11 +140,15 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
             content=f"已成功对组件 {selected_id} 进行局部修改。理由：{result.reason}。思考过程：{result.thought_process}"
         )
         
+        # ✨ 拟人化回音：向主对话流追加一条拟人化的回复
+        humanized_reply = AIMessage(content=f"✅ 报告长官：局部手术成功！组件 `{selected_id}` 已按您的指令调整完毕，请查看右侧画布。")
+
         return {
             "data_dsl": dsl_patch,
             "patch_tracks": {selected_id: [track_entry]},
             "node_prompts": {"patch_node": prompt_snapshot},
             "content_messages": [ai_memory_msg],
+            "main_messages": [humanized_reply] # ✨ 让用户看到反馈
         }
         
     except Exception as e:

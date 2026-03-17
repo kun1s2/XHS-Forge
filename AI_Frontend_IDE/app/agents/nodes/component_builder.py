@@ -33,10 +33,23 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
     """
     comp_id = state["component_id"]
     comp_type = state["component_type"]
+    content_brief = state.get("content_brief", "请根据全局文案填充数据") # ✨ 哨兵新增：接收主编的切片简报
     user_query = state.get("user_query", "")
     
     # ✨ 补全丢失的全局记忆
-    knowledge = state.get("retrieved_knowledge", "无")
+    # 强制适配结构化 RAG
+    retrieved_knowledge = state.get("retrieved_knowledge", {})
+    knowledge_str = "无外部参考资料"
+    
+    if isinstance(retrieved_knowledge, dict) and retrieved_knowledge.get("entity_name"):
+        knowledge_str = f"""
+【结构化参考资料】：
+- 目标主体: {retrieved_knowledge.get('entity_name')}
+- 核心参数列表: {json.dumps(retrieved_knowledge.get('core_attributes'), ensure_ascii=False)}
+- 核心卖点: {', '.join(retrieved_knowledge.get('key_selling_points', []))}
+- 避雷建议: {', '.join(retrieved_knowledge.get('known_issues', []))}
+"""
+
     archetype = state.get("active_archetype", "general")
     persona = state.get("creator_persona", "专业博主")
     
@@ -61,24 +74,24 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
         # ✨ 重新丰满系统提示词，让特种兵拥有大局观
         system_prompt = f"""你是一个严谨的前端组件数据构建专家。当前正在构建 ID 为 [{comp_id}]，类型为 "{comp_type}" 的组件。
 
-【全局上下文】：
-- 业务场景原型: {archetype}
-- 创作者人设: {persona}
-- 外部知识背景: {knowledge}
-- 全局文案基调: {global_content}
+        【⚠️ 本组件专项任务简报 (最高优先级)】: 
+        >> {content_brief} <<
 
-【你的任务】：
-请从上述“全局文案基调”和“知识背景”中，精准提取并转化出属于组件 [{comp_id}] 的数据。
-1. 必须确保该组件的文案风格与全局基调 100% 保持一致。
-2. 如果是 ProductCard，必须引用知识库中的真实价格和参数。
-3. 如果是 StoryText，必须承接全局文案中的具体段落。
-4. 如果是 InteractionsBar，请脑补极其逼真的点赞(likes)、收藏(collects)、评论(comments)数据（如：1.2w, 856）。
-5. 必须输出 JSON 格式，包含 thought_process, data 和 style 字段。"""
+        {knowledge_str}
+
+        【你的任务】：
+        请从上述“结构化参考资料”中，精准提取并转化出属于组件 [{comp_id}] 的数据。
+        1. ⚠️ 边界意识：你只负责简报中指派的内容，严禁提及简报之外的参数（防止组件间内容重复）。
+        2. ⚠️ 字段完整性：在 data 对象中，必须包含 "type": "{comp_type}"。
+        3. ⚠️ 绝对服从：你必须 100% 依据资料中的“核心参数列表”填充组件。严禁捏造不存在的参数。
+        4. 动态列表渲染：如果构建 ProductSpecCard，请将 core_attributes 中的键值对全部转化为 features 列表。
+        5. 风格对齐：文案风格必须与全局基调 100% 保持一致。
+        6. 输出必须为 JSON 格式。"""
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("human", "请根据用户指令构建组件数据并以 JSON 格式输出：\n{query}")
-        ])
+            ("human", "请根据用户指令构建组件数据并以 JSON 格式输出：\n{{ query }}")
+        ], template_format="jinja2") # ✨ 哨兵补丁：切换为 Jinja2 免疫 JSON 干扰
         
         try:
             # 执行 LCEL 管道
@@ -86,21 +99,22 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
             
             # 数据加工
             res_data = result.data.model_dump(exclude_none=True)
-            res_data["type"] = comp_type # 物理强制锁定
+            res_data["type"] = comp_type # ✨ 物理强制锁定，双重保险
             
             # 样式加工
             style_patch = result.style.model_dump(exclude_none=True)
             
             if settings.XHS_FORGE_DEBUG:
-                print(f"✅ [DEBUG Output] 组件 {comp_id} 构建完毕，思维链: {result.thought_process[:100]}...")
+                print(f"✅ [DEBUG Output] 组件 {comp_id} 构建完毕")
 
             return {
                 "data_dsl": {comp_id: res_data},
                 "style_dsl": {comp_id: style_patch}
             }
         except Exception as e:
-            print(f"❌ [并发工兵] 组件 {comp_id} 构建失败: {e}")
+            print(f"❌ [并发工兵] 组件 {comp_id} 最终校验失败: {e}")
+            # 即使失败，也返回一个带有正确类型的空组件，防止前端崩溃
             return {
-                "data_dsl": {comp_id: {"type": comp_type, "title": "内容填充失败"}},
+                "data_dsl": {comp_id: {"type": comp_type, "title": "数据解析失败，请点重试"}},
                 "style_dsl": {comp_id: {"css_classes": "opacity-50"}}
             }

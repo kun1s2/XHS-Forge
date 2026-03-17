@@ -24,6 +24,13 @@
         >
           <span>🧪</span> 提示词检查
         </button>
+        <button
+          @click="viewMode = 'state'"
+          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'state', 'text-gray-500 hover:text-gray-300': viewMode !== 'state'}"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
+        >
+          <span>🧠</span> Agent 状态
+        </button>
       </div>
 
       <div class="flex items-center">
@@ -41,13 +48,16 @@
       </div>
     </div>
 
-    <div class="flex-1 relative overflow-hidden bg-white flex">
+    <div class="flex-1 relative overflow-hidden bg-[#141414] flex">
 
-      <div v-show="viewMode === 'preview'" class="w-full h-full overflow-y-auto bg-gray-100 flex items-start justify-center">
-        <DynamicRenderer v-if="pageData && Object.keys(pageData).length > 0" class="shadow-2xl my-4" />
-        <div v-else class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-100">
-          <span class="text-5xl mb-4 animate-bounce">🎨</span>
-          <p class="font-medium text-sm">在左侧输入提示词，让魔法在这里发生</p>
+      <div v-show="viewMode === 'preview'" class="w-full h-full overflow-y-auto bg-[#141414] flex items-start justify-center custom-scrollbar">
+        <DynamicRenderer v-if="pageData && Object.keys(pageData).length > 0" class="shadow-2xl my-8 border border-[#333]/50 rounded-xl" />
+        <div v-else class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 bg-[#141414]">
+          <div class="w-20 h-20 rounded-full bg-[#1e1e1e] border border-[#333] flex items-center justify-center mb-6 shadow-inner">
+            <span class="text-4xl animate-pulse">🎨</span>
+          </div>
+          <p class="font-bold text-sm tracking-widest uppercase opacity-40">Ready for Creation</p>
+          <p class="text-[10px] mt-2 opacity-30 italic">Waiting for Agent to generate UI structure...</p>
         </div>
       </div>
 
@@ -121,6 +131,16 @@
         </div>
       </div>
 
+      <!-- ✨ 哨兵白盒化：Agent 决策状态看板 -->
+      <div
+        v-show="viewMode === 'state'"
+        class="w-full h-full bg-[#1e1e1e] overflow-auto p-8"
+      >
+        <div class="max-w-4xl mx-auto">
+          <AgentInspector />
+        </div>
+      </div>
+
       <div
         v-if="viewMode === 'preview' && hoveredComponentId && pageData[hoveredComponentId]"
         class="absolute right-4 top-4 w-72 bg-[#1e1e1e]/95 backdrop-blur shadow-2xl rounded-xl border border-[#333] p-4 z-50 pointer-events-none transition-all"
@@ -141,12 +161,13 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/useChatStore'
 import DynamicRenderer from '../renderers/DynamicRenderer.vue'
+import AgentInspector from '../chat/AgentInspector.vue'
 
 const chatStore = useChatStore()
 const { previewUrl, pageData, nodePrompts, hoveredComponentId, sourceCode } = storeToRefs(chatStore)
 
-// 控制当前视图是预览、代码还是提示词检查器
-const viewMode = ref<'preview' | 'code' | 'prompts'>('preview')
+// 控制当前视图是预览、代码、提示词检查器还是 Agent 状态
+const viewMode = ref<'preview' | 'code' | 'prompts' | 'state'>('preview')
 const isCopied = ref(false)
 const copiedSubNode = ref<string | null>(null) // 追踪当前被复制的单条提示词 ID
 

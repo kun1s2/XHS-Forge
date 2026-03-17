@@ -18,10 +18,26 @@
         </select>
       </div>
 
-      <span v-if="wsStatus === 'connected'" class="ml-auto flex items-center gap-1.5 text-xs text-green-400 whitespace-nowrap">
-        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-      </span>
-      <span v-else class="ml-auto text-xs text-red-400 whitespace-nowrap">🔴</span>
+      <div class="flex items-center gap-3 ml-auto">
+        <button 
+          @click="showInspector = !showInspector"
+          class="p-1.5 hover:bg-[#333] rounded transition-colors text-gray-400 hover:text-blue-400"
+          :class="{ 'text-blue-400 bg-[#333]': showInspector }"
+          title="切换 Agent 驾驶舱"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+        </button>
+
+        <span v-if="wsStatus === 'connected'" class="flex items-center gap-1.5 text-xs text-green-400 whitespace-nowrap">
+          <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+        </span>
+        <span v-else class="text-xs text-red-400 whitespace-nowrap">🔴</span>
+      </div>
+    </div>
+
+    <!-- ✨ Agent Inspector 驾驶舱 (可折叠) -->
+    <div v-if="showInspector" class="p-4 pb-0 animate-in slide-in-from-top duration-300">
+      <AgentInspector />
     </div>
 
     <div class="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar" ref="msgListRef">
@@ -177,6 +193,7 @@ import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/useChatStore'
 import { uploadImage } from '../../api/upload'
 import Typewriter from '../common/Typewriter.vue'
+import AgentInspector from './AgentInspector.vue'
 
 const chatStore = useChatStore()
 const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, imageAssets, creatorPersona } = storeToRefs(chatStore)
@@ -184,6 +201,7 @@ const { setSelectedComponent, addImageAsset, removeImageAsset } = chatStore
 const inputText = ref('')
 const msgListRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const showInspector = ref(false)
 
 interface PendingImage {
   file: File
