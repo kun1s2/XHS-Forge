@@ -5,13 +5,7 @@ import re
 
 # --- ✨ 维度一：业务建模 —— 动态协议 ---
 
-class ArchetypeEnum(str, Enum):
-    """业务场景标签 (保留常用语义标识，底层已改为动态加载)"""
-    GENERAL = "general"
-    GOURMET = "gourmet"
-    TRAVEL = "travel"
-    SEEDING = "seeding"
-    NEWS = "news"
+# 🚀 Vulcan-Prime: 彻底废弃 ArchetypeEnum，改用动态字符串以实现场景完全自治。
 
 class ArchetypeContract(BaseModel):
     """场景契约模型：定义该赛道下的组件黑白名单与推荐序列"""
@@ -51,7 +45,7 @@ class OutlineOutput(BaseModel):
     page_title: str = Field(..., description="网页标签标题")
     page_theme: Dict[str, str] = Field(default_factory=dict, description="全局 CSS 变量字典，如 {'--primary': '#FF2D55', '--radius': '16px'}")
     root: UINode = Field(description="页面的根节点，通常是一个 Container")
-    detected_archetype: ArchetypeEnum = Field(default=ArchetypeEnum.GENERAL, description="本次排版最终确定的业务原型")
+    detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
 
 class ComponentData(BaseModel):
     """组件参数规范 (ComponentPayload)"""
@@ -122,7 +116,7 @@ class StructurePatchOutput(BaseModel):
     page_title: str = Field(..., description="网页标签标题")
     page_order: List[str] = Field(..., description="组件 ID 的线性排列顺序")
     components: Dict[str, ComponentData] = Field(..., description="组件的具体数据负载")
-    detected_archetype: ArchetypeEnum = Field(default=ArchetypeEnum.GENERAL, description="本次排版最终确定的业务原型")
+    detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
 
 class SurgicalPatchOutput(BaseModel):
     """【手术刀模式】专用输出模型：仅修改单个组件内容"""
@@ -133,17 +127,17 @@ class SurgicalPatchOutput(BaseModel):
 # --- ✨ 维度四：视觉视觉 —— Style 宪法 ---
 
 class StyleVibeTokens(BaseModel):
-    """【面试级原子化视觉令牌】：禁止输出 Hex，只允许语义控制"""
-    # 1. 色彩与材质旋钮
-    color_palette: Literal["slate", "zinc", "rose", "amber", "emerald", "cyan", "indigo", "fuchsia", "lime", "violet", "orange", "stone", "gold"] = Field(description="全局品牌主色系")
-    bg_material: Literal["flat-light", "flat-dark", "glassmorphism", "neumorphic", "claymorphism", "paper-cut", "holographic"] = Field(description="页面整体背景材质与明暗")
+    """【面试级原子化视觉令牌】：彻底松绑，支持无限多样性"""
+    # 🚀 Vulcan-Prime: 废弃 Literal 限制，允许场景插件自定义任何材质与颜色标签
+    color_palette: str = Field(description="全局品牌主色系标签")
+    bg_material: str = Field(description="页面整体背景材质与明暗标签")
     
     # 2. 几何与深度旋钮
-    corner_style: Literal["rounded-none", "rounded-md", "rounded-2xl", "rounded-full", "asymmetric"] = Field(description="组件边缘的锋利程度")
-    shadow_vibe: Literal["shadow-none", "shadow-sm", "shadow-xl", "shadow-2xl"] = Field(description="页面组件的立体悬浮感")
+    corner_style: str = Field(description="组件边缘的锋利程度标签")
+    shadow_vibe: str = Field(description="页面组件的立体悬浮感标签")
     
     # 3. 动效节奏旋钮
-    animation_rhythm: Literal["none", "smooth-fade", "bouncy-pop", "cyber-glitch"] = Field(description="组件进场与悬停时的动效基调")
+    animation_rhythm: str = Field(description="组件进场与悬停时的动效基调标签")
     
     # 4. 局部参数化覆写层
     component_overrides: Dict[str, str] = Field(
@@ -168,11 +162,11 @@ class StylePatchOutput(BaseModel):
 
 class FocusedKnowledge(BaseModel):
     """【面试级领域契约】：强制结构化的科研级知识模型"""
-    domain_category: Literal["3C数码测评", "线下探店打卡", "美妆个护种草"] = Field(..., description="强制锁定的业务场景")
+    domain_category: str = Field(..., description="强制锁定的业务场景标签")
     entity_name: str = Field(..., description="识别出的核心主体名称（如：小米 17 Ultra）")
-    core_attributes: Dict[str, Any] = Field(default_factory=dict, description="核心参数键值对（如：{'处理器': '骁龙8 Gen 4'}）")
+    core_attributes: Dict[str, Any] = Field(default_factory=dict, description="核心参数键值对")
     key_selling_points: List[str] = Field(default_factory=list, description="核心卖点/亮点列表")
-    known_issues: List[str] = Field(default_factory=list, description="客观缺点/避雷点（用于维持测评客观性）")
+    known_issues: List[str] = Field(default_factory=list, description="客观缺点/避雷点")
     summary: str = Field(..., description="一句话情报摘要")
 
 class IntentOutput(BaseModel):
