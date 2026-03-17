@@ -1,24 +1,27 @@
 {
   "scenario_id": "travel",
   "name": "环球旅行家赛道",
+  "description": "专注高保真叙事、风景大图与行程规划的旅行手账风格",
   "contract": {
-    "required_components": ["MapCard", "PhotoGallery"],
-    "suggested_order": ["PhotoGallery", "TitleBlock", "MapCard", "StoryText", "InteractionsBar"]
+    "required_components": ["MapCard", "Timeline", "PhotoGallery"],
+    "suggested_order": ["PhotoGallery", "TitleBlock", "MapCard", "StoryText", "Timeline", "InteractionsBar"]
   },
-  "style_mappings": {
+  "style_rules": {
     "variant": {
-      "paper-cut": "bg-white shadow-[0_4px_10px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] border-b-4 border-gray-200 transition-transform active:translate-y-1",
-      "holographic": "bg-gradient-to-br from-fuchsia-500/20 via-cyan-500/20 to-lime-500/20 backdrop-blur-md border border-white/30"
+      "paper-cut": "bg-white shadow-[0_4px_10px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] border-b-4 border-stone-200",
+      "holographic": "bg-gradient-to-br from-indigo-500/10 via-sky-500/10 to-emerald-500/10 backdrop-blur-lg border border-white/20"
     },
     "animation": {
       "smooth-fade": "transition-opacity duration-1000",
-      "bouncy-pop": "hover:scale-105 active:scale-95 transition-transform duration-300"
+      "organic-float": "hover:-translate-y-1 transition-transform duration-500"
+    },
+    "typography": {
+      "serif": "font-serif italic tracking-tight"
     }
   },
-  "tools_whitelist": ["amap_search", "weather_api", "network_search"],
+  "allowed_tools": ["amap_search", "weather_api", "network_search"],
   "visual_preference": {
     "variant": "paper-cut",
-    "color_palette": "stone",
-    "corner_style": "asymmetric"
+    "color_palette": "stone"
   }
 }

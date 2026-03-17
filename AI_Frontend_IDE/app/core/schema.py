@@ -3,10 +3,10 @@ from typing import List, Dict, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field, field_validator
 import re
 
-# --- ✨ 维度一：业务建模 —— Archetype 协议 ---
+# --- ✨ 维度一：业务建模 —— 动态协议 ---
 
 class ArchetypeEnum(str, Enum):
-    """业务场景原型枚举 (保留常用枚举，建议使用字符串标签以实现完全解耦)"""
+    """业务场景标签 (保留常用语义标识，底层已改为动态加载)"""
     GENERAL = "general"
     GOURMET = "gourmet"
     TRAVEL = "travel"
@@ -14,7 +14,7 @@ class ArchetypeEnum(str, Enum):
     NEWS = "news"
 
 class ArchetypeContract(BaseModel):
-    """场景契约：定义了该场景下【必须】包含的组件与排版规范"""
+    """场景契约模型：定义该赛道下的组件黑白名单与推荐序列"""
     scenario_id: str
     required_components: List[str] = Field(default_factory=list)
     suggested_order: List[str] = Field(default_factory=list)

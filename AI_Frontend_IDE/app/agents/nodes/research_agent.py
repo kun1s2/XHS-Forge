@@ -23,19 +23,21 @@ async def research_agent(state: UIProjectState) -> dict:
     """
     print("▶️ [NODE START]: research_node (场景自治调研)")
     
-    # 1. 场景探测与工具动态挂载
+    # 1. 场景探测与工具动态裁剪
     scenarios = state.get("scenarios", [])
     scenario_id = scenarios[0] if scenarios else "general"
     
-    whitelist = scenario_manager.get_tools_whitelist(scenario_id)
-    # 物理过滤：只给大模型看当前场景允许使用的工具
-    available_tools = [t for t in RESEARCH_TOOLS if t.name in whitelist] if whitelist else RESEARCH_TOOLS
+    scenario_config = scenario_manager.get_config(scenario_id)
+    allowed_list = scenario_config.get("allowed_tools", [])
     
-    # 动态绑定白名单工具
+    # 物理过滤：只在白名单内的工具会被绑定给大模型
+    available_tools = [t for t in RESEARCH_TOOLS if t.name in allowed_list] if allowed_list else RESEARCH_TOOLS
+    
+    # 动态绑定授权工具
     llm_with_tools = structured_research_llm.bind_tools(available_tools)
     
     # 2. 提取用户指令与热缓存
-    active_panel = state.get("active_panel", "main")
+    print(f"🔧 [调研工兵] 场景 [{scenario_id}] 已激活授权工具: {[t.name for t in available_tools]}")
     main_msgs = state.get("main_messages", [])
     if not main_msgs:
         return {"retrieved_knowledge": None}
