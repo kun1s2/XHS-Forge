@@ -18,8 +18,9 @@ _llm_instance = None
 def get_content_llm():
     global _llm_instance
     if _llm_instance is None:
+        # 🧠 哨兵三轨制：创作大脑切换为最强的 BRAIN 模型
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
+            model=settings.LLM_BRAIN_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0.7
@@ -85,6 +86,8 @@ async def content_agent(state: UIProjectState) -> dict:
         thought = result.thought_process
     except Exception as e:
         print(f"❌ Content Agent 失败: {e}")
+        if settings.DEBUG_MODE:
+            raise e
         new_content = "文案生成失败，请重试。"
         thought = "思考过程中断"
         prompt_data = []

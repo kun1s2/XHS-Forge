@@ -6,38 +6,115 @@ import type { ChatMessage, ImageAsset, WSEvent } from '../types/chat'
 // 生成简单的 UUID
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
+const nodeMap: Record<string, string> = {
+  'intent_node': '意图解析',
+  'research_agent': '全网搜索',
+  'enrichment_agent': '地理/热度增强',
+  'content_node': '文案创作',
+  'style_node': '视觉渲染',
+  'structure_node': '结构布局',
+  'asset_node': '素材调度'
+}
+
 export const useChatStore = defineStore('chat', () => {
   // === State (状态) ===
-  const threadId = ref<string>(`thread_${generateId()}`) // 初始化一个会话ID
+  const threadId = ref<string>('') 
+  const sessions = ref<any[]>([])
+  const isSidebarOpen = ref(true)
   const messages = ref<ChatMessage[]>([])
-  const previewUrl = ref<string | null>(null) // 右侧 iframe 的预览地址
+  const previewUrl = ref<string | null>(null)
   const wsStatus = ref<'disconnected' | 'connecting' | 'connected'>('disconnected')
-  const currentNode = ref<string>('') // 当前正在执行的 Agent 节点名
-  const thoughtText = ref<string>('') // ✨ 新增：当前 Agent 的思考描述
-  const nodeStreamOutput = ref<string>('') // 用于实时预览内部节点输出流的状态
-  const activePanel = ref<string>('main') // 当前面板
-  const selectedComponentId = ref<string | null>(null) // 当前锁定的画布元素
-  /** 全局图库资产池 */
+  const currentNode = ref<string>('')
+  const thoughtText = ref<string>('')
+  const nodeStreamOutput = ref<string>('')
+  const activePanel = ref<string>('main')
+  const selectedComponentId = ref<string | null>(null)
   const imageAssets = ref<ImageAsset[]>([])
-  /** turn_end 下发的页面结构 data_dsl */
   const pageData = ref<Record<string, unknown>>({})
-  /** turn_end 下发的页面样式 style_dsl */
   const styleData = ref<Record<string, unknown>>({})
-  /** 当前预览对应的 HTML 源码 */
   const sourceCode = ref<string>('')
-  /** ✨ 新增：用于展示各节点提示词的调试状态 */
   const nodePrompts = ref<Record<string, string>>({})
-  /** 当前鼠标悬浮的组件 ID */
   const hoveredComponentId = ref<string | null>(null)
-  /** 当前激活的时间点 */
   const activeCheckpointId = ref<string | null>(null)
-  /** ✨ 创作者人设 */
   const creatorPersona = ref<string>("硬核数码博主")
 
-  // 内部 WebSocket 实例
   let ws: WebSocket | null = null
 
   // === Actions (动作) ===
+
+  const getBaseUrl = (protocol: 'http' | 'ws' = 'http') => {
+    // 假设后端始终在 8000 端口
+    const host = `${window.location.hostname}:8000`
+    return protocol === 'ws' ? `ws://${host}` : `http://${host}`
+  }
+
+  const fetchSessions = async () => {
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/sessions`)
+      const data = await res.json()
+      sessions.value = data.sessions || []
+      
+      if (sessions.value.length > 0) {
+        if (!threadId.value) {
+          await switchSession(sessions.value[0].thread_id)
+        }
+      } else {
+        createNewSession()
+      }
+    } catch (e) {
+      console.error('获取会话列表失败:', e)
+      if (!threadId.value) createNewSession()
+    }
+  }
+
+  const switchSession = async (newThreadId: string) => {
+    if (threadId.value === newThreadId && wsStatus.value === 'connected') return
+    
+    if (ws) {
+      ws.onclose = null 
+      ws.close()
+      ws = null
+    }
+    
+    threadId.value = newThreadId
+    wsStatus.value = 'disconnected'
+    
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/${newThreadId}`)
+      const data = await res.json()
+      
+      messages.value = data.messages?.main || []
+      pageData.value = data.data_dsl || {}
+      styleData.value = data.style_dsl || {}
+      previewUrl.value = data.oss_url || null
+      sourceCode.value = data.source_code || ''
+      activeCheckpointId.value = data.checkpoints?.[0]?.checkpoint_id || null
+      
+      connectWebSocket()
+    } catch (e) {
+      console.error('切换会话失败:', e)
+      connectWebSocket()
+    }
+  }
+
+  const createNewSession = () => {
+    const newId = `thread_${generateId()}`
+    threadId.value = newId
+    messages.value = []
+    pageData.value = {}
+    styleData.value = {}
+    previewUrl.value = null
+    
+    sessions.value.unshift({
+      thread_id: newId,
+      title: '新的种草页面',
+      updated_at: new Date().toISOString()
+    })
+    
+    connectWebSocket()
+  }
 
   const setSelectedComponent = (id: string | null) => {
     selectedComponentId.value = id
@@ -65,9 +142,11 @@ export const useChatStore = defineStore('chat', () => {
 
   const connectWebSocket = () => {
     if (ws && ws.readyState === WebSocket.OPEN) return
+    if (!threadId.value) return
 
     wsStatus.value = 'connecting'
-    const wsUrl = `ws://127.0.0.1:8000/ws/chat/${threadId.value}`
+    const baseUrl = getBaseUrl('ws')
+    const wsUrl = `${baseUrl}/ws/chat/${threadId.value}`
     ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
@@ -100,9 +179,8 @@ export const useChatStore = defineStore('chat', () => {
     const lastMsg = messages.value[messages.value.length - 1]
     const isAssistant = lastMsg && lastMsg.role === 'assistant'
 
-    // 兼容新旧协议：优先取 event，其次取 type
     const eventType = wsData.event || wsData.type
-    const data = wsData.data || wsData // 如果是新协议，data 在 wsData.data 里；否则就是整个 wsData
+    const data = wsData.data || wsData
 
     switch (eventType) {
       case 'middleware':
@@ -113,20 +191,15 @@ export const useChatStore = defineStore('chat', () => {
         break
 
       case 'thought':
-        // ✨ 新增思考流处理
         thoughtText.value = data
-        nodeStreamOutput.value = '' // 切换节点时清空流式输出预览
+        nodeStreamOutput.value = ''
         break
 
       case 'thought_process':
-        // ✨ 处理思维链最终态（替换掉流式抓取的临时内容）
         if (isAssistant) {
           if (!lastMsg.thoughts) lastMsg.thoughts = []
-          
           const nodeName = data.node
           const nodeLabel = nodeMap[nodeName] || nodeName
-          
-          // 检查是否已有该节点的流式条目，有则更新，无则追加
           const existingIdx = lastMsg.thoughts.findIndex(t => t.node === nodeLabel)
           if (existingIdx !== -1) {
             lastMsg.thoughts[existingIdx] = { node: nodeLabel, text: data.content, streaming: false }
@@ -141,11 +214,7 @@ export const useChatStore = defineStore('chat', () => {
         const sourceNode = wsData.node || currentNode.value
         
         if (sourceNode && !['content_node', 'direct_chat_node', 'rag_node'].includes(sourceNode)) {
-          // 1. 累积到缓冲区
           nodeStreamOutput.value += content
-          
-          // 2. ✨ 【流式提取核心逻辑】：从 JSON 片段中抓取 thought_process 的值
-          // 逻辑：寻找 "thought_process": " 之后直到下一个未转义引号的内容
           const buffer = nodeStreamOutput.value
           const marker = '"thought_process":'
           const startIdx = buffer.indexOf(marker)
@@ -153,15 +222,11 @@ export const useChatStore = defineStore('chat', () => {
           if (startIdx !== -1 && isAssistant) {
             if (!lastMsg.thoughts) lastMsg.thoughts = []
             const nodeLabel = nodeMap[sourceNode] || sourceNode
-            
-            // 提取引号内的内容
             let extracted = ''
             const afterMarker = buffer.substring(startIdx + marker.length).trim()
             if (afterMarker.startsWith('"')) {
-              // 寻找结束引号，但要处理流式还没结束的情况
               const contentStart = afterMarker.indexOf('"') + 1
               const remaining = afterMarker.substring(contentStart)
-              // 这是一个简单的正则，提取到最后一个有效字符（处理转义引号）
               const match = remaining.match(/^((?:[^"\\]|\\.)*)/)
               if (match) {
                 extracted = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"')
@@ -207,10 +272,8 @@ export const useChatStore = defineStore('chat', () => {
         break
 
       case 'action_required':
-        // ✨ 处理 HITL 立场决策请求
         if (isAssistant) {
           lastMsg.streaming = false
-          // 这里可以弹窗或在消息流中插入特殊卡片，目前先简单打印描述
           lastMsg.content += `\n\n📢 ${data.message}`
         }
         break
@@ -252,14 +315,13 @@ export const useChatStore = defineStore('chat', () => {
     const assets = imageAssets.value
     if ((!content.trim() && assets.length === 0) || wsStatus.value !== 'connected') return
 
-    // ✨ 核心修复：提取当前资产池中的所有 URL，传递给后端进行多模态分析
     const currentUrls = assets.map(a => a.url)
 
     messages.value.push({
       id: generateId(),
       role: 'user',
       content,
-      imageUrls: currentUrls, // 在 UI 上显示出来
+      imageUrls: currentUrls,
       timestamp: Date.now()
     })
 
@@ -277,9 +339,9 @@ export const useChatStore = defineStore('chat', () => {
         panel: activePanel.value,
         parent_checkpoint_id: activeCheckpointId.value,
         selected_element_id: selectedComponentId.value,
-        creator_persona: creatorPersona.value, // ✨ 同步人设到后端
+        creator_persona: creatorPersona.value,
         current_assets: assets,
-        image_urls: currentUrls // ✨ 正确传递 URL 数组
+        image_urls: currentUrls
       }))
     }
   }
@@ -302,6 +364,8 @@ export const useChatStore = defineStore('chat', () => {
     sourceCode,
     creatorPersona,
     thoughtText,
+    isSidebarOpen,
+    sessions,
     setSelectedComponent,
     setCreatorPersona,
     setHoveredComponent,
@@ -310,6 +374,9 @@ export const useChatStore = defineStore('chat', () => {
     setImageAssets,
     connectWebSocket,
     rollbackTo,
-    sendMessage
+    sendMessage,
+    fetchSessions,
+    switchSession,
+    createNewSession
   }
 })

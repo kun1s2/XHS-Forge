@@ -187,6 +187,7 @@ class IntentOutput(BaseModel):
     thought_process: str = Field(description="思维链推理过程")
     reason: str = Field(..., description="极简理由（10字以内）。")
     intent_route: Literal["content_node", "structure_node", "style_node", "rag_node", "patch_node"] = Field(..., description="决定路由的节点名")
+    detected_element_id: Optional[str] = Field(None, description="识别出的潜在修改目标 ID（如果用户未明确选中，但语义中包含明确目标）")
     scenarios: List[str] = Field(default_factory=list, description="识别的业务场景标签")
     detected_archetype: ArchetypeEnum = Field(default=ArchetypeEnum.GENERAL, description="识别出的业务场景原型")
 

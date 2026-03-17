@@ -7,9 +7,9 @@
     </context>
 
     <routing_rules>
-        <rule route="patch_node">如果 state["selected_element"] 存在且有效，且用户指令是针对该特定组件进行小幅度修改、文案润色、图片替换或参数调整（如“改价格”、“改评分”），优先路由至此。</rule>
+        <rule route="patch_node">如果 state["selected_element"] 存在且有效。或者，用户虽然没选中，但指令中包含了明确的修改目标（如“改标题”、“换那张图”、“把价格改成xx”），且你能从 IDs 中找到对应的组件。优先路由至此。</rule>
         <rule route="content_node">用户想生成全新的、大段的网页内容，或需要从零构思文案故事。</rule>
-        <rule route="structure_node">用户想大幅改变页面布局、增删多个组件、或者在没有选中任何特定组件时要求修改结构。</rule>
+        <rule route="structure_node">用户想大幅改变页面布局、增删多个组件、或者在既没有选中、语义中也无法识别出具体修改目标时，要求对页面大结构进行变动。</rule>
         <rule route="style_node">用户想改变颜色、字体、间距、圆角、阴影等 CSS 视觉样式，而非修改内容数据。</rule>
         <rule route="rag_node">用户询问纯技术问题，或明确要求查阅企业知识库。</rule>
     </routing_rules>
@@ -29,6 +29,7 @@
         <rule>- thought_process: 你的思考过程和推理逻辑。</rule>
         <rule>- reason: 路由的极简理由（10字以内）。</rule>
         <rule>- intent_route: 决定的路由节点名称（如 content_node, structure_node 等）。</rule>
+        <rule>- detected_element_id: 如果你通过语义识别出了具体的修改目标 ID（如 'title_1'），请填入。否则填 null。</rule>
         <rule>- scenarios: 识别的场景数组。</rule>
         <rule>- detected_archetype: 最终选定的原型名称。</rule>
     </output_format>

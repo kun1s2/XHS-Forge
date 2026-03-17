@@ -1,4 +1,6 @@
 import uuid
+from pydantic import BaseModel
+from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
@@ -7,12 +9,61 @@ from app.schemas.responses import WorkspaceDataResponse, ForkResponse, BaseRespo
 
 router = APIRouter(prefix="/workspace", tags=["Workspace Operations"])
 
+class SessionInfo(BaseModel):
+    thread_id: str
+    updated_at: str
+    title: str = "未命名种草页面"
+
+class SessionListResponse(BaseModel):
+    sessions: List[SessionInfo]
+
 def get_agent(request: Request):
     """依赖注入：从 FastAPI 生命周期中安全获取编译好的 Agent 引擎"""
     agent = request.app.state.agent
     if not agent:
         raise HTTPException(status_code=500, detail="AI 前端 IDE 引擎未就绪，请检查 Postgres 连接")
     return agent
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(request: Request):
+    """
+    【会话列表接口】
+    从 LangGraph 的 checkpoints 表中提取所有唯一的 thread_id 及其最后更新时间
+    """
+    agent = get_agent(request)
+    # 获取底层的 PostgresSaver 实例
+    saver = agent.checkpointer
+    
+    # 构建原生 SQL：按 thread_id 分组，取最大的 checkpoint_id (即最新)
+    query = """
+        SELECT thread_id, MAX(checkpoint_id) as last_cid
+        FROM checkpoints
+        GROUP BY thread_id
+        ORDER BY last_cid DESC
+    """
+    
+    sessions = []
+    try:
+        # 使用 saver 的 connection 执行查询
+        async with saver.conn.cursor() as cur:
+            await cur.execute(query)
+            rows = await cur.fetchall()
+            
+            for row in rows:
+                tid = row[0]
+                # 这里为了性能，我们先给个默认标题。
+                # 优化策略：可以从 checkpoint 的 metadata 或 messages 中提取第一条 HumanMessage 作为标题
+                sessions.append(SessionInfo(
+                    thread_id=tid,
+                    updated_at=datetime.now().isoformat(), # 后续可从 checkpoint 提取精准时间
+                    title=f"项目 {tid[:8]}"
+                ))
+    except Exception as e:
+        print(f"Error fetching sessions from DB: {e}")
+        # 降级：如果表还没创建，返回空
+        return SessionListResponse(sessions=[])
+
+    return SessionListResponse(sessions=sessions)
 
 def format_messages(messages_list: list) -> list[dict]:
     """

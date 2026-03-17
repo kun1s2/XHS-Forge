@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str 
     LLM_MODEL: str 
     LLM_SMALL_MODEL: str 
+    
+    # === X-Forge 异构模型编排矩阵 (New) ===
+    LLM_LOGIC_MODEL: str = "gpt-4o-mini"
+    LLM_BRAIN_MODEL: str = "gemini-3.0-flash"
+    LLM_WORKER_MODEL: str = "gemini-2.5-flash-lite-nothinking"
+    LLM_VISION_MODEL: str = "gemini-2.0-flash"
+    
     ZHI_PU_API_KEY: str
 
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -58,7 +65,10 @@ class Settings(BaseSettings):
 
     # 是否开启调试模式（开启后会打印全量 Node IO 日志）
     XHS_FORGE_DEBUG: bool = True
+    # 开发模式：设为 True 则节点报错不再兜底，直接抛出异常
+    DEBUG_MODE: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
 
 settings = Settings()

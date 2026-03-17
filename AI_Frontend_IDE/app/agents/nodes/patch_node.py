@@ -17,8 +17,9 @@ _llm_instance = None
 def get_patch_llm():
     global _llm_instance
     if _llm_instance is None:
+        # ✨ 哨兵性能优化：手术刀节点切换为极速小模型
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
+            model=settings.LLM_SMALL_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0
@@ -38,8 +39,8 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
     支持 SerpApi 搜图增强。
     """
     llm = get_patch_llm()
-    # ✨ 统一切换为 function_calling
-    structured_llm = llm.with_structured_output(SurgicalPatchOutput)
+    # ✨ 恢复为更精准的 function_calling 模式
+    structured_llm = llm.with_structured_output(SurgicalPatchOutput, method="function_calling")
     
     # 1. 锁定修改目标
     selected_id = state.get("selected_element_id")

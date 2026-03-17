@@ -71,10 +71,10 @@ async def enrich_product_data(data_dsl: dict, archetype: str = "general") -> dic
 【搜索结果】:
 {snippets}
 
-【输出要求】:
+【任务要求】:
 1. 提取 5 条最硬核、最准确的信息。
-2. 严禁包含营销话术、过时新闻（如发布会时间）或无关干扰。
-3. 必须输出为 JSON 格式：{{"refined_name": "简洁的官方名称", "price": "参考价格", "features": ["参数1", "参数2", ...]}}
+2. 关于【价格】: 必须给出一个具体数字或区间（如 ￥11,390 或 1.1w-1.3w）。如果搜索结果存在多个价格（如官方价与溢价），请优先保留官方价并标注（如 ￥11,390 起）。严禁输出“未提及”或“暂无”。
+3. 必须输出为严格的 JSON 格式：{{"refined_name": "简洁的官方名称", "price": "￥具体数值", "features": ["参数1", "参数2", ...]}}
 不要有任何多余文字。"""
 
                 response = await llm.ainvoke(distill_prompt)
@@ -84,12 +84,17 @@ async def enrich_product_data(data_dsl: dict, archetype: str = "general") -> dic
                 
                 # 4. 回填 DSL：数据闭环
                 # 修正商品/地点名字
-                if distilled_data.get("refined_name"):
+                if distilled_data.get("refined_name") and "未提及" not in distilled_data["refined_name"]:
                     enriched_dsl[comp_id]["title"] = distilled_data["refined_name"]
                 
                 # 修正价格
-                if distilled_data.get("price") and distilled_data.get("price") != "暂无":
-                    enriched_dsl[comp_id]["price"] = distilled_data["price"]
+                price_val = distilled_data.get("price")
+                if price_val and "未提及" not in str(price_val):
+                    enriched_dsl[comp_id]["price"] = str(price_val)
+                else:
+                    # 强力兜底：如果还是没拿到，根据上下文盲猜一个（仅为占位，防止显示“搜索未提及”）
+                    enriched_dsl[comp_id]["price"] = "￥价格请以官方为准"
+
                 
                 # 修正参数
                 if distilled_data.get("features"):

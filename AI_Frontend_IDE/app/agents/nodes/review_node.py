@@ -23,7 +23,14 @@ async def controversy_sniffer_node(state: UIProjectState) -> dict:
     )
     structured_llm = llm.with_structured_output(ControversyOutput, method="function_calling")
 
-    prompt = f"""你是一个舆情分析专家。请快速阅读以下背景资料，判断该话题是否存在明显的争议、极性冲突或多方博弈（例如：一半人疯狂安利，一半人避雷吐槽）。
+    # ✨ 哨兵加固：引入更具深度的舆情嗅探指令
+    prompt = f"""你是一个资深的小红书趋势分析专家。
+    请快速审计以下背景资料，识别该话题背后的【心智博弈】：
+    1. 利益冲突：是否存在“溢价严重” vs “为爱发电”的争论？
+    2. 审美冲突：是否存在“复古美学” vs “智商税”的博弈？
+    3. 事实冲突：是否存在“避雷吐槽” vs “红榜安利”的极性？
+
+    你的目标是识别这些“热评冲突点”，为后续文案生成提供“情绪锚点”。
 
 【资料内容】:
 {knowledge}

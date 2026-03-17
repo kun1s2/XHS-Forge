@@ -160,14 +160,16 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 # 执行图循环
                 await _run_graph_loop(agent, inputs, config, websocket)
 
+            except WebSocketDisconnect:
+                raise  # 交给外层统一处理，避免当普通错误处理或向已断开连接写数据
             except Exception as e:
                 print(f"❌ WebSocket 循环错误: {e}")
                 if settings.XHS_FORGE_DEBUG: import traceback; traceback.print_exc()
                 if websocket.client_state == WebSocketState.CONNECTED:
                     await websocket.send_json({"event": "error", "data": str(e)})
 
-    except WebSocketDisconnect:
-        print(f"[WS] Client {thread_id} disconnected.")
+    except WebSocketDisconnect as e:
+        print(f"[WS] Client {thread_id} disconnected (code={getattr(e, 'code', '')}, reason={getattr(e, 'reason', '') or '(none)'}).")
 
 async def _run_graph_loop(agent, inputs, config, websocket):
     """【核心循环】带全量日志、自动续火与 HITL 拦截"""

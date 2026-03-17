@@ -17,9 +17,9 @@ def get_intent_llm():
         # ✨ 1. 强制禁用可能引发阻塞的 LangSmith 追踪
         os.environ["LANGSMITH_TRACING"] = "false"
         
-        # ✨ 代码净化：移除之前的硬编码物理直连，交还给系统的标准 httpx
+        # 🗡️ 哨兵三轨制：逻辑路由切换为专门的 LOGIC 模型
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
+            model=settings.LLM_LOGIC_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0,
@@ -80,29 +80,41 @@ async def intent_agent(state: UIProjectState) -> dict:
         ("human", "【当前场景背景】: {{ active_archetype }}\n用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n(请通过调用工具输出 JSON 格式结果)")
     ], template_format="jinja2")
     
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %A")
+    
     try:
         inputs = {
+            "current_time": current_time,  # ✨ 哨兵注入：系统当前时间
             "data_context": json.dumps(outline, ensure_ascii=False),  # ✨ 只传大纲
-            "selected_element": "无", 
+            "selected_element": selected_id if selected_id else "无", 
             "active_archetype": active_archetype, 
             "query": user_query
         }
         
-        # 🌟 修复：Pydantic 的 with_structured_output 应该是同步调用的，但 ainvoke 才是异步的
+        # 🌟 既然长官确认支持，回归 function_calling 模式
         structured_llm = llm.with_structured_output(IntentOutput, method="function_calling")
         
         print(f"📡 正在发起【结构化意图】识别...")
+        # ✨ 给复杂的意图识别多留 15 秒宽限期
         runnable = prompt | structured_llm
-        # 这里不要在 AsyncMock 上调用 ainvoke，如果它是 Mock 的话
-        result: IntentOutput = await runnable.ainvoke(inputs)
+        result: IntentOutput = await runnable.ainvoke(inputs, config={"timeout": 45.0})
         
         rendered_messages = prompt.format_messages(**inputs)
         prompt_data = [{"role": m.type, "content": m.content} for m in rendered_messages]
         archetype_str = result.detected_archetype.value if hasattr(result.detected_archetype, 'value') else str(result.detected_archetype)
         
+        # 🌟 捕获潜在修改目标
+        detected_id = result.detected_element_id
+        final_route = result.intent_route
+        
+        # 如果 LLM 识别出了具体目标，且当前 state 没选，则自动“补位”选中它，辅助 patch_node
+        effective_id = selected_id or detected_id
+        
         return {
             "intent_result": result,
-            "intent_route": result.intent_route,
+            "intent_route": final_route,
+            "selected_element_id": effective_id, # ✨ 注入识别出的 ID
             "scenarios": result.scenarios,
             "active_archetype": archetype_str,
             "node_prompts": {"intent_agent": prompt_data}

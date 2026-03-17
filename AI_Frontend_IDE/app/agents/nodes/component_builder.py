@@ -10,16 +10,17 @@ from app.core.config import settings
 from app.core.schema import ComponentData, ComponentStyle, ComponentBuilderOutput
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-# 🛡️ 【GitHub 专属限流信号量】：限制最多同时只有 3 个工兵请求 API
-_github_limiter = asyncio.Semaphore(3)
+# 🛡️ 【哨兵性能加固】：在三轨制架构下，扩容工兵并发数，平衡吞吐与稳定性
+_github_limiter = asyncio.Semaphore(8)
 
 # ✨ 性能优化：全局复用 LLM 实例
 _llm_instance = None
 def get_builder_llm():
     global _llm_instance
     if _llm_instance is None:
+        # 🐝 哨兵三轨制：并发工兵切换为极速 WORKER 模型
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
+            model=settings.LLM_WORKER_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0.4
@@ -48,7 +49,8 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
         global_content = getattr(last_msg, "content", str(last_msg))
 
     async with _github_limiter:
-        jitter = random.uniform(0.5, 2.5)
+        # ✨ 哨兵提速：压缩随机抖动，实现极速响应
+        jitter = random.uniform(0.1, 0.5)
         await asyncio.sleep(jitter)
         
         print(f"👷 [并发工兵] 开始构建组件: {comp_id} ({comp_type})...")

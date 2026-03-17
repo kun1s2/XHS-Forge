@@ -18,8 +18,9 @@ class DisambiguationEval(BaseModel):
     )
 
 # 初始化支持 Tool Calling 的 LLM
+# 🧠 哨兵三轨制：调研专家切换为最强的 BRAIN 模型
 llm = create_llm(
-    model=settings.LLM_MODEL,
+    model=settings.LLM_BRAIN_MODEL,
     api_key=settings.LLM_API_KEY,
     base_url=settings.LLM_BASE_URL,
     temperature=0.2
@@ -42,12 +43,17 @@ async def research_agent(state: UIProjectState) -> dict:
     # 2. 记忆截断
     trimmed_messages = get_trimmed_messages(messages, max_tokens=3000)
     
-    # 3. 注入“状态驱动”的系统指令
+    # 3. 注入“状态驱动”的系统指令（含实时时钟）
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %A")
+    
     system_instruction = f"""你是一个专业的互联网调研专家。
-当前创作场景原型: 【{active_archetype}】
-用户提供的视觉线索: 【{image_desc}】
+【当前时间】: {current_time}
+【当前创作场景原型】: {active_archetype}
+【用户提供的视觉线索】: {image_desc}
 
 请结合以上背景，自主决定调用工具进行深度调研。
+如果你识别到用户指令中包含“最新”、“最近”、“新款”等时效性词汇，请务必在生成搜索 query 时结合当前年份 {current_time[:4]} 进行精准检索。
 如果搜索结果存在多义性，请务必结合当前场景和线索进行逻辑推理。
 请确保输出符合工具调用的 JSON 格式规范。
 """
@@ -64,11 +70,9 @@ async def research_agent(state: UIProjectState) -> dict:
     retrieved_knowledge = ""
     
     if not response.tool_calls and response.content:
-        # 只有在没有 user_choice 时才进行评估，防止循环中断
-        # 这里为了演示，我们假设如果已经消歧过了，就不再评估
-        
+        # 🛡️ 评估模型也切换为 LOGIC 模型，确保打分公正
         eval_llm = create_llm(
-            model=settings.LLM_SMALL_MODEL,
+            model=settings.LLM_LOGIC_MODEL,
             api_key=settings.LLM_API_KEY,
             base_url=settings.LLM_BASE_URL,
             temperature=0

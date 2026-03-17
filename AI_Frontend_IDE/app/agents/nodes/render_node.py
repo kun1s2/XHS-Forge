@@ -2,9 +2,145 @@ import uuid
 from app.agents.state import UIProjectState
 from app.services.oss_client import upload_html_to_oss
 
+# --- 🚀 组件原子渲染器 (Atomic Renderers) ---
+
+def render_cover_swiper(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 CoverSwiper (小红书顶部轮播)"""
+    images = comp_data.get("image_urls", [])
+    if not images and comp_data.get("image_url"):
+        images = [comp_data.get("image_url")]
+        
+    inner_html = ""
+    if images:
+        inner_html += '<div class="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide w-full h-[400px] bg-gray-100">'
+        for idx, img in enumerate(images):
+            inner_html += f'<div class="snap-center shrink-0 w-full h-full flex-none">'
+            inner_html += f'<img src="{img}" alt="cover-{idx}" class="w-full h-full object-cover"/>'
+            inner_html += '</div>'
+        inner_html += '</div>'
+        inner_html += f'<div class="absolute bottom-4 right-4 bg-black/40 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full">1/{len(images)}</div>'
+    else:
+        inner_html += '<div class="w-full h-64 bg-gray-200 flex items-center justify-center text-gray-500">📸 暂无图片</div>'
+    return inner_html
+
+def render_title_block(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 TitleBlock (带情绪的标题)"""
+    title = comp_data.get("title", "")
+    return f'<h1 class="text-xl font-bold text-gray-900 leading-snug">{title}</h1>'
+
+def render_story_text(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 StoryText (正文故事)"""
+    paragraphs = comp_data.get("paragraphs", [])
+    inner_html = ""
+    for p in paragraphs:
+        inner_html += f'<p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">{p}</p>'
+    return inner_html
+
+def render_product_card(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 ProductCard (商品种草卡片)"""
+    img = comp_data.get("image_url", "")
+    price = comp_data.get("price", "暂无标价")
+    product_name = comp_data.get("title") or comp_data.get("desc") or "宝藏好物"
+    rating = comp_data.get("rating")
+    
+    inner_html = '<div class="flex bg-gray-50 rounded-xl p-3 items-center border border-gray-100/50">'
+    if img:
+        inner_html += f'<img src="{img}" class="w-16 h-16 object-cover rounded-lg mr-3 shadow-sm border border-gray-200/50"/>'
+    inner_html += '<div class="flex-1 min-w-0">'
+    inner_html += f'<div class="text-sm text-gray-800 line-clamp-2 mb-1.5 font-medium">{product_name}</div>'
+    if rating:
+        inner_html += f'<div class="text-[10px] text-orange-400 mb-1">⭐ {rating}</div>'
+    inner_html += f'<div class="text-[#ff2442] font-bold text-base">{price}</div>'
+    inner_html += '</div>'
+    inner_html += '<button class="ml-3 shrink-0 bg-[#ff2442] text-white text-xs px-4 py-2 rounded-full font-medium">去看看</button>'
+    inner_html += '</div>'
+    return inner_html
+
+def render_product_spec_card(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 ProductSpecCard (参数规格卡片)"""
+    features = comp_data.get("core_features", [])
+    inner_html = '<div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100/50">'
+    inner_html += '<div class="flex items-center gap-2 mb-3">'
+    inner_html += '  <div class="w-1 h-4 rounded-full bg-[var(--primary-vibe)]"></div>'
+    inner_html += '  <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Product Specs</h3>'
+    inner_html += '</div>'
+    inner_html += '<div class="grid grid-cols-1 gap-2">'
+    for feature in features:
+        inner_html += f'''
+        <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
+          <span class="text-[var(--primary-vibe)] text-xs">✓</span>
+          <span class="text-xs text-gray-700 leading-tight">{feature}</span>
+        </div>
+        '''
+    if not features:
+        inner_html += '<div class="text-center py-2 text-xs text-gray-400 italic">正在通过互联网获取参数...</div>'
+    inner_html += '</div></div>'
+    return inner_html
+
+def render_tag_list(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 TagList (底部话题标签)"""
+    inner_html = '<div class="flex flex-wrap gap-2 mt-2">'
+    for tag in comp_data.get("tags", []):
+        display_tag = tag if str(tag).startswith('#') else f'#{tag}'
+        inner_html += f'<span class="text-[#13386c] bg-blue-50/50 px-2 py-0.5 rounded text-[13px] font-medium cursor-pointer hover:bg-blue-100 transition-colors">{display_tag}</span>'
+    inner_html += '</div>'
+    return inner_html
+
+def render_interactions_bar(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 InteractionsBar (社交互动条)"""
+    likes = comp_data.get("likes", "0")
+    collects = comp_data.get("collects", "0")
+    comments = comp_data.get("comments", "0")
+    
+    return f'''
+    <div class="flex items-center justify-between w-full">
+        <div class="flex gap-6 items-center text-gray-500">
+            <div class="flex items-center gap-1.5"><span class="text-base">🤍</span><span class="text-[13px] font-medium">{likes}</span></div>
+            <div class="flex items-center gap-1.5"><span class="text-base">⭐</span><span class="text-[13px] font-medium">{collects}</span></div>
+            <div class="flex items-center gap-1.5"><span class="text-base">💬</span><span class="text-[13px] font-medium">{comments}</span></div>
+        </div>
+        <div class="flex gap-3">
+            <button class="px-5 py-2 bg-gray-100 text-gray-800 text-[13px] font-bold rounded-full hover:bg-gray-200 transition-colors">分享</button>
+            <button class="px-5 py-2 bg-[#ff2442] text-white text-[13px] font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注</button>
+        </div>
+    </div>
+    '''
+
+def render_location_block(comp_id: str, comp_data: dict, comp_style: dict) -> str:
+    """渲染 LocationBlock (地理位置打卡)"""
+    poi_name = comp_data.get("poi_name", "未知地点")
+    address = comp_data.get("location", "")
+    
+    inner_html = f'''
+    <div class="flex items-center gap-3 bg-white rounded-2xl p-4 shadow-sm border border-gray-100/50">
+        <div class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 text-lg">📍</div>
+        <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-gray-900 truncate">{poi_name}</div>
+            <div class="text-[11px] text-gray-500 truncate">{address}</div>
+        </div>
+        <div class="text-blue-500 text-xs font-medium">查看地图 ></div>
+    </div>
+    '''
+    return inner_html
+
+# --- 🎯 组件映射注册表 (The Component Registry) ---
+
+COMPONENT_MAP = {
+    "CoverSwiper": render_cover_swiper,
+    "TitleBlock": render_title_block,
+    "StoryText": render_story_text,
+    "ProductCard": render_product_card,
+    "ProductSpecCard": render_product_spec_card,
+    "TagList": render_tag_list,
+    "InteractionsBar": render_interactions_bar,
+    "LocationBlock": render_location_block # ✨ 哨兵补全
+}
+
+# --- 🧱 核心渲染引擎 ---
+
 def render_component(comp_id: str, comp_data: dict, comp_style: dict) -> str:
     """
-    【核心物理渲染器】：将小红书风格 DSL 映射为真实的 HTML DOM
+    【核心物理渲染器】：通过 COMPONENT_MAP 将 DSL 映射为 HTML DOM
     """
     comp_type = comp_data.get("type", "div")
     
@@ -14,116 +150,20 @@ def render_component(comp_id: str, comp_data: dict, comp_style: dict) -> str:
     inline_style_str = "; ".join([f"{k}: {v}" for k, v in inline_styles_dict.items()])
     style_attr = f'style="{inline_style_str}"' if inline_style_str else ""
     
-    # 基础 DOM 壳子，附带 data-comp-id 供前端鼠标 Hover 锁定使用！
+    # 基础 DOM 壳子
     dom_wrapper_start = f'<div id="{comp_id}" data-comp-id="{comp_id}" class="{css_classes} relative" {style_attr}>'
     dom_wrapper_end = '</div>'
     
-    inner_html = ""
+    # 从映射表中获取渲染函数
+    render_fn = COMPONENT_MAP.get(comp_type)
     
-    # 1. 渲染 CoverSwiper (小红书顶部轮播)
-    if comp_type == "CoverSwiper":
-        images = comp_data.get("image_urls", [])
-        if not images and comp_data.get("image_url"):
-            images = [comp_data.get("image_url")]
-            
-        if images:
-            # 简单实现：水平滚动容器
-            inner_html += '<div class="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide w-full h-[400px] bg-gray-100">'
-            for idx, img in enumerate(images):
-                inner_html += f'<div class="snap-center shrink-0 w-full h-full flex-none">'
-                inner_html += f'<img src="{img}" alt="cover-{idx}" class="w-full h-full object-cover"/>'
-                inner_html += '</div>'
-            inner_html += '</div>'
-            # 假装有一个页码指示器
-            inner_html += f'<div class="absolute bottom-4 right-4 bg-black/40 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full">1/{len(images)}</div>'
-        else:
-            inner_html += '<div class="w-full h-64 bg-gray-200 flex items-center justify-center text-gray-500">📸 暂无图片</div>'
-            
-    # 2. 渲染 TitleBlock (带情绪的标题)
-    elif comp_type == "TitleBlock":
-        title = comp_data.get("title", "")
-        inner_html += f'<h1 class="text-xl font-bold text-gray-900 leading-snug">{title}</h1>'
-        
-    # 3. 渲染 StoryText (正文故事)
-    elif comp_type == "StoryText":
-        for p in comp_data.get("paragraphs", []):
-            inner_html += f'<p class="text-[15px] text-gray-800 leading-relaxed mb-3 whitespace-pre-wrap">{p}</p>'
-            
-    # 4. 渲染 ProductCard (商品种草卡片)
-    elif comp_type == "ProductCard":
-        img = comp_data.get("image_url", "")
-        price = comp_data.get("price", "暂无标价")
-        # ✨ 修复：优先取 title 作为商品名称，如果没有再取 desc
-        product_name = comp_data.get("title") or comp_data.get("desc") or "宝藏好物"
-        rating = comp_data.get("rating")
-        
-        inner_html += '<div class="flex bg-gray-50 rounded-xl p-3 items-center border border-gray-100/50">'
-        if img:
-            inner_html += f'<img src="{img}" class="w-16 h-16 object-cover rounded-lg mr-3 shadow-sm border border-gray-200/50"/>'
-        inner_html += '<div class="flex-1 min-w-0">'
-        # ✨ 插值修复
-        inner_html += f'<div class="text-sm text-gray-800 line-clamp-2 mb-1.5 font-medium">{product_name}</div>'
-        
-        # 如果有评分，渲染星星
-        if rating:
-            inner_html += f'<div class="text-[10px] text-orange-400 mb-1">⭐ {rating}</div>'
-            
-        inner_html += f'<div class="text-[#ff2442] font-bold text-base">{price}</div>'
-        inner_html += '</div>'
-        inner_html += '<button class="ml-3 shrink-0 bg-[#ff2442] text-white text-xs px-4 py-2 rounded-full font-medium">去看看</button>'
-        inner_html += '</div>'
-        
-    # ✨ 任务 1：新增 ProductSpecCard (参数规格卡片) 的渲染逻辑
-    elif comp_type == "ProductSpecCard":
-        features = comp_data.get("core_features", [])
-        inner_html += '<div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100/50">'
-        inner_html += '<div class="flex items-center gap-2 mb-3">'
-        inner_html += '  <div class="w-1 h-4 rounded-full bg-[var(--primary-vibe)]"></div>'
-        inner_html += '  <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Product Specs</h3>'
-        inner_html += '</div>'
-        inner_html += '<div class="grid grid-cols-1 gap-2">'
-        for feature in features:
-            inner_html += f'''
-            <div class="flex items-start gap-2 p-2 rounded-lg bg-gray-50/50">
-              <span class="text-[var(--primary-vibe)] text-xs">✓</span>
-              <span class="text-xs text-gray-700 leading-tight">{feature}</span>
-            </div>
-            '''
-        if not features:
-            inner_html += '<div class="text-center py-2 text-xs text-gray-400 italic">正在通过互联网获取参数...</div>'
-        inner_html += '</div></div>'
-        
-    # 6. 渲染 TagList (底部话题标签)
-    elif comp_type == "TagList":
-        inner_html += '<div class="flex flex-wrap gap-2 mt-2">'
-        for tag in comp_data.get("tags", []):
-            # 确保标签带 # 号
-            display_tag = tag if str(tag).startswith('#') else f'#{tag}'
-            inner_html += f'<span class="text-[#13386c] bg-blue-50/50 px-2 py-0.5 rounded text-[13px] font-medium cursor-pointer hover:bg-blue-100 transition-colors">{display_tag}</span>'
-        inner_html += '</div>'
-
-    # ✨ 任务 2：新增 InteractionsBar (社交互动条) 的渲染逻辑
-    elif comp_type == "InteractionsBar":
-        likes = comp_data.get("likes", "0")
-        collects = comp_data.get("collects", "0")
-        comments = comp_data.get("comments", "0")
-        
-        inner_html += f'''
-        <div class="flex items-center justify-between w-full">
-            <div class="flex gap-6 items-center text-gray-500">
-                <div class="flex items-center gap-1.5"><span class="text-base">🤍</span><span class="text-[13px] font-medium">{likes}</span></div>
-                <div class="flex items-center gap-1.5"><span class="text-base">⭐</span><span class="text-[13px] font-medium">{collects}</span></div>
-                <div class="flex items-center gap-1.5"><span class="text-base">💬</span><span class="text-[13px] font-medium">{comments}</span></div>
-            </div>
-            <div class="flex gap-3">
-                <button class="px-5 py-2 bg-gray-100 text-gray-800 text-[13px] font-bold rounded-full hover:bg-gray-200 transition-colors">分享</button>
-                <button class="px-5 py-2 bg-[#ff2442] text-white text-[13px] font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注</button>
-            </div>
-        </div>
-        '''
-        
-    # 兜底：如果是不认识的组件，直接把数据打出来
+    if render_fn:
+        try:
+            inner_html = render_fn(comp_id, comp_data, comp_style)
+        except Exception as e:
+            inner_html = f'<pre class="text-xs text-red-500 p-2 bg-red-50 rounded">Render Error [{comp_type}]: {str(e)}</pre>'
     else:
+        # 兜底：如果是不认识的组件，直接提示
         inner_html = f'<pre class="text-xs text-red-500 p-2 bg-red-50 rounded">Unknown Social Component: {comp_type}</pre>'
 
     return dom_wrapper_start + inner_html + dom_wrapper_end

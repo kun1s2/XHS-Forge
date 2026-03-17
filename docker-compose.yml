@@ -7,7 +7,9 @@ services:
     container_name: xhs-redis
     ports:
       - "6379:6379"
-    command: redis-server --requirepass qq15160160
+    command: redis-server --requirepass qq15160160 --appendonly yes
+    volumes:
+      - ./redis_data:/data
     restart: always
 
   # 2. 数据库：主库 + 向量审计库
@@ -20,6 +22,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: qq151601601
       POSTGRES_DB: LangChainProject
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
     restart: always
 
   # 3. 后端服务 (FastAPI + LangGraph)

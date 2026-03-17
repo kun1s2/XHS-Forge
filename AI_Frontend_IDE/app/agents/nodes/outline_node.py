@@ -13,8 +13,9 @@ _llm_instance = None
 def get_outline_llm():
     global _llm_instance
     if _llm_instance is None:
+        # 🧠 哨兵三轨制：策划大脑切换为最强的 BRAIN 模型
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
+            model=settings.LLM_BRAIN_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0.3
@@ -109,4 +110,6 @@ async def outline_agent(state: UIProjectState) -> dict:
                 
     except Exception as e:
         print(f"❌ Outline Agent 最终失败: {e}")
+        if settings.DEBUG_MODE:
+            raise e
         return {"page_outline": []}

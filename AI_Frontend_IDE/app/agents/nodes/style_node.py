@@ -14,11 +14,12 @@ _llm_instance = None
 def get_style_llm():
     global _llm_instance
     if _llm_instance is None:
+        # 👁️ 哨兵三轨制：视觉专员切换为具备美学感知力的 VISION 模型
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
+            model=settings.LLM_VISION_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
-            temperature=0.1
+            temperature=0
         )
     return _llm_instance
 

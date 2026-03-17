@@ -16,7 +16,10 @@ def create_llm(
     kwargs.pop("base_url", None)
     
     model_name = model or settings.LLM_MODEL
-    base_url = settings.LLM_BASE_URL
+    base_url = settings.LLM_BASE_URL.rstrip("/")
+    # 避免 base_url 已含 /chat/completions 时被 ChatOpenAI 再拼一次，导致 /v1/chat/completions/chat/completions
+    if base_url.endswith("/chat/completions"):
+        base_url = base_url[: -len("/chat/completions")].rstrip("/")
     api_key = settings.LLM_API_KEY
     
     # 统一走标准 OpenAI 协议
@@ -26,5 +29,6 @@ def create_llm(
         base_url=base_url,
         temperature=temperature,
         max_retries=max_retries,
+        timeout=30.0,  # ✨ Sentinel-X: 强制注入超时熔断
         **kwargs
     )
