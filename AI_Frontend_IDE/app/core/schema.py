@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import List, Dict, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field, field_validator
 import re
