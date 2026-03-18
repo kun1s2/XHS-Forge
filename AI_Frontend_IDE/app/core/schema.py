@@ -166,24 +166,34 @@ class StylePatchOutput(BaseModel):
 class FocusedKnowledge(BaseModel):
     """【面试级领域契约】：强制结构化的科研级知识模型"""
     domain_category: str = Field(..., description="强制锁定的业务场景标签")
-    entity_name: str = Field(..., description="识别出的核心主体名称（如：小米 17 Ultra）")
+    entity_name: str = Field(..., description="识别出的核心主体名称")
     core_attributes: Dict[str, Any] = Field(default_factory=dict, description="核心参数键值对")
     key_selling_points: List[str] = Field(default_factory=list, description="核心卖点/亮点列表")
     known_issues: List[str] = Field(default_factory=list, description="客观缺点/避雷点")
+    image_urls: List[str] = Field(default_factory=list, description="搜索到的高质量真实产品图片 URL 列表") # ✨ 哨兵新增
     summary: str = Field(..., description="一句话情报摘要")
 
 class IntentOutput(BaseModel):
-    """意图分析大脑的输出结构 (4.0 增强版)"""
+    """意图分析大脑的输出结构 (4.0 大一统叙事协议版)"""
     thought_process: str = Field(description="思维链推理过程")
     reason: str = Field(..., description="极简理由（10字以内）。")
     intent_route: Literal["content_node", "structure_node", "style_node", "rag_node", "patch_node"] = Field(..., description="决定路由的节点名")
     
-    # ✨ 4.0 核心新增：语义编排维度
-    emotional_vibe: str = Field(default="neutral", description="探测到的情绪特征，如：惊喜(surprise)、硬核(hardcore)、怀旧(nostalgic)")
-    conflict_score: float = Field(default=0.0, description="指令中的冲突/争议指数 (0.0-1.0)，用于触发 VersusCard")
+    # ✨ 4.0 大一统叙事协议
+    narrative_mode: Literal["contrast", "sequential", "suspense", "spatial"] = Field(
+        default="spatial", 
+        description="叙事模式"
+    )
+    intensity_level: float = Field(default=0.0, description="情绪烈度")
+
+    # ✨ 哨兵热修复：资产请求探针
+    asset_request: Literal["NONE", "SEARCH", "GENERATE"] = Field(
+        default="NONE", 
+        description="资产请求：NONE(默认), SEARCH(搜图), GENERATE(AI生图)"
+    )
     
     detected_element_id: Optional[str] = Field(None, description="识别出的潜在修改目标 ID")
-    scenarios: List[str] = Field(default_factory=list, description="识别的业务场景标签（字符串 ID）")
+    scenarios: List[str] = Field(default_factory=list, description="识别的业务场景标签")
     detected_archetype: str = Field(default="general", description="识别出的业务场景原型 ID")
 
     @field_validator('scenarios', mode='before')

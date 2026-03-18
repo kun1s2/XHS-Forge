@@ -3,76 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GLM大模型测评</title>
+    <title>苹果 Vision Pro 体验评测</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        :root {  }
+        :root { --bg-color: #f9fafb; --primary-vibe: stone }
         body { 
-            background-color: var(--bg-color, #f9fafb); 
+            background-color: var(--bg-color); 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0; padding: 0;
-            display: flex; justify-content: center;
+            margin: 0; padding: 0; display: flex; justify-content: center;
         }
-        .font-serif { font-family: 'Caveat', serif; }
         [data-comp-id]:hover { outline: 2px dashed #ff2442; outline-offset: -2px; cursor: pointer; }
         .mobile-viewport {
-            width: 100%; max-width: 420px;
-            min-height: 100vh;
-            background-color: #ffffff;
-            box-shadow: 0 0 40px rgba(0,0,0,0.05);
-            padding: 24px 16px 80px 16px;
+            width: 100%; max-width: 420px; min-height: 100vh;
+            background-color: var(--bg-color);
+            box-shadow: 0 40px 100px rgba(0,0,0,0.03);
+            padding-bottom: 100px;
+            display: flex; flex-direction: column; gap: 20px;
         }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body>
     <div class="mobile-viewport">
-        <div id="collage_glm_1" data-comp-id="collage_glm_1" class="relative w-full py-8 px-4 flex flex-col items-center "><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-1 mb-4" style="z-index: 10">
-        <div id="polaroid_glm_1" data-comp-id="polaroid_glm_1" class="bg-white p-3 pb-10 shadow-xl border border-gray-100 flex flex-col gap-3 group ">
-            <div class="aspect-square bg-gray-50 overflow-hidden relative">
-                <img src="https://picsum.photos/seed/xhs/800/800" class="w-full h-full object-cover" />
-                <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none"></div>
+        <div id="experience_container" data-comp-id="experience_container" class="w-full relative flex flex-col gap-4 "><div id="title_apple_vision_pro" data-comp-id="title_apple_vision_pro" class="px-4 py-2 "><h1 class="text-[22px] font-black text-gray-900 leading-tight tracking-tight">发现新的灵感</h1></div><div id="screen_experience" data-comp-id="screen_experience" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8] font-normal">正在构思...</p></div><div id="wearing_experience" data-comp-id="wearing_experience" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8] font-normal">这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体会到科技的魅力，仿佛可以随意操控虚拟世界！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8] font-normal">不过…说实话，戴了半小时脖子都快断了，设计上真的有待改进🙈，而且外置电池也让人觉得很别扭。😅</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8] font-normal">3万块钱的价格，真的值得吗？我觉得对于科技爱好者来说，或许是值得一试，但如果只是想要一款普通的VR设备，可能就不太划算了。大家怎么看呢？</p></div><div id="price_discussion" data-comp-id="price_discussion" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8] font-normal">正在构思...</p></div>
+        <div id="interactions_bar" data-comp-id="interactions_bar" class="flex items-center justify-between px-4 py-6 border-t border-gray-100 ">
+            <div class="flex gap-8 text-gray-400">
+                <div class="flex flex-col items-center gap-1"><span class="text-xl">🤍</span><span class="text-[10px] font-bold">0</span></div>
+                <div class="flex flex-col items-center gap-1"><span class="text-xl">⭐</span><span class="text-[10px] font-bold">收藏</span></div>
             </div>
-            <div class="text-center font-serif italic text-stone-500 text-sm tracking-wide">Moment in 2026</div>
+            <button class="px-8 py-3 bg-[#ff2442] text-white text-sm font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注作者</button>
         </div>
-        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 rotate-1 mb-4" style="z-index: 11">
-        <div id="handwritten_mood_1" data-comp-id="handwritten_mood_1" class="p-4 transform -rotate-1 ">
-            <div class="relative inline-block">
-                <div class="absolute -bottom-1 -left-1 w-full h-3 bg-rose-100/40 -z-10 rounded-full"></div>
-                <p class="text-stone-700 font-serif italic text-[16px] leading-relaxed">"博主的碎碎念..."</p>
-            </div>
         </div>
-        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-2 mb-4" style="z-index: 12"><div id="story_glm_1" data-comp-id="story_glm_1" class="px-2 "><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">最近体验了一把GLM大模型，简直颠覆了我对AI的认知！不管是文本生成还是数据处理，它都能做到快速、精准！</p><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">GLM在数据处理方面的速度真是令人惊叹，几乎没有等待的时间，快速响应让我在工作中大大提高了效率。</p><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">就拿我平时的工作需求来说，GLM不仅能生成高质量的文本，还能理解复杂的指令，真的是太智能了！每次使用都能让我感受到AI的魅力。</p><p class="mb-3 text-[15px] text-gray-700 leading-relaxed">总的来说，GLM大模型是一个值得尝试的强大工具，尤其适合需要高效数据处理的朋友们！快来体验一下吧！</p></div></div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 rotate-2 mb-4" style="z-index: 13">
-        <div id="handwritten_mood_2" data-comp-id="handwritten_mood_2" class="p-4 transform -rotate-1 ">
-            <div class="relative inline-block">
-                <div class="absolute -bottom-1 -left-1 w-full h-3 bg-rose-100/40 -z-10 rounded-full"></div>
-                <p class="text-stone-700 font-serif italic text-[16px] leading-relaxed">"博主的碎碎念..."</p>
-            </div>
-        </div>
-        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-1 mb-4" style="z-index: 14">
-        <div id="polaroid_glm_2" data-comp-id="polaroid_glm_2" class="bg-white p-3 pb-10 shadow-xl border border-gray-100 flex flex-col gap-3 group ">
-            <div class="aspect-square bg-gray-50 overflow-hidden relative">
-                <img src="https://picsum.photos/seed/xhs/800/800" class="w-full h-full object-cover" />
-                <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none"></div>
-            </div>
-            <div class="text-center font-serif italic text-stone-500 text-sm tracking-wide">Moment in 2026</div>
-        </div>
-        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 rotate-1 mb-4" style="z-index: 15">
-        <div id="handwritten_mood_3" data-comp-id="handwritten_mood_3" class="p-4 transform -rotate-1 ">
-            <div class="relative inline-block">
-                <div class="absolute -bottom-1 -left-1 w-full h-3 bg-rose-100/40 -z-10 rounded-full"></div>
-                <p class="text-stone-700 font-serif italic text-[16px] leading-relaxed">"博主的碎碎念..."</p>
-            </div>
-        </div>
-        </div><div class="w-full transform transition-transform hover:scale-105 hover:z-30 -rotate-2 mb-4" style="z-index: 16">
-        <div id="interactions_glm_1" data-comp-id="interactions_glm_1" class="flex items-center justify-between py-4 border-t border-gray-50 ">
-            <div class="flex gap-6 text-gray-400">
-                <div class="flex items-center gap-1"><span>🤍</span><span class="text-xs font-bold">0</span></div>
-                <div class="flex items-center gap-1"><span>⭐</span><span class="text-xs font-bold">0</span></div>
-            </div>
-            <button class="px-6 py-2 bg-[#ff2442] text-white text-xs font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注博主</button>
-        </div>
-        </div></div>
     </div>
     <script>
         document.addEventListener('click', e => {

@@ -3,8 +3,8 @@
   "name": "小红书精美种草赛道",
   "description": "回归经典 XHS 纯净排版，高转化大圆角视觉体系",
   "contract": {
-    "required_components": ["CoverSwiper", "BentoGrid", "StoryText", "TagList", "InteractionsBar"],
-    "suggested_order": ["CoverSwiper", "TitleBlock", "StoryText", "BentoGrid", "TagList", "InteractionsBar"]
+    "required_components": ["CoverSwiper", "BentoGrid", "StoryText", "TagList", "InteractionsBar", "VersusCard", "FlipCard", "GiftBox"],
+    "suggested_order": ["CoverSwiper", "TitleBlock", "VersusCard", "StoryText", "BentoGrid", "TagList", "InteractionsBar"]
   },
   "visual_rules": {
     "variant": {
@@ -16,7 +16,7 @@
       "bouncy-pop": "hover:scale-[1.02] active:scale-[0.98] transition-all duration-300"
     }
   },
-  "allowed_tools": ["network_search", "image_vibe"],
+  "allowed_tools": ["network_search", "google_images", "image_generation"],
   "visual_preference": {
     "variant": "xhs-clean",
     "color_palette": "#ff2442",

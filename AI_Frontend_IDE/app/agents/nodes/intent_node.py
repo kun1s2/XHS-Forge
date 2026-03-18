@@ -89,7 +89,7 @@ async def intent_agent(state: UIProjectState) -> dict:
         final_scenarios = [s for s in result.scenarios if s in VALID_SCENARIOS]
         if not final_scenarios: final_scenarios = ["general"]
 
-        print(f"🎭 [4.0 信号] 情绪: {result.emotional_vibe} | 冲突: {result.conflict_score}")
+        print(f"🎭 [4.0 信号] 模式: {result.narrative_mode} | 烈度: {result.intensity_level}")
 
         return {
             "intent_result": result,
@@ -97,7 +97,7 @@ async def intent_agent(state: UIProjectState) -> dict:
             "selected_element_id": effective_id,
             "scenarios": final_scenarios,
             "active_archetype": final_scenarios[0],
-            "node_prompts": {"intent_agent": [{"role": "system", "content": f"4.0 Signal: Vibe={result.emotional_vibe}, Conflict={result.conflict_score}"}]}
+            "node_prompts": {"intent_agent": [{"role": "system", "content": f"4.0 Signal: Mode={result.narrative_mode}, Intensity={result.intensity_level}"}]}
         }
                 
     except Exception as e:

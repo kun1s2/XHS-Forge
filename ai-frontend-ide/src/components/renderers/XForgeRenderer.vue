@@ -120,10 +120,20 @@ const resolveComp = (type: string) => componentMap[type] || null;
       </component>
     </template>
 
-    <!-- 3. 报错兜底（不再有 opacity-50 滤镜干扰） -->
+    <!-- 3. 🚨 哨兵防弹衣：未知组件优雅降级 (Error Boundary) -->
     <template v-else>
-      <div class="p-4 border-2 border-dashed border-red-400 bg-red-50 text-red-600 rounded-lg text-sm font-bold">
-        🚨 组件未注册: {{ node.component_type }}
+      <div class="m-2 p-4 border-2 border-dashed border-amber-400 bg-amber-50 rounded-2xl flex flex-col gap-2">
+        <div class="flex items-center gap-2 text-amber-700 font-bold text-xs uppercase tracking-tighter">
+          <span>⚠️</span>
+          <span>Component Not Registered</span>
+        </div>
+        <div class="text-[10px] text-amber-600/80 font-mono break-all bg-white/50 p-2 rounded-lg">
+          [幻觉拦截] 尝试渲染未定义的组件: <{{ node.component_type }}>
+        </div>
+        <!-- 降级内容：如果该幻觉组件里有文字，尝试把文字展示出来，不丢数据 -->
+        <p v-if="nodeData.paragraphs" class="text-xs text-gray-500 italic">
+          {{ nodeData.paragraphs[0] }}
+        </p>
       </div>
     </template>
   </div>

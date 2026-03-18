@@ -88,6 +88,9 @@ class UIProjectState(TypedDict):
     active_archetype: str
     active_panel: str 
     selected_element_id: Optional[str]
+    
+    # ✨ 意图大脑的最新输出 (4.0 信号源)
+    intent_result: Optional[Any] # 存储 IntentOutput 对象
 
     # 素材与产物
     image_urls: List[str]
