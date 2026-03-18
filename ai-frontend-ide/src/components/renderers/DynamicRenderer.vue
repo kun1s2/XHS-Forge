@@ -14,18 +14,26 @@
     <!-- 动态生成的笔记内容 -->
     <div class="w-full px-4 pt-4 flex flex-col gap-6 min-h-[80vh]">
       <!-- ✨ 4.0 大重构：废弃递归 AST，拥抱扁平区块流 -->
-      <XForgeRenderer 
-        v-for="(block, idx) in blocks" 
-        :key="block.id" 
-        :node="block" 
-        :index="idx"
-        :pageData="pageData"
-      />
+      <template v-if="blocks.length > 0">
+        <XForgeRenderer 
+          v-for="(block, idx) in blocks" 
+          :key="block.id" 
+          :node="block" 
+          :index="idx" 
+          :pageData="pageData"
+        />
+      </template>
       
       <!-- 骨架屏兜底 -->
       <div v-else-if="currentNode" class="space-y-4 w-full bg-white p-4 rounded-2xl shadow-sm">
         <div class="h-48 bg-gray-100 rounded-xl animate-pulse"></div>
         <div class="h-6 bg-gray-100 rounded-full w-3/4 animate-pulse"></div>
+      </div>
+
+      <!-- 空状态 -->
+      <div v-else class="flex flex-col items-center justify-center py-20 opacity-30">
+        <div class="text-4xl mb-2">✨</div>
+        <span class="text-xs">等待灵感注入...</span>
       </div>
     </div>
 

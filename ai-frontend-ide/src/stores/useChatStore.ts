@@ -448,6 +448,7 @@ export const useChatStore = defineStore('chat', () => {
     isSidebarOpen,
     sessions,
     agentMeta,
+    hotTrends,
     setSelectedComponent,
     setCreatorPersona,
     setHoveredComponent,
@@ -460,6 +461,9 @@ export const useChatStore = defineStore('chat', () => {
     fetchSessions,
     switchSession,
     createNewSession,
-    fetchAgentMeta
+    fetchAgentMeta,
+    fetchTrends,
+    trackTrend,
+    rollbackComponent
   }
 })

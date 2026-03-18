@@ -1,148 +1,97 @@
-[DEBUG] 收到前端消息: {"content":"刚刚体验了苹果 Vision Pro(补充几张图片)，这玩意儿的屏幕和空间计算简直是跨时代的科幻神器！但是戴半小时脖子都要断了，外置电池也很蠢。3万块钱的价格真的值得买吗？大家怎么看？","panel":"main","parent_checkpoint_id":null,"selected_element_id":null,"creator_persona":"硬核数码博...
-🔄 [任务挂载] 未命中缓存，已将「刚刚体验了苹果 Vision ...」加入后台热点收录队列
-🕵️‍♂️ [后台主编] 嗅探到新热点: 刚刚体验了苹果 Vision Pro(补充几张图片)，这玩意儿的屏幕和空间计算简直是跨时代的科幻神器！但是戴半小时脖子都要断了，外置电池也很蠢。3万块钱的价格真的值得买吗？大家怎么看？，开始异步清洗...
+[DEBUG] 收到前端消息: {"content":"帮我针对「华为 Mate 60」做一个深度种草笔记","panel":"main","parent_checkpoint_id":null,"selected_element_id":null,"creator_persona":"硬核数码博主","current_assets":[],"image_urls":[]}...
+🔄 [任务挂载] 未命中缓存，已将「帮我针对「华为 Mate 60...」加入后台热点收录队列
+🔄 [任务分发] 针对新用户话题「帮我针对「华为 Mate 60...」启动后台热点收录任务
 ▶️  [NODE START]: asset_processor
 ⏱️ [性能监控] 节点 asset_processor 完毕, 耗时: 0.00s
 ✅ [NODE END]: asset_processor -> Output: {}
 ▶️  [NODE START]: intent_agent
 📡 [意图路由] 正在分析指令 4.0，支持场景: ['travel', 'seeding', 'pet']
 ▶️  [NODE START]: RunnableSequence
-
---- 📄 [后台主编] 搜集到关于「刚刚体验了苹果 Vision Pro(补充几张图片)，这玩意儿的屏幕和空间计算简直是跨时代的科幻神器！但是戴半小时脖子都要断了，外置电池也很蠢。3万块钱的价格真的值得买吗？大家怎么看？」的原始资料 ---
-苹果CEO蒂姆·库克表示，Mac 带我们进入个人计算时代、iPhone 带我们进入移动计算时代，而Apple Vision Pro 将带我们进入空间计算时代。Apple Vision Pro配置如下：✅正面采用三维方式构造的层压玻璃，铝合金弧形外框上的按钮可用于拍摄空间照片和视频，并配有表冠。✅屏幕采用micro-OLED材质，单眼分辨率超过4K；采用三镜片设计，支持广色域和高动态范围。✅采用分离式电源设计，通过柔韧的编织线材可连接到放置于口袋中的高性能电源。✅音频方面支持空间音频，可通过机身周围的相机和传感器进行音频射线追踪分析环境空间。✅搭载M2和全新设计的R1芯片，R1芯片消除画面延迟。通过前置镜头扫描用户制作用户画像persona模拟用户的表情和动作。Apple Vision Pro搭载visionOS，包含新的实时渲染引擎等。✅界面与现实融合，应用窗口支持自定义调整大小，可添加实拍的空间环境覆盖真实环境带来更加干净整洁的视野。✅无需外接硬件进行交互，只需使用眼睛进行导航，并使用手指捏合和拂动进行点击和滑动。当注视搜索栏时，可直接通过语音进行搜索。✅不插电只依靠电池，单次续航 2 小时👉🏻售价 3499 美元（约合人民币24850元），2024年初在美国正式发售，随后在其他国家和地区逐步开售。
-传闻已久的苹果跨时代的设备，终于来了！
-凌晨的WWDC2023大会上，苹果正式带来了期待已久的One More Thing产品——Apple Vision Pro。Vision Pro被苹果定义为有史以来最雄心勃勃的产品，将开启全新的计算空间时代。
-优雅紧凑的滑雪镜设计
-正如此前传言，Vision Pro采用了类似滑雪镜的外观设计，优雅、紧凑应该是这款产品在设计之初的首要追求。
-在眼罩部分，一整块完整的3D层压玻璃与铝合金框架融为一体，环绕在眼部之上。和脸部完整的贴合，从而可以很好地阻挡外界的杂光。固定方式依然是通过具有松紧的头带。头带采用3D编织的一种非常独特的肋骨结构，针织材质兼顾透气、缓冲和拉伸功能。
-头带边缘还有一个调节旋钮，只需要旋转旋钮就能调整头带的松紧。左右两侧各有一个凸起的部分是扬声器，正好在靠近耳朵的位置，可以提供丰富的空间音频，同时可以让你保持与周围环境的联系。
-为了减轻头戴的重量，Vision Pro使用了外部电池供电。电池通过一根编织电缆与主...
-------------------------------------------------
-
-🧠 [后台主编] 正在交由主脑进行信息蒸馏...
-✅ PGVector store initialized in async mode for collection 'app'.
-🔌 PGVector store context exited.
-✅ [后台主编] 热点 「刚刚体验了苹果 Vision Pro(补充几张图片)，这玩意儿的屏幕和空间计算简直是跨时代的科幻神器！但是戴半小时脖子都要断了，外置电池也很蠢。3万块钱的价格真的值得买吗？大家怎么看？」 蒸馏入库完成！
-✅ [NODE END]: RunnableSequence -> Output: thought_process='用户体验了苹果 Vision Pro，表达了对其优缺点的看法，涉及到价格和使用体验的对比，因此选择对比模式。同时，用户提到需要补充图片，符合搜图的条件。' reason='用户提到补充图片' intent_route='content_node' narrative_mode='contrast' intensity_level=0.8 asset_request='SEARCH' detected_element_id=None scenarios=['travel'] detected_archetype='travel'
-🎭 [4.0 信号] 模式: contrast | 烈度: 0.8
-⏱️ [性能监控] 节点 intent_agent 完毕, 耗时: 5.59s
+✅ [NODE END]: RunnableSequence -> Output: thought_process='用户请求针对华为 Mate 60 进行深度种草，涉及对比和分析，符合深度种草笔记的特征，因此判定为对比叙事模式。同时，用户可能希望通过此笔记引发讨论，故设置互动目标为 engagement。由于场景为 seeding，主动设为搜索以获取相关图像。' reason='深度种草华为 Mate 60' intent_route='content_node' narrative_mode='contrast' intensity_level=0.8 visual_vibe='general' target_audience='数码极客' call_to_action=...
+🎭 [六维雷达] 模式:contrast | 烈度:0.8 | 风格:general | 靶向:数码极客 | CTA:engagement
+⏱️ [性能监控] 节点 intent_agent 完毕, 耗时: 3.77s
 ▶️  [NODE START]: route_intent
 🧭 [路由守卫] 截获的原始意图: content_node
-🔍 [路由守卫] 判定为生成任务，强制进入阻塞式调研模式。
 ✅ [NODE END]: route_intent -> Output: research_agent
-✅ [NODE END]: intent_agent -> Output: {'intent_result': IntentOutput(thought_process='用户体验了苹果 Vision Pro，表达了对其优缺点的看法，涉及到价格和使用体验的对比，因此选择对比模式。同时，用户提到需要补充图片，符合搜图的条件。', reason='用户提到补充图片', intent_route='content_node', narrative_mode='contrast', intensity_level=0.8, asset_request='SEARCH', detected_element_id=None, scenarios=['travel'], detec...
+✅ [NODE END]: intent_agent -> Output: {'intent_result': IntentOutput(thought_process='用户请求针对华为 Mate 60 进行深度种草，涉及对比和分析，符合深度种草笔记的特征，因此判定为对比叙事模式。同时，用户可能希望通过此笔记引发讨论，故设置互动目标为 engagement。由于场景为 seeding，主动设为搜索以获取相关图像。', reason='深度种草华为 Mate 60', intent_route='content_node', narrative_mode='contrast', intensity_level=0.8, visual_vibe='general', t...
 ▶️  [NODE START]: research_agent
-▶️ [NODE START]: research_node (资产权限受控调研)
-⚠️ [RAG Cache Miss]: 关键词 「刚刚体验了苹果 Vision Pro(补充几张图片)，这玩意儿的屏幕和空间计算简直是跨时代的科幻神器！但是戴半小时脖子都要断了，外置电池也很蠢。3万块钱的价格真的值得买吗？大家怎么看？」未命中本地热缓存
-🧠 [RAG 蒸馏器] 执行场景 [travel] 转换，资产权限: NONE
+🔎 [搜证中] 正在为「帮我针对「华为 Ma...」抓取全网真实事实与图片...
 ▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: domain_category='travel' entity_name='未匹配到本地事实' core_attributes={} key_selling_points=[] known_issues=[] image_urls=[] summary='未匹配到本地事实，无法提供相关信息。'
-✅ [NODE END]: research_node -> 识别主体: 未匹配到本地事实 | 图片数: 0
-⏱️ [性能监控] 节点 research_agent 完毕, 耗时: 1.66s
-✅ [NODE END]: research_agent -> Output: {'retrieved_knowledge': {'domain_category': 'travel', 'entity_name': '未匹配到本地事实', 'core_attributes': {}, 'key_selling_points': [], 'known_issues': [], 'image_urls': [], 'summary': '未匹配到本地事实，无法提供相关信息。'}, 'active_archetype': 'travel'}
+✅ [NODE END]: RunnableSequence -> Output: domain_category='手机对比' entity_name='华为Mate 60 vs 华为Mate 80' core_attributes={} key_selling_points=['Mate 80的续航表现显著提升，用户在使用中感受到电量焦虑的缓解', 'AI扩图功能的引入，提升了影像处理能力和用户拍照体验', 'Mate 80在使用一段时间后，用户会感受到更为稳定和顺手的操作体验'] known_issues=['Mate 80的升级并没有带来显著的参数提升，可能让部分用户感到换机的必要性不足'] image_urls=[] summary='华为Mate 60与Mate ...
+✅ [提纯完毕] 主体: 华为Mate 60 vs 华为Mate 80 | 提取到 0 张图
+⏱️ [性能监控] 节点 research_agent 完毕, 耗时: 7.17s
+📦 [Redis Set] 已缓存热点知识包: 华为Mate 60 vs 华为Mate 80 | TTL: 3600s
+✅ [NODE END]: research_agent -> Output: {'retrieved_knowledge': {'domain_category': '手机对比', 'entity_name': '华为Mate 60 vs 华为Mate 80', 'core_attributes': {}, 'key_selling_points': ['Mate 80的续航表现显著提升，用户在使用中感受到电量焦虑的缓解', 'AI扩图功能的引入，提升了影像处理能力和用户拍照体验', 'Mate 80在使用一段时间后，用户会感受到更为稳定和顺手的操作体验'], 'known_issues': ['Mate 80的升级并没有带来显著的参数提升，可能让部分用户感到换机的必要...
 ▶️  [NODE START]: controversy_sniffer
 ▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: is_controversial=True reason='在旅游领域，存在明显的利益冲突（如高价旅游产品与为爱发电的自愿分享）、审美冲突（如复古美学与智商税的争论）以及事实冲突（如避雷吐槽与红榜安利的极性对立），这些都构成了热评的冲突点。'
-🧐 [争议嗅探] 结果: True | 理由: 在旅游领域，存在明显的利益冲突（如高价旅游产品与为爱发电的自愿分享）、审美冲突（如复古美学与智商税的争论）以及事实冲突（如避雷吐槽与红榜安利的极性对立），这些都构成了热评的冲突点。
-⏱️ [性能监控] 节点 controversy_sniffer 完毕, 耗时: 2.29s
-✅ [NODE END]: controversy_sniffer -> Output: {'has_controversy': True}
+✅ [NODE END]: RunnableSequence -> Output: is_controversial=True clash_title='华为Mate 60 vs 华为Mate 80' pros_focus='Mate 80的续航表现显著提升，AI扩图功能的引入，提升了影像处理能力和用户拍照体验' cons_focus='Mate 80的升级并没有带来显著的参数提升，可能让部分用户感到换机的必要性不足' reason='存在两个竞争品牌的对比，且用户情感烈度较高，判定为有争议的对峙点。'
+🧐 [舆情对撞探测] 结果: True | 对峙标题: 华为Mate 60 vs 华为Mate 80
+⏱️ [性能监控] 节点 controversy_sniffer 完毕, 耗时: 5.32s
+✅ [NODE END]: controversy_sniffer -> Output: {'has_controversy': True, 'retrieved_knowledge': {'domain_category': '手机对比', 'entity_name': '华为Mate 60 vs 华为Mate 80', 'core_attributes': {}, 'key_selling_points': ['Mate 80的续航表现显著提升，用户在使用中感受到电量焦虑的缓解', 'AI扩图功能的引入，提升了影像处理能力和用户拍照体验', 'Mate 80在使用一段时间后，用户会感受到更为稳定和顺手的操作体验'], 'known_issues': ['Mate 80的升级并没...
+▶️  [NODE START]: battle_node
+⚔️ [对冲引擎] 启动并发线程，正在合成对峙观点...
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: RunnableSequence
+✅ [NODE END]: RunnableSequence -> Output: summary='Mate 80续航大幅提升与AI扩图功能，显著增强用户拍照体验，带来心理上的安心感。' details='华为Mate 80的续航表现真是让人感到惊喜，长时间的使用不再是梦！在日常生活中，无论是追剧、玩游戏还是拍照，Mate 80都能持续陪伴你，完全不需要频繁充电，让用户的心理负担大大减轻。同时，AI扩图功能的引入，彻底改变了影像处理的游戏规则，用户在拍照时可以享受到更加清晰、细腻的画面，仿佛每一张照片都在诉说着动人的故事。这种体验上的提升，让使用者倍感安心，仿佛拥有了一位强大的助手，随时随地记录生活的美好瞬间。'
+✅ [NODE END]: RunnableSequence -> Output: summary='Mate 80的升级虽在续航和影像上有所提升，但核心参数未显著变化，用户换机需求不足。' details='华为Mate 80的推出，虽然在续航和影像处理上有了一定的提升，但在核心参数上的改变却不够显著，这使得很多用户在升级时感到犹豫。换句话说，Mate 80并没有带来让人眼前一亮的技术突破，反而让人产生了‘换机的必要性不足’的感觉。对于希望通过新机获得更好体验的用户来说，这种升级似乎更像是心理上的安慰，而非实质性的提升。用户可能会觉得，既然Mate 60的表现已经足够出色，何必为了一些微不足道的改进而掏腰包呢？因此，Mate 80在市场上可能会面临一定的挑战，毕竟消费者的期...
+🏁 [对冲引擎] 合成完毕：华为Mate 60 vs 华为Mate 80
+⏱️ [性能监控] 节点 battle_node 完毕, 耗时: 5.08s
+✅ [NODE END]: battle_node -> Output: {'retrieved_knowledge': {'domain_category': '手机对比', 'entity_name': '华为Mate 60 vs 华为Mate 80', 'core_attributes': {}, 'key_selling_points': ['Mate 80的续航表现显著提升，用户在使用中感受到电量焦虑的缓解', 'AI扩图功能的引入，提升了影像处理能力和用户拍照体验', 'Mate 80在使用一段时间后，用户会感受到更为稳定和顺手的操作体验'], 'known_issues': ['Mate 80的升级并没有带来显著的参数提升，可能让部分用户感到换机的必要...
 ▶️  [NODE START]: content_node
+🧠 [上下文工程] 已拦截总线废料，为 content_agent 提供纯净视界。
 ▶️  [NODE START]: trim_messages
-✅ [NODE END]: trim_messages -> Output: [HumanMessage(content='刚刚体验了苹果 Vision Pro(补充几张图片)，这玩意儿的屏幕和空间计算简直是跨时代的科幻神器！但是戴半小时脖子都要断了，外置电池也很蠢。3万块钱的价格真的值得买吗？大家怎么看？', additional_kwargs={}, response_metadata={}, id='9d65a023-28b8-4b58-afc1-b665d1fb002a')]
+✅ [NODE END]: trim_messages -> Output: [HumanMessage(content='帮我针对「华为 Mate 60」做一个深度种草笔记', additional_kwargs={}, response_metadata={}, id='b05c917c-f5d8-4f1d-a82e-06031b5fe317')]
 ▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: thought_process='首先，强调苹果 Vision Pro 的跨时代特色，以吸引读者的注意力。接着，通过使用 emoji 来分段，分别描述屏幕效果（视觉冲击）、佩戴感受（使用体验）、以及价格讨论（价值思考）。最后，鼓励读者参与讨论，增加互动性，同时附上体验图片增强视觉效果。' final_content='刚刚体验了苹果 Vision Pro，真的是一款跨时代的科幻神器！👓✨\n\n💻【屏幕体验】\n这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体会到科技的魅力，仿佛可以随意操控虚拟世界！\n\n💪【佩戴感受】\n...
-⏱️ [性能监控] 节点 content_node 完毕, 耗时: 5.78s
-✅ [NODE END]: content_node -> Output: {'content_result': ContentOutput(thought_process='首先，强调苹果 Vision Pro 的跨时代特色，以吸引读者的注意力。接着，通过使用 emoji 来分段，分别描述屏幕效果（视觉冲击）、佩戴感受（使用体验）、以及价格讨论（价值思考）。最后，鼓励读者参与讨论，增加互动性，同时附上体验图片增强视觉效果。', final_content='刚刚体验了苹果 Vision Pro，真的是一款跨时代的科幻神器！👓✨\n\n💻【屏幕体验】\n这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体...
+✅ [NODE END]: RunnableSequence -> Output: thought_process='用户希望深入探讨华为Mate 60的优点，以吸引数码极客的注意。文案开头用吸引眼球的Emoji设置基调，引入手机的续航、影像和使用体验等方面的详细描述。最后抛出一个引发讨论的问题，激发数码爱好者的互动。' final_content='🌟 华为Mate 60，真香的黑科技！📱💥\n\n作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！💖\n\n🔋【续航无忧】\nMate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！\n\n📸【影像实力】\n拍...
+⏱️ [性能监控] 节点 content_node 完毕, 耗时: 8.67s
+✅ [NODE END]: content_node -> Output: {'content_result': ContentOutput(thought_process='用户希望深入探讨华为Mate 60的优点，以吸引数码极客的注意。文案开头用吸引眼球的Emoji设置基调，引入手机的续航、影像和使用体验等方面的详细描述。最后抛出一个引发讨论的问题，激发数码爱好者的互动。', final_content='🌟 华为Mate 60，真香的黑科技！📱💥\n\n作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！💖\n\n🔋【续航无忧】\nMate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻...
 ▶️  [NODE START]: outline_node
+🧠 [上下文工程] 已拦截总线废料，为 outline_agent 提供纯净视界。
 ▶️  [NODE START]: RunnableSequence
-⚠️ [Outline Agent 重试] 尝试次数: 1, 错误原因: 10 validation errors for OutlineOutput
-root.children.0.children.0.id
-  Field required [type=missing, input_value={'text': '苹果 Vision Pro 体验分享'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.0.children.0.component_type
-  Field required [type=missing, input_value={'text': '苹果 Vision Pro 体验分享'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.1.children.0.id
-  Field required [type=missing, input_value={'text': '刚刚体验了...科幻神器！👓✨'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.1.children.0.component_type
-  Field required [type=missing, input_value={'text': '刚刚体验了...科幻神器！👓✨'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.0.children.0.id
-  Field required [type=missing, input_value={'text': '💻【屏幕...操控虚拟世界！'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.0.children.0.component_type
-  Field required [type=missing, input_value={'text': '💻【屏幕...操控虚拟世界！'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.1.children.0.id
-  Field required [type=missing, input_value={'text': '💪【佩戴...觉得很别扭。😅'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.1.children.0.component_type
-  Field required [type=missing, input_value={'text': '💪【佩戴...觉得很别扭。😅'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.2.children.0.id
-  Field required [type=missing, input_value={'text': '💰【价格...大家怎么看呢？'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.2.children.0.component_type
-  Field required [type=missing, input_value={'text': '💰【价格...大家怎么看呢？'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-▶️  [NODE START]: RunnableSequence
-⚠️ [Outline Agent 重试] 尝试次数: 2, 错误原因: 8 validation errors for OutlineOutput
-root.children.0.children.0.id
-  Field required [type=missing, input_value={'text': '苹果 Vision P...': 'text-2xl font-bold'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.0.children.0.component_type
-  Field required [type=missing, input_value={'text': '苹果 Vision P...': 'text-2xl font-bold'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.1.children.0.id
-  Field required [type=missing, input_value={'text': '刚刚体验了...科幻神器！👓✨'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.1.children.0.component_type
-  Field required [type=missing, input_value={'text': '刚刚体验了...科幻神器！👓✨'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.0.children.0.id
-  Field required [type=missing, input_value={'text': '💻【屏幕...操控虚拟世界！'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.0.children.0.component_type
-  Field required [type=missing, input_value={'text': '💻【屏幕...操控虚拟世界！'}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.1.children.0.id
-  Field required [type=missing, input_value={'text': '💪【佩戴...得很别扭。😅 '}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-root.children.2.children.1.children.0.component_type
-  Field required [type=missing, input_value={'text': '💪【佩戴...得很别扭。😅 '}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.12/v/missing
-▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据内容的叙述结构，使用 TitleBlock 作为标题，接着用 StoryText 组件分别描述屏幕体验、佩戴感受和价格讨论。最后，添加 InteractionsBar 以引导用户互动。由于没有图片，无法使用与图像相关的组件。' page_title='苹果 Vision Pro 体验评测' page_theme={} root=UINode(id='experience_container', component_type='Container', props={}, content_brief=None, children=[UINode(id='tit...
-⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 19.89s
+✅ [NODE END]: RunnableSequence -> Output: thought_process='由于当前没有可用的图片，无法使用视觉积木。根据内容背景，使用多个StoryText组件来传达产品的各个方面，同时使用TagList来总结核心卖点，确保排版结构紧凑且不冗余。' page_title='华为Mate 60 手机测评' page_theme={} blocks=[UIBlock(id='storytext_1', component_type='StoryText', content_brief='开头抛出真实痛点，讲述使用手机时的续航焦虑。'), UIBlock(id='storytext_2', component_type='StoryTex...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 4.85s
 ▶️  [NODE START]: map_components
-🚀 [并发调度] 发射 3 个组件构建特种兵！
-✅ [NODE END]: map_components -> Output: [Send(node='component_builder', arg={'component_id': 'screen_experience', 'component_type': 'StoryText', 'content_brief': '描述屏幕体验，强调色彩和清晰度。', 'user_query': '✨ 文案工坊已出炉：\n\n刚刚体验了苹果 Vision Pro，真的是一款跨时代的科幻神器！👓✨\n\n💻【屏幕体验】\n这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体会到科技的魅力，仿佛可以随意操控虚拟世界！\n...
-✅ [NODE END]: outline_node -> Output: {'page_outline': {'id': 'experience_container', 'component_type': 'Container', 'props': {}, 'children': [{'id': 'title_apple_vision_pro', 'component_type': 'TitleBlock', 'props': {}}, {'id': 'screen_experience', 'component_type': 'StoryText', 'props': {}, 'content_brief': '描述屏幕体验，强调色彩和清晰度。'}, {'id':...
+🚀 [并发调度] 发现 6 个区块，发射特种兵...
+✅ [NODE END]: map_components -> Output: [Send(node='component_builder', arg={'component_id': 'storytext_1', 'component_type': 'StoryText', 'content_brief': '开头抛出真实痛点，讲述使用手机时的续航焦虑。', 'user_query': '✨ 文案工坊已出炉：\n\n🌟 华为Mate 60，真香的黑科技！📱💥\n\n作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！💖\n\n🔋【续航无忧】\nMate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用...
+✅ [NODE END]: outline_node -> Output: {'data_dsl': {'page_title': '华为Mate 60 手机测评', 'page_theme': {}, 'blocks': [{'id': 'storytext_1', 'component_type': 'StoryText', 'content_brief': '开头抛出真实痛点，讲述使用手机时的续航焦虑。'}, {'id': 'forced_vs', 'component_type': 'VersusCard', 'content_brief': '对撞分析产品的核心极性对峙点。'}, {'id': 'storytext_2', 'component_type':...
 ▶️  [NODE START]: component_builder
 ▶️  [NODE START]: component_builder
 ▶️  [NODE START]: component_builder
-👷 [并发工兵] 开始构建组件: screen_experience (StoryText)...
-▶️  [NODE START]: RunnableSequence
-👷 [并发工兵] 开始构建组件: price_discussion (StoryText)...
-▶️  [NODE START]: RunnableSequence
-👷 [并发工兵] 开始构建组件: wearing_experience (StoryText)...
-▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案，提取出关于屏幕体验的描述，强调了色彩和清晰度，并且根据结构化参考资料的要求，确保没有使用任何占位符，直接引导用户上传实拍图。' data=ComponentData(type='StoryText', title='屏幕体验', subtitle=None, paragraphs=None, align=None, killer_tags=None, mood=None, image_url=None, image_urls=None, price=None, desc='长官，文案已就绪，请点击此处上传您的实拍图✨', tags=None...
-✅ [DEBUG Output] 组件 screen_experience 构建完毕
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'screen_experience': {'type': 'StoryText', 'title': '屏幕体验', 'desc': '长官，文案已就绪，请点击此处上传您的实拍图✨'}}, 'style_dsl': {'screen_experience': {'css_classes': '', 'inline_styles': {}}}}
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户的体验描述，提取了主要的佩戴感受和设计缺陷，并构建了相应的组件数据。' data=ComponentData(type='StoryText', title='刚刚体验了苹果 Vision Pro，真的是一款跨时代的科幻神器！👓✨', subtitle=None, paragraphs=['这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体会到科技的魅力，仿佛可以随意操控虚拟世界！', '不过…说实话，戴了半小时脖子都快断了，设计上真的有待改进🙈，而且外置电池也让人觉得很别扭。😅', '...
-✅ [DEBUG Output] 组件 wearing_experience 构建完毕
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'wearing_experience': {'type': 'StoryText', 'title': '刚刚体验了苹果 Vision Pro，真的是一款跨时代的科幻神器！👓✨', 'paragraphs': ['这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体会到科技的魅力，仿佛可以随意操控虚拟世界！', '不过…说实话，戴了半小时脖子都快断了，设计上真的有待改进🙈，而且外置电池也让人觉得很别扭。😅', '3万块钱的价格，真的值得吗？我觉得对于科技爱好者来说，或许是值得一试，但如果只是想要一款普...
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户的文案，构建了一个关于苹果 Vision Pro 体验的 StoryText 组件。文案中提到的屏幕体验、佩戴感受和价格讨论都被完整保留，确保了内容的连贯性和吸引力。同时，由于没有提供真实图片，image_url 被设置为 null，并在 desc 中引导用户上传实拍图。' data=ComponentData(type='StoryText', title='苹果 Vision Pro 体验分享', subtitle=None, paragraphs=None, align='left', killer_tags=None, mood=None, i...
-✅ [DEBUG Output] 组件 price_discussion 构建完毕
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'price_discussion': {'type': 'StoryText', 'title': '苹果 Vision Pro 体验分享', 'align': 'left', 'desc': '刚刚体验了苹果 Vision Pro，真的是一款跨时代的科幻神器！👓✨\n\n💻【屏幕体验】\n这块屏幕简直是视觉盛宴，色彩鲜艳、清晰度爆表，仿佛真的置身于一个全新的世界！🌌 不得不说，空间计算的感觉让我第一次体会到科技的魅力，仿佛可以随意操控虚拟世界！\n\n💪【佩戴感受】\n不过…说实话，戴了半小时脖子都快断了，设计上真的有待改进🙈，而且外置电池也让人觉得很别扭。😅 ...
+▶️  [NODE START]: component_builder
+▶️  [NODE START]: component_builder
+▶️  [NODE START]: component_builder
 ▶️  [NODE START]: style_node
-🎨 [Style Agent] 视觉通透化处理完成，底色: #f9fafb
+🎨 [六维风格引擎] 激活风格: general | 情绪烈度: 0.8
 ⏱️ [性能监控] 节点 style_node 完毕, 耗时: 0.00s
-✅ [NODE END]: style_node -> Output: {'data_dsl': {'page_title': '苹果 Vision Pro 体验评测', 'page_theme': {}, 'root': {'id': 'experience_container', 'component_type': 'Container', 'props': {}, 'children': [{'id': 'title_apple_vision_pro', 'component_type': 'TitleBlock', 'props': {}, 'computed_classes': ''}, {'id': 'screen_experience', 'comp...
+✅ [NODE END]: style_node -> Output: {'style_dsl': {'global_vars': {'--bg-color': '#f1f5f9', '--primary-vibe': '#ff2442', '--radius': '16px', '--spacing': '20px', '--shadow-vibe': '0 10px 40px rgba(0, 0, 0, 0.05)'}, 'storytext_1': {'css_classes': 'transition-all duration-500', 'inline_styles': {}}, 'forced_vs': {'css_classes': 'transit...
+👷 [并发工兵] 正在填充: taglist_1 (TagList)
+👷 [并发工兵] 正在填充: storytext_1 (StoryText)
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: RunnableSequence
+👷 [并发工兵] 正在填充: storytext_2 (StoryText)
+👷 [并发工兵] 正在填充: storytext_4 (StoryText)
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: RunnableSequence
+👷 [并发工兵] 正在填充: forced_vs (VersusCard)
+👷 [并发工兵] 正在填充: storytext_3 (StoryText)
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: RunnableSequence
+✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案，提炼出华为Mate 60的核心卖点和相关标签，确保内容真实且符合博主的语气。' data=ComponentData(type='TagList', title='华为Mate 60的惊艳表现', subtitle=None, paragraphs=None, align='left', killer_tags=['续航无忧', '影像实力', '流畅体验', '黑科技'], mood=None, image_url=None, image_urls=None, price=None, desc='华为Mate 60，真香的黑科技！作为一个...
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'taglist_1': {'type': 'TagList', 'title': '华为Mate 60的惊艳表现', 'align': 'left', 'killer_tags': ['续航无忧', '影像实力', '流畅体验', '黑科技'], 'desc': '华为Mate 60，真香的黑科技！作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！续航无忧，影像实力，流畅体验，绝对是值得推荐的一款手机！', 'tags': ['华为Mate60', '手机测评', '数码博主', '换机之选', '黑科技']}}, 'style_...
+✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案，提炼出华为Mate 60的主要卖点和使用体验，确保内容真实且符合博主语气。' data=ComponentData(type='StoryText', title='华为Mate 60，真香的黑科技！📱💥', subtitle=None, paragraphs=['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个...
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'storytext_3': {'type': 'StoryText', 'title': '华为Mate 60，真香的黑科技！📱💥', 'paragraphs': ['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！', '⚙️【流畅体验】使用感受上，Mate...
+✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案，提取出华为Mate 60的续航、影像处理和流畅体验等特点，构建出一个完整的StoryText组件，确保内容真实且符合用户的表达风格。' data=ComponentData(type='StoryText', title='华为Mate 60，真香的黑科技！📱💥', subtitle=None, paragraphs=['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝...
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'storytext_2': {'type': 'StoryText', 'title': '华为Mate 60，真香的黑科技！📱💥', 'paragraphs': ['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！', '⚙️【流畅体验】使用感受上，Mate...
+✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案，提炼出华为Mate 60的核心卖点和用户体验，确保信息的真实性与完整性，符合VersusCard的格式要求。' data=ComponentData(type='VersusCard', title='华为Mate 60，真香的黑科技！📱💥', subtitle=None, paragraphs=['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像...
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'forced_vs': {'type': 'VersusCard', 'title': '华为Mate 60，真香的黑科技！📱💥', 'paragraphs': ['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！', '⚙️【流畅体验】使用感受上，Mate ...
+✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案，构建了一个关于华为Mate 60的StoryText组件。内容围绕续航、影像处理和流畅体验三个方面进行了详细描述，符合硬核数码博主的语气和风格。' data=ComponentData(type='StoryText', title='华为Mate 60，真香的黑科技！📱💥', subtitle=None, paragraphs=['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像...
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'storytext_1': {'type': 'StoryText', 'title': '华为Mate 60，真香的黑科技！📱💥', 'paragraphs': ['🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！', '⚙️【流畅体验】使用感受上，Mate...
+✅ [NODE END]: RunnableSequence -> Output: thought_process='根据用户提供的文案内容，构建了华为Mate 60的流畅体验组件，强调了其续航、影像处理和操作系统的顺滑感，确保内容真实且完整，符合用户的需求。' data=ComponentData(type='StoryText', title='华为Mate 60的流畅体验', subtitle=None, paragraphs=['作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！', 'Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '拍...
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'storytext_4': {'type': 'StoryText', 'title': '华为Mate 60的流畅体验', 'paragraphs': ['作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！', 'Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！', '拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友...
 ▶️  [NODE START]: render
-⏱️ [性能监控] 节点 render 完毕, 耗时: 0.28s
-📺 [渲染监控] 成功捕获最终 OSS 链接: http://127.0.0.1:9000/agent/notes/note_1773808131....
-✅ [NODE END]: render -> Output: {'final_html': '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n    <title>苹果 Vision Pro 体验评测</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n ...
-INFO:     127.0.0.1:44096 - "GET /workspace/thread_rlx8a3d1vm/inspect HTTP/1.1" 200 OK
+⏱️ [性能监控] 节点 render 完毕, 耗时: 0.54s
+📺 [渲染监控] 成功捕获最终 OSS 链接: http://127.0.0.1:9000/agent/notes/note_1773837743....
+✅ [NODE END]: render -> Output: {'final_html': '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n    <title>华为Mate 60 手机测评</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n    <...
+Deserializing unregistered type app.core.schema.IntentOutput from checkpoint. This will be blocked in a future version. Add to allowed_msgpack_modules to silence: [('app.core.schema', 'IntentOutput')]
+Deserializing unregistered type app.core.schema.IntentOutput from checkpoint. This will be blocked in a future version. Add to allowed_msgpack_modules to silence: [('app.core.schema', 'IntentOutput')]
+INFO:     127.0.0.1:34344 - "GET /workspace/thread_nz2an1dg0fk/inspect HTTP/1.1" 200 OK

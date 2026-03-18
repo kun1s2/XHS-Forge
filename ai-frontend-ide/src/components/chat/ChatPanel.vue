@@ -163,7 +163,7 @@
       </div>
 
       <!-- ✨ 哨兵新增：实时热搜榜 (Hot Trends) -->
-      <div v-if="hotTrends.length > 0" class="mb-3">
+      <div v-if="hotTrends && hotTrends.length > 0" class="mb-3">
         <div class="flex items-center gap-2 mb-1.5 px-1">
           <span class="text-[10px] font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1">
             <span class="animate-bounce">🔥</span> Hot Trends

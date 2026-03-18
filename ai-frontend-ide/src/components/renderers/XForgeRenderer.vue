@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineProps, computed } from 'vue';
+import { computed } from 'vue';
 import { resolveNodeStyles } from '../../utils/StyleDictionary';
 import { resolveResponsiveLayout, getCurrentBreakpoint } from '../../utils/LayoutSolver';
 
@@ -60,17 +60,34 @@ const props = defineProps<{
 
 // 语义样式解析
 const computedClasses = computed(() => {
-  const nodeProps = props.node.props || {};
-  const baseStyles = resolveNodeStyles(nodeProps);
-  const layoutStyles = resolveResponsiveLayout(nodeProps.col_span || 1, breakpoint);
-  return `${baseStyles} ${layoutStyles}`.trim();
+  try {
+    const nodeProps = props.node?.props || {};
+    const baseStyles = resolveNodeStyles(nodeProps);
+    const layoutStyles = resolveResponsiveLayout(nodeProps.col_span || 1, breakpoint);
+    return `${baseStyles} ${layoutStyles}`.trim();
+  } catch (e) {
+    console.error("样式解析失败:", e);
+    return "";
+  }
 });
 
-const transitionDelay = computed(() => `${props.index * 50}ms`); // 加快进场速度
-const nodeData = computed(() => props.pageData[props.node.id] || {});
+const transitionDelay = computed(() => `${(props.index || 0) * 50}ms`); 
+const nodeData = computed(() => {
+  if (!props.pageData || !props.node?.id) return {};
+  return props.pageData[props.node.id] || {};
+});
 
-// 动态组件解析逻辑
-const resolveComp = (type: string) => componentMap[type] || null;
+// 动态组件解析逻辑 (大小写不敏感匹配)
+const resolveComp = (type: string) => {
+  if (!type) return null;
+  // 先尝试直接匹配
+  if (componentMap[type]) return componentMap[type];
+  
+  // 失败后尝试全小写匹配
+  const lowerType = type.toLowerCase();
+  const entry = Object.entries(componentMap).find(([name]) => name.toLowerCase() === lowerType);
+  return entry ? entry[1] : null;
+};
 </script>
 
 <template>

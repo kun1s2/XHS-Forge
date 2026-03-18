@@ -1,5 +1,7 @@
 import json
 import time
+import asyncio
+import datetime
 from typing import Optional, Any, Dict
 from app.core.config import settings
 
@@ -34,6 +36,18 @@ class CacheService:
         self._mock_redis[f"trend:knowledge:{keyword}"] = json.dumps(data)
         print(f"📦 [Redis Set] 已缓存热点知识包: {keyword} | TTL: {ttl}s")
 
+    async def get_trend_result(self, query: str, selected_element_id: str) -> Optional[Dict[str, Any]]:
+        key = f"trend:result:{selected_element_id}:{query}"
+        data = self._mock_redis.get(key)
+        if data:
+            return json.loads(data)
+        return None
+
+    async def set_trend_result(self, query: str, selected_element_id: str, page_dsl: Dict[str, Any], ttl: int = 3600) -> None:
+        key = f"trend:result:{selected_element_id}:{query}"
+        self._mock_redis[key] = json.dumps(page_dsl, ensure_ascii=False)
+        print(f"📦 [Redis Set] 已缓存趋势结果: el={selected_element_id} | TTL: {ttl}s")
+
     async def update_trend_rank(self, keyword: str, score_increment: float = 1.0):
         """
         更新热词排行榜。
@@ -50,8 +64,17 @@ class CacheService:
         return [item[0] for item in sorted_trends[:limit]]
 
     async def match_trends_in_text(self, text: str) -> list:
-...
-        found.sort(key=lambda x: self._mock_zset.get(x, 0), reverse=True)
+        """
+        在一段文本中匹配已存在的热词，并按热度从高到低返回。
+
+        说明：真实线上通常会用更高效的 AC 自动机或倒排索引；
+        这里用 mock zset 的 key 做一次线性扫描，确保功能可用。
+        """
+        if not text:
+            return []
+
+        found = [kw for kw in self._mock_zset.keys() if kw and kw in text]
+        found.sort(key=lambda x: self._mock_zset.get(x, 0.0), reverse=True)
         return found
 
     # --- 🛡️ 面试亮点：风控安全服务 ---
@@ -71,3 +94,52 @@ class CacheService:
 
 # 单例模式
 cache_service = CacheService()
+
+async def get_trend_cache(query: str, selected_element_id: str) -> Optional[Dict[str, Any]]:
+    return await cache_service.get_trend_result(query, selected_element_id)
+
+
+async def set_trend_cache(query: str, selected_element_id: str, page_dsl: Dict[str, Any], ttl: int = 3600) -> None:
+    await cache_service.set_trend_result(query, selected_element_id, page_dsl, ttl=ttl)
+
+
+class RiskControlCache:
+    """
+    为 API 层提供稳定的风控入口（兼容旧导入）。
+    """
+
+    @staticmethod
+    async def check_veto(text: str) -> bool:
+        hit = await cache_service.check_risk_words(text or "")
+        return bool(hit)
+
+
+async def sync_risk_words_from_cloud() -> None:
+    """
+    从云端同步最新风控词库。
+
+    说明：当前仓库使用 mock 缓存实现，为了保证系统可启动，这里提供一个安全的占位实现。
+    若后续接入真实 Redis / OSS / HTTP 接口，可在此处替换为真实拉取逻辑，并写入 cache_service。
+    """
+    # 预留：settings 中可能存在词库地址/鉴权信息；当前不强依赖，避免启动失败
+    print("🛡️ [风控同步] (mock) 已触发云端词库同步。")
+
+
+async def scheduled_risk_sync_task() -> None:
+    """
+    定时同步守护协程：每天凌晨 02:00 触发一次 sync_risk_words_from_cloud。
+    该协程会长期运行，支持被 Cancel。
+    """
+    while True:
+        now = datetime.datetime.now()
+        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target = target + datetime.timedelta(days=1)
+        sleep_seconds = (target - now).total_seconds()
+
+        try:
+            await asyncio.sleep(sleep_seconds)
+            await sync_risk_words_from_cloud()
+        except asyncio.CancelledError:
+            # 允许应用 shutdown 时优雅退出
+            raise
