@@ -78,7 +78,7 @@ async def intent_agent(state: UIProjectState) -> dict:
             "query": user_query
         }
         
-        print(f"📡 [意图路由] 正在分析指令，支持场景: {VALID_SCENARIOS}")
+        print(f"📡 [意图路由] 正在分析指令 4.0，支持场景: {VALID_SCENARIOS}")
         result: IntentOutput = await (prompt | structured_llm).ainvoke(inputs, config={"timeout": 45.0})
         
         # 4. 动态校验与补位
@@ -89,13 +89,15 @@ async def intent_agent(state: UIProjectState) -> dict:
         final_scenarios = [s for s in result.scenarios if s in VALID_SCENARIOS]
         if not final_scenarios: final_scenarios = ["general"]
 
+        print(f"🎭 [4.0 信号] 情绪: {result.emotional_vibe} | 冲突: {result.conflict_score}")
+
         return {
             "intent_result": result,
             "intent_route": result.intent_route,
             "selected_element_id": effective_id,
             "scenarios": final_scenarios,
             "active_archetype": final_scenarios[0],
-            "node_prompts": {"intent_agent": [{"role": "system", "content": "Routing to " + result.intent_route}]}
+            "node_prompts": {"intent_agent": [{"role": "system", "content": f"4.0 Signal: Vibe={result.emotional_vibe}, Conflict={result.conflict_score}"}]}
         }
                 
     except Exception as e:

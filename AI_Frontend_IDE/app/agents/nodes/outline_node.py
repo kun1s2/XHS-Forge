@@ -36,39 +36,49 @@ async def outline_agent(state: UIProjectState) -> dict:
     llm = get_outline_llm()
     structured_llm = llm.with_structured_output(OutlineOutput, method="function_calling")
     
-    # 1. 提取当前状态
+    # 1. 提取当前状态与 4.0 信号
     active_archetype = state.get("active_archetype", "general")
     scenarios = state.get("scenarios", [])
     scenario_id = scenarios[0] if scenarios else "general"
     
-    # ✨ 核心重构：动态注入场景专属指令与配置
+    intent_res = state.get("intent_result")
+    vibe = getattr(intent_res, "emotional_vibe", "neutral") if intent_res else "neutral"
+    conflict = getattr(intent_res, "conflict_score", 0.0) if intent_res else 0.0
+    
+    # ✨ 核心重构：动态注入场景专属指令与 4.0 编排信号
     scenario_prompt = scenario_manager.get_prompt(scenario_id)
     scenario_config = scenario_manager.get_config(scenario_id)
     
     content_msgs = state.get("content_messages", [])
     content_context = content_msgs[-1].content if content_msgs else "无特定的前置文案要求。"
 
-    # 2. 构造“底座+插件”的双层提示词体系
-    base_system = f"""你是一个顶级的 Generative UI 全栈架构师。你的任务是将全局文案转化为一棵支持无限嵌套的抽象语法树 (AST)。
-    
-【基础嵌套法则 (必须遵守)】:
-1. 拥抱嵌套容器 (Container, BentoGrid)。
-2. 语义化控场 (props)，严禁输出具体的 CSS 类名。
-3. 精准委派 (content_brief)，确保每个组件获得的撰写指令互斥且不重叠。
+    # 2. 构造 4.0 全栈架构师提示词
+    base_system = f"""你是一个顶级的 Generative UI 全栈架构师 (X-Forge 4.0)。
+你的任务是将全局文案转化为一棵支持无限嵌套的抽象语法树 (AST)。
+
+【4.0 动态组件编排准则 (最高优先级)】:
+1. 冲突对冲：如果检测到冲突指数 (Conflict) > 0.6，必须在关键位置使用 VersusCard (红黑对峙卡) 来展示正反观点。
+2. 惊喜礼盒：如果检测到情绪 (Vibe) 为 "surprise"，必须将核心祝福或安利文案包裹在 GiftBox (惊喜礼盒) 容器中。
+3. 翻转悬念：对于科普、避雷或反转内容，优先使用 FlipCard (3D 翻转卡) 制造探索感。
+4. 语义化 Props：禁止输出 CSS，只能使用 variant, visual_priority 等语义属性。
+
+【当前 4.0 编排信号】:
+- 情绪特征: {vibe}
+- 冲突指数: {conflict}
 """
 
     full_outline_system = f"""{base_system}
 
-【当前场景专属指令 (最高优先级)】:
+【场景专属指令】:
 {scenario_prompt}
 
-【场景可用配置与视觉约束】:
+【场景配置参考】:
 {json.dumps(scenario_config, ensure_ascii=False)}
 """
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", full_outline_system),
-        ("human", "请基于以下生成的文案，规划一棵符合场景美学的高保真 UI AST 树：\n<content>\n{{ content_context }}\n</content>\n(请通过调用工具输出 JSON 格式结果)")
+        ("human", "请基于 4.0 编排信号和以下文案，规划一棵高保真的交互式 AST 树：\n<content>\n{{ content_context }}\n</content>\n(请通过调用工具输出 JSON 格式结果)")
     ], template_format="jinja2")
 
     try:

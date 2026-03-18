@@ -8,8 +8,8 @@
   },
   "visual_rules": {
     "variant": {
-      "xhs-clean": "bg-white rounded-[32px] shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-gray-50 p-6",
-      "glassmorphism": "bg-white/70 backdrop-blur-md rounded-[32px] p-5 shadow-xl border border-white/50"
+      "xhs-clean": "bg-white rounded-[32px] shadow-[0_10px_40px_rgba(0,0,0,0.02)] border border-white p-6",
+      "glassmorphism": "bg-white/70 backdrop-blur-xl rounded-[32px] p-5 shadow-2xl border border-white/50"
     },
     "animation": {
       "smooth-fade": "animate-in fade-in duration-700 slide-in-from-bottom-2",
@@ -19,7 +19,7 @@
   "allowed_tools": ["network_search", "image_vibe"],
   "visual_preference": {
     "variant": "xhs-clean",
-    "color_palette": "#ff2442"
-  },
-  "search_strategy": "深度挖掘真实用户槽点，为欲扬先抑提供素材"
+    "color_palette": "#ff2442",
+    "bg_color": "#f9fafb" 
+  }
 }

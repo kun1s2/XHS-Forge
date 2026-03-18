@@ -173,10 +173,15 @@ class FocusedKnowledge(BaseModel):
     summary: str = Field(..., description="一句话情报摘要")
 
 class IntentOutput(BaseModel):
-    """意图分析大脑的输出结构"""
+    """意图分析大脑的输出结构 (4.0 增强版)"""
     thought_process: str = Field(description="思维链推理过程")
     reason: str = Field(..., description="极简理由（10字以内）。")
     intent_route: Literal["content_node", "structure_node", "style_node", "rag_node", "patch_node"] = Field(..., description="决定路由的节点名")
+    
+    # ✨ 4.0 核心新增：语义编排维度
+    emotional_vibe: str = Field(default="neutral", description="探测到的情绪特征，如：惊喜(surprise)、硬核(hardcore)、怀旧(nostalgic)")
+    conflict_score: float = Field(default=0.0, description="指令中的冲突/争议指数 (0.0-1.0)，用于触发 VersusCard")
+    
     detected_element_id: Optional[str] = Field(None, description="识别出的潜在修改目标 ID")
     scenarios: List[str] = Field(default_factory=list, description="识别的业务场景标签（字符串 ID）")
     detected_archetype: str = Field(default="general", description="识别出的业务场景原型 ID")

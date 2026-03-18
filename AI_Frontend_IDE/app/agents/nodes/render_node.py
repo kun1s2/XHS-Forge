@@ -30,7 +30,6 @@ def render_node_recursive(node: Dict[str, Any], data_dsl: Dict[str, Any]) -> str
     # --- 🧱 物理组件模板矩阵 ---
 
     if comp_type in ["Container", "CollageContainer"]:
-        # 容器层增加相对定位支持
         return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="w-full relative flex flex-col gap-4 {computed_classes}">{children_html}</div>'
 
     elif comp_type == "BentoGrid":
@@ -38,9 +37,8 @@ def render_node_recursive(node: Dict[str, Any], data_dsl: Dict[str, Any]) -> str
         return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="grid grid-cols-{cols} gap-4 w-full {computed_classes}">{children_html}</div>'
 
     elif comp_type == "CoverSwiper":
-        # ✨ 补全：顶部轮播图
         images = comp_data.get("image_urls") or [comp_data.get("image_url")] or ["https://picsum.photos/seed/cover/800/800"]
-        img_tags = "".join([f'<img src="{url}" class="w-full h-full object-cover shrink-0 shadow-inner" />' for url in images if url])
+        img_tags = "".join([f'<img src="{url}" class="w-full h-full object-cover shrink-0" />' for url in images if url])
         return f'''
         <div id="{comp_id}" data-comp-id="{comp_id}" class="w-full h-[450px] overflow-hidden rounded-b-[40px] relative shadow-2xl {computed_classes}">
             <div class="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">{img_tags}</div>
@@ -69,7 +67,6 @@ def render_node_recursive(node: Dict[str, Any], data_dsl: Dict[str, Any]) -> str
         '''
 
     elif comp_type == "TagList":
-        # ✨ 补全：标签组件
         tags = comp_data.get("tags") or ["话题", "记录生活"]
         tags_html = "".join([f'<span class="text-blue-800 bg-blue-50/50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># {t}</span>' for t in tags])
         return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="flex flex-wrap gap-2 px-4 {computed_classes}">{tags_html}</div>'
@@ -91,16 +88,20 @@ def render_node_recursive(node: Dict[str, Any], data_dsl: Dict[str, Any]) -> str
 
 async def render_node(state: UIProjectState) -> dict:
     """
-    【后端物理渲染器 3.0】：全量视觉对齐版。
+    【后端物理渲染器 3.0】：全量视觉对齐与通透化版。
     """
     data_dsl = state.get("data_dsl", {})
     style_dsl = state.get("style_dsl", {})
     ast_root = data_dsl.get("root")
     
-    # 聚合所有来源的 CSS 变量
-    page_theme = data_dsl.get("page_theme", {})
-    style_vars = style_dsl.get("global_vars", {})
+    # 聚合全量 CSS 变量
+    page_theme = data_dsl.get("page_theme") or {}
+    style_vars = style_dsl.get("global_vars") or {}
     all_vars = {**page_theme, **style_vars}
+    
+    # 强制注入通透底色 (如果缺失)
+    if "--bg-color" not in all_vars:
+        all_vars["--bg-color"] = "#f9fafb"
     
     css_vars_str = "; ".join([f"{k}: {v}" for k, v in all_vars.items()])
     
@@ -116,20 +117,21 @@ async def render_node(state: UIProjectState) -> dict:
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{data_dsl.get('page_title', 'XHS-Forge Preview')}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
     <style>
         :root {{ {css_vars_str} }}
         body {{ 
-            background-color: var(--bg-color, #f9fafb); 
+            background-color: var(--bg-color); 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0; padding: 0; display: flex; justify-content: center;
         }}
         [data-comp-id]:hover {{ outline: 2px dashed #ff2442; outline-offset: -2px; cursor: pointer; }}
         .mobile-viewport {{
             width: 100%; max-width: 420px; min-height: 100vh;
-            background-color: var(--bg-color, #ffffff);
-            box-shadow: 0 0 60px rgba(0,0,0,0.05);
+            background-color: var(--bg-color);
+            box-shadow: 0 40px 100px rgba(0,0,0,0.03);
             padding-bottom: 100px;
-            display: flex; flex-direction: column; gap: 24px;
+            display: flex; flex-direction: column; gap: 20px;
         }}
         .scrollbar-hide::-webkit-scrollbar {{ display: none; }}
     </style>
