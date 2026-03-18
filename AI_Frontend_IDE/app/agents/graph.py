@@ -20,6 +20,7 @@ from app.agents.nodes.structure_node import structure_agent
 from app.agents.nodes.patch_node import surgical_patch_agent # ✨ 引入手术刀节点
 from app.agents.nodes.style_node import style_agent
 from app.agents.nodes.render_node import render_node
+from app.agents.nodes.refusal_node import refusal_node # ✨ 引入风控节点
 from app.agents.nodes.battle_node import battle_node # ✨ 引入对冲引擎
 from app.agents.nodes.distill_node import distill_node # ✨ 引入提纯器
 from app.agents.nodes.outline_node import outline_agent # ✨ 引入大纲节点
@@ -84,12 +85,16 @@ async def enrichment_node(state: UIProjectState) -> dict:
 
 def route_intent(state: UIProjectState) -> str:
     """
-    【核心路由守卫 - 哨兵加固版】：强制要求新内容生成必须先经过调研。
+    【核心路由守卫 - 哨兵加固版】：具备风控拦截能力的智能分发器。
     """
     route = state.get("intent_route", "").lower()
     
     print(f"🧭 [路由守卫] 截获的原始意图: {route}")
     
+    # ✨ 维度二：语义风控拦截
+    if "refusal" in route or route == "refusal_node":
+        return "refusal_node"
+
     # 模糊匹配
     if "patch" in route:
         return "patch_node"
@@ -174,7 +179,9 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
         # 2. 注册所有特种兵 (Nodes) —— 注入性能监控与上下文工程
         workflow.add_node("asset_processor", with_performance_profiling("asset_processor", asset_processor_node))
         workflow.add_node("intent_agent", with_performance_profiling("intent_agent", intent_agent))
-        workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent)) # ✨ 一体化 RAG
+        workflow.add_node("refusal_node", with_performance_profiling("refusal_node", refusal_node)) # ✨ 注册风控节点
+        workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent)) 
+ # ✨ 一体化 RAG
         workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
         workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node))
         # ✨ 核心加固：文案与排版节点注入上下文工程拦截器
@@ -201,6 +208,7 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
             "research_agent": "research_agent", # ✨ content / rag / search 现在统一走这里
             "structure_node": "structure_node",
             "style_node": "style_node",
+            "refusal_node": "refusal_node", # ✨ 映射风控节点
             END: END
         }
     )
@@ -210,6 +218,9 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
 
     # 手术刀通道：微调完直接渲染
     workflow.add_edge("patch_node", "render")
+    
+    # 风控拦截通道：直接结束
+    workflow.add_edge("refusal_node", END)
 
     # 第一步：调研（一体化搜证提纯）
     workflow.add_edge("research_agent", "controversy_sniffer")

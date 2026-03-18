@@ -50,26 +50,24 @@ class CacheService:
         return [item[0] for item in sorted_trends[:limit]]
 
     async def match_trends_in_text(self, text: str) -> list:
-        """
-        【面试亮点】：高性能多模式匹配逻辑。
-        从用户的长篇输入中，快速提取出命中的热词。
-        """
-        # 1. 获取当前所有活跃热词
-        all_keywords = list(self._mock_zset.keys())
-        if not all_keywords:
-            all_keywords = ["索尼", "A7C2", "华为", "Mate", "咖啡", "雨天"]
-            
-        # 2. 面试槽点：此处可引申为 Aho-Corasick 算法的简化版实现
-        # 我们使用 Set 进行 $O(1)$ 查找优化
-        found = []
-        # 模拟分词扫描 (实际生产中会结合 jieba 或 专门的词权过滤)
-        for kw in all_keywords:
-            if kw.lower() in text.lower():
-                found.append(kw)
-        
-        # 3. 按权重排序，返回最相关的热词
+...
         found.sort(key=lambda x: self._mock_zset.get(x, 0), reverse=True)
         return found
+
+    # --- 🛡️ 面试亮点：风控安全服务 ---
+    
+    async def check_risk_words(self, text: str) -> Optional[str]:
+        """
+        【第一道防线】：基于关键词的极速风控审计。
+        """
+        # 实际场景下会从 Redis 加载 500+ 违禁词
+        risk_words = ["色情", "暴力", "毒品", "反动", "博彩", "刷单"]
+        
+        for word in risk_words:
+            if word in text:
+                print(f"🚨 [风控拦截] 发现违禁词: {word}")
+                return word
+        return None
 
 # 单例模式
 cache_service = CacheService()
