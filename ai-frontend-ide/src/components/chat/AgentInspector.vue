@@ -158,9 +158,44 @@ const metaInfo = computed(() => [
 
       <!-- Tab 4: 视觉补丁 (Tracks) -->
       <div v-if="activeTab === 'patch'" class="animate-in fade-in duration-300">
-        <div v-if="chatStore.selectedComponentId" class="flex items-center gap-2 bg-pink-900/10 text-pink-500 p-2 rounded-lg border border-pink-900/20 mb-4">
-          <span>🎯</span>
-          <span class="font-bold uppercase tracking-tighter">选中组件: {{ chatStore.selectedComponentId }}</span>
+        <div v-if="chatStore.selectedComponentId" class="space-y-4">
+          <div class="flex items-center gap-2 bg-pink-900/10 text-pink-500 p-2 rounded-lg border border-pink-900/20 mb-4">
+            <span>🎯</span>
+            <span class="font-bold uppercase tracking-tighter">选中组件: {{ chatStore.selectedComponentId }}</span>
+          </div>
+
+          <!-- ✨ 核心：生长档案时间轴 -->
+          <div v-if="(chatStore.pageData.patch_tracks as any)?.[chatStore.selectedComponentId]" class="relative pl-4 border-l border-[#333] space-y-6">
+            <div 
+              v-for="(track, idx) in (chatStore.pageData.patch_tracks as any)[chatStore.selectedComponentId]" 
+              :key="idx"
+              class="relative group"
+            >
+              <!-- 时间轴圆点 -->
+              <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-[#1e1e1e] bg-[#444] group-hover:bg-pink-500 transition-colors shadow-[0_0_8px_rgba(0,0,0,0.5)]"></div>
+              
+              <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between items-center">
+                  <span class="text-[9px] font-mono text-gray-500">{{ new Date(track.timestamp).toLocaleString() }}</span>
+                  <button 
+                    @click="chatStore.rollbackComponent(chatStore.selectedComponentId!, idx)"
+                    class="opacity-0 group-hover:opacity-100 text-[8px] bg-pink-600/20 hover:bg-pink-600 text-pink-400 hover:text-white px-1.5 py-0.5 rounded transition-all"
+                  >
+                    RESTORE
+                  </button>
+                </div>
+                <div class="bg-[#2d2d2d] p-2.5 rounded-lg border border-[#3c3c3c] group-hover:border-pink-500/30 transition-all cursor-default">
+                  <div class="text-[10px] text-gray-300 font-bold mb-1 italic">"{{ track.prompt }}"</div>
+                  <div class="text-[9px] text-gray-500 leading-tight">{{ track.agent_thought }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div v-else class="text-center py-10 opacity-30 italic text-[10px]">
+            <div class="text-3xl mb-2">🧬</div>
+            该组件暂无手术记录
+          </div>
         </div>
         <div v-else class="text-center py-10 opacity-30 italic text-[10px]">
           <div class="text-3xl mb-2">💉</div>

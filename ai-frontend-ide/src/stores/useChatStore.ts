@@ -84,6 +84,26 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // ✨ 哨兵新增：原子级单组件回溯
+  const rollbackComponent = async (elementId: string, versionIndex: number) => {
+    if (!threadId.value) return
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/${threadId.value}/rollback/component`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ element_id: elementId, version_index: versionIndex })
+      })
+      const data = await res.json()
+      if (data.status === 'success') {
+        // 重新拉取最新状态以同步预览
+        await switchSession(threadId.value)
+      }
+    } catch (e) {
+      console.error('原子回溯失败:', e)
+    }
+  }
+
   const getBaseUrl = (protocol: 'http' | 'ws' = 'http') => {
     // 假设后端始终在 8000 端口
     const host = `${window.location.hostname}:8000`

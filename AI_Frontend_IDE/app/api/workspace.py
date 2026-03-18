@@ -39,6 +39,36 @@ async def track_new_trend(req: TrackTrendRequest):
     print(f"🎯 [用户主动追踪] 已将「{req.keyword}」权重置顶，触发流水线重扫描")
     return {"status": "success", "message": f"已开始深度追踪话题: {req.keyword}"}
 
+class ComponentRollbackRequest(BaseModel):
+    element_id: str
+    version_index: int
+
+@router.post("/{thread_id}/rollback/component")
+async def rollback_component(thread_id: str, req: ComponentRollbackRequest, request: Request):
+    """
+    【原子级回溯接口】：面试亮点。
+    从生长档案中提取特定版本并覆盖当前状态，实现单组件的“后悔药”。
+    """
+    agent = get_agent(request)
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    # 1. 获取当前最新状态
+    state = await agent.aget_state(config)
+    values = state.values
+    
+    from app.agents.state import restore_component_version
+    # 2. 调用逻辑函数生成回滚补丁
+    patch = restore_component_version(values, req.element_id, req.version_index)
+    
+    if not patch:
+        raise HTTPException(status_code=400, detail="回滚失败：未找到有效历史快照")
+        
+    # 3. ✨ 面试亮点：利用 update_state 直接修改持久化 Checkpoint
+    await agent.aupdate_state(config, patch)
+    
+    print(f"⏳ [原子回溯成功] 组件: {req.element_id} | 版本索引: {req.version_index}")
+    return {"status": "success", "message": f"组件 {req.element_id} 已恢复至历史版本"}
+
 @router.get("/trends")
 async def get_trending_topics():
     """
