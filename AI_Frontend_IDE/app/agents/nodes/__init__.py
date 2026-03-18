@@ -2,7 +2,6 @@ from .asset_node import asset_processor_node
 from .intent_node import intent_agent
 from .research_agent import research_agent
 from .review_node import controversy_sniffer_node
-from .content_node import content_agent
 from .structure_node import structure_agent
 from .patch_node import surgical_patch_agent
 from .style_node import style_agent
@@ -16,7 +15,6 @@ __all__ = [
     "intent_agent",
     "research_agent",
     "controversy_sniffer_node",
-    "content_agent",
     "structure_agent",
     "surgical_patch_agent",
     "style_agent",

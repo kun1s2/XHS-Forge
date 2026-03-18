@@ -142,5 +142,7 @@ class ComponentTaskState(TypedDict):
     content_brief: str # ✨ 哨兵新增：承载主编下发的任务简报
     user_query: str
     active_archetype: str
-    retrieved_knowledge: str
+    retrieved_knowledge: Any
     creator_persona: str
+    image_assets: List[Dict[str, str]]
+    content_messages: List[BaseMessage]

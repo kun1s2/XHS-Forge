@@ -39,6 +39,10 @@ class ComponentData(BaseModel):
     subtitle: Optional[str] = Field(None, description="副标题内容")
     paragraphs: Optional[List[str]] = Field(None, description="正文文本段落")
     
+    # ✨ 为 VersusCard 补上专属武器！
+    proText: Optional[str] = Field(None, description="红榜/优势描述（仅 VersusCard 可用，严禁写成数组）")
+    conText: Optional[str] = Field(None, description="黑榜/劣势描述（仅 VersusCard 可用，严禁写成数组）")
+    
     # ✨ Generative UI 升维字段
     align: Optional[str] = Field(None, description="文本对齐 (left/center)")
     killer_tags: Optional[List[str]] = Field(None, description="杀手锏高亮标签")
@@ -153,7 +157,6 @@ class FocusedKnowledge(BaseModel):
     core_attributes: Dict[str, Any] = Field(default_factory=dict, description="核心参数键值对")
     key_selling_points: List[str] = Field(default_factory=list, description="核心卖点/亮点列表")
     known_issues: List[str] = Field(default_factory=list, description="客观缺点/避雷点")
-    image_urls: List[str] = Field(default_factory=list, description="搜索到的高质量真实产品图片 URL 列表") # ✨ 哨兵新增
     summary: str = Field(..., description="一句话情报摘要")
 
 class IntentOutput(BaseModel):

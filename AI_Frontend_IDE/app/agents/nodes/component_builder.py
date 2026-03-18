@@ -9,6 +9,7 @@ from app.agents.state import ComponentTaskState
 from app.core.config import settings
 from app.core.schema import ComponentBuilderOutput
 
+# 🐝 蜂群限制器
 _github_limiter = asyncio.Semaphore(10)
 
 _llm_instance = None
@@ -19,13 +20,13 @@ def get_builder_llm():
             model=settings.LLM_WORKER_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
-            temperature=0.3 # 降低随机性，减少幻觉
+            temperature=0.3
         )
     return _llm_instance
 
 async def component_builder_node(state: ComponentTaskState) -> dict:
     """
-    【单体工兵节点 5.6】：职责隔离与去重增强版。
+    【单体工兵节点 5.7】：变量加固与职责隔离版。
     """
     comp_id = state["component_id"]
     comp_type = state["component_type"]
@@ -34,89 +35,91 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
     
     # 1. 提取 RAG 知识
     retrieved_knowledge = state.get("retrieved_knowledge", {})
-    knowledge_str = "无外部参考资料"
     battle_report = None
     
+    # 构造结构化事实上下文 (作为变量传递，避免大括号冲突)
+    fact_context = "无外部参考资料"
     if isinstance(retrieved_knowledge, dict):
         battle_report = retrieved_knowledge.get("battle_report")
         if retrieved_knowledge.get("entity_name"):
-            knowledge_str = f"""
-【结构化事实库】：
-- 目标主体: {retrieved_knowledge.get('entity_name')}
-- 核心参数: {json.dumps(retrieved_knowledge.get('core_attributes', {}), ensure_ascii=False)}
-- 真实图片: {json.dumps(retrieved_knowledge.get('image_urls', []), ensure_ascii=False)}
-"""
+            fact_context = {
+                "entity": retrieved_knowledge.get('entity_name'),
+                "attributes": retrieved_knowledge.get('core_attributes', {}),
+                # ✨ 核心重构：使用从父图传下来的物理打捞资产
+                "images": state.get("image_assets", []) 
+            }
 
-    # 2. 提取全局文案
+    # 2. 提取导引文案
     content_msgs = state.get("content_messages", [])
-    global_content = "未提供全局文案"
+    global_guide = "未提供全局定调"
     if content_msgs:
         for msg in reversed(content_msgs):
             if hasattr(msg, "content") and msg.content:
-                global_content = str(msg.content)
+                global_guide = str(msg.content)
                 break
 
     async with _github_limiter:
-        await asyncio.sleep(random.uniform(0.1, 0.3))
-        print(f"👷 [并发工兵] 正在生产: {comp_id} ({comp_type})")
+        await asyncio.sleep(random.uniform(0.1, 0.2))
+        print(f"👷 [并发工兵] 构建中: {comp_id} ({comp_type})")
         
         llm = get_builder_llm()
         structured_llm = llm.with_structured_output(ComponentBuilderOutput, method="function_calling")
         
-        # 针对不同组件类型，动态调整指令权重
-        type_specific_instruction = ""
-        if comp_type == "VersusCard" and battle_report:
-            type_specific_instruction = f"""
-【🚨 红色通缉令】：这是一个 VersusCard！
-你必须【严格且仅能】使用下述对冲报告进行填充，绝对禁止使用全局文案！
+        # 3. 构造指令 (使用 jinja2 变量注入)
+        system_prompt = f"""你是一个顶级组件设计师。当前构建 ID: [{comp_id}], 类型: "{comp_type}"。
+
+【⚠️ 本组件专项简报】: >> {content_brief} <<
+
+【📖 全局定调背景】:
+{{{{ global_guide }}}}
+
+【📊 结构化事实库】:
+{{{{ fact_json }}}}
+
+【通用铁律】：
+1. 职责锁定：仅针对简报指派的细节创作。
+2. 严禁复读：严禁照抄全局背景原句。
+3. 📸 零幻觉图像：若事实库无图，image_url 设为 null。
+"""
+
+        # ✨ [核心纠偏] VersusCard 的“柔性对冲”
+        if comp_type == "VersusCard":
+            if battle_report:
+                system_prompt += f"""
+【🎭 重点：舆情对冲模式】：这是一个 VersusCard！
+请务必使用下述已合成的对冲观点进行填充：
 - 标题: {battle_report.get('title')}
 - 正方(PROS): {battle_report.get('pros', {}).get('details')}
 - 反方(CONS): {battle_report.get('cons', {}).get('details')}
 """
-        elif comp_type == "StoryText":
-            type_specific_instruction = f"""
-【🚨 职责隔离令】：
-你的任务简报是: >> {content_brief} <<
-你必须【仅针对简报内容】进行扩写。绝对禁止直接复制粘贴全局文案！
-如果全局文案包含多个段落，你只能提取并深度加工与你简报相关的那个段落。
-"""
-
-        system_prompt = f"""你是一个顶级组件设计师。当前构建 ID: [{comp_id}], 类型: "{comp_type}"。
-
-{type_specific_instruction}
-
-【📖 全局参考背景（仅供了解调性，严禁照抄）】:
-{global_content}
-
-{knowledge_str}
-
-【通用铁律（致命级）】：
-1. 职责锁定：你的任务简报是唯一的最高指令。你【必须且只能】针对简报指派的细节进行创作。
-2. 严禁复读：严禁直接从‘全局参考背景’中搬运任何原句。你必须用自己的话重新组织。
-3. 物理极简：如果是 StoryText，每段话严禁超过 40 字，且总段落数限 1-2 段。
-4. 📸 零幻觉图像：严禁使用 example.com 或 placeholder。若无真图，必须设为 null。
+            else:
+                system_prompt += f"""
+【🎭 重点：双向分析模式】：这是一个 VersusCard！
+当前没有激烈的舆情对冲，请你根据【结构化事实库】客观提炼该产品的核心优势（填入 pros）和客观存在的局限/注意事项（填入 cons）。
+- 语气需客观、中立。
+- 严禁将数据塞进 paragraphs！
 """
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("human", "请根据简报完成组件数据构建。")
+            ("human", "请根据指令完成组件数据构建。")
         ], template_format="jinja2")
         
         try:
-            result: ComponentBuilderOutput = await (prompt | structured_llm).ainvoke({"query": user_query})
+            chain = prompt | structured_llm
+            result: ComponentBuilderOutput = await chain.ainvoke({
+                "global_guide": global_guide,
+                "fact_json": json.dumps(fact_context, ensure_ascii=False),
+                "query": user_query
+            })
+            
             res_data = result.data.model_dump(exclude_none=True)
             res_data["type"] = comp_type 
             
-            # 针对 VersusCard 强制修正映射
-            if comp_type == "VersusCard" and battle_report:
-                res_data["title"] = battle_report.get('title')
-                res_data["pros"] = battle_report.get('pros')
-                res_data["cons"] = battle_report.get('cons')
-
             return {
                 "data_dsl": {comp_id: res_data},
                 "style_dsl": {comp_id: result.style.model_dump(exclude_none=True)}
             }
         except Exception as e:
-            print(f"🩹 [自愈] {comp_id} 失败: {e}")
-            return {"data_dsl": {comp_id: {"type": comp_type, "title": "内容加载中..."}}}
+            print(f"🩹 [工兵自愈] {comp_id} 失败: {e}")
+            return {"data_dsl": {comp_id: {"type": comp_type, "title": "内容填充中..."}}}
