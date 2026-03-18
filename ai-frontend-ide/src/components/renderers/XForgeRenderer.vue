@@ -18,6 +18,9 @@ import LocationBlock from './blocks/LocationBlock.vue';
 import VersusCard from './blocks/VersusCard.vue';
 import FlipCard from './blocks/FlipCard.vue';
 import GiftBox from './blocks/GiftBox.vue';
+import RadarChartBlock from './blocks/RadarChartBlock.vue';
+import PollBlock from './blocks/PollBlock.vue';
+import WeatherPolaroid from './blocks/WeatherPolaroid.vue';
 
 // 2. 建立组件注册表
 const componentMap: Record<string, any> = {
@@ -34,7 +37,10 @@ const componentMap: Record<string, any> = {
   LocationBlock,
   VersusCard,
   FlipCard,
-  GiftBox
+  GiftBox,
+  RadarChartBlock,
+  PollBlock,
+  WeatherPolaroid
 };
 
 const windowWidth = window.innerWidth;

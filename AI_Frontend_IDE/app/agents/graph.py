@@ -150,19 +150,37 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     这个函数会在 app/main.py 的 Lifespan 中被调用。
     """
     # 1. 声明图的载体：UIProjectState
-    workflow = StateGraph(UIProjectState)
+    def with_context_engineering(node_func):
+        """
+        【面试亮点：上下文工程拦截器】
+        在进入昂贵的生成节点前，物理屏蔽 messages 总线中的 RAG 废料（如海量网页原文）。
+        确保模型注意力集中在‘业务指令’与‘蒸馏事实’上。
+        """
+        @functools.wraps(node_func)
+        async def wrapper(state: UIProjectState):
+            # 1. 深度拷贝状态，防止副作用
+            cloned_state = state.copy()
 
-    # 2. 注册所有特种兵 (Nodes) —— 注入性能监控
-    workflow.add_node("asset_processor", with_performance_profiling("asset_processor", asset_processor_node))
-    workflow.add_node("intent_agent", with_performance_profiling("intent_agent", intent_agent))
-    workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent))
-    workflow.add_node("tools", ToolNode(RESEARCH_TOOLS)) # ✨ 注册工具执行节点
-    workflow.add_node("distill_node", with_performance_profiling("distill_node", distill_node)) # ✨ 注册事实提纯器
-    workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
+            # 2. 物理漂白：将 messages 总线清空
+            # 下游节点如果需要上下文，必须从 main_messages 提取
+            cloned_state["messages"] = [] 
 
-    workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node)) # ✨ 注册对冲引擎
-    workflow.add_node("content_node", with_performance_profiling("content_node", content_agent))
-    workflow.add_node("outline_node", with_performance_profiling("outline_node", outline_agent)) # ✨ 引入大纲节点
+            print(f"🧠 [上下文工程] 已拦截总线废料，为 {node_func.__name__} 提供纯净视界。")
+            return await node_func(cloned_state)
+        return wrapper
+
+    def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None):
+    ...
+        # 2. 注册所有特种兵 (Nodes) —— 注入性能监控与上下文工程
+        workflow.add_node("asset_processor", with_performance_profiling("asset_processor", asset_processor_node))
+        workflow.add_node("intent_agent", with_performance_profiling("intent_agent", intent_agent))
+        workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent)) # ✨ 一体化 RAG
+        workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
+        workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node))
+        # ✨ 核心加固：文案与排版节点注入上下文工程拦截器
+        workflow.add_node("content_node", with_context_engineering(with_performance_profiling("content_node", content_agent)))
+        workflow.add_node("outline_node", with_context_engineering(with_performance_profiling("outline_node", outline_agent)))
+
     workflow.add_node("component_builder", component_builder_node) # ✨ 引入单体工兵节点 (由于 Send API 限制，这里不加耗时包装，或者确保包装器兼容 Send 状态)
     workflow.add_node("structure_node", with_performance_profiling("structure_node", structure_agent))
     workflow.add_node("patch_node", with_performance_profiling("patch_node", surgical_patch_agent)) # ✨ 注册手术刀节点
@@ -193,20 +211,8 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     # 手术刀通道：微调完直接渲染
     workflow.add_edge("patch_node", "render")
 
-    # 第一步：调研决策
-    # 🌟 核心重构：事实性三段论
-    # 意图路由 -> research_agent (决策) -> (如有 tool_call) -> tools -> distill_node -> sniffer
-    from app.agents.nodes.research_agent import should_continue_research
-    workflow.add_conditional_edges(
-        "research_agent",
-        should_continue_research,
-        {
-            "tools": "tools",
-            "distill_node": "distill_node"
-        }
-    )
-    workflow.add_edge("tools", "distill_node")
-    workflow.add_edge("distill_node", "controversy_sniffer")
+    # 第一步：调研（一体化搜证提纯）
+    workflow.add_edge("research_agent", "controversy_sniffer")
 
     # ✨ 舆情嗅探后，进入并发对冲引擎
     workflow.add_edge("controversy_sniffer", "battle_node")

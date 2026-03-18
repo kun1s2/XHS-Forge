@@ -1,72 +1,84 @@
 import json
+import asyncio
 from typing import List, Dict, Optional, Any
 from app.agents.state import UIProjectState
 from app.core.llm_factory import create_llm
 from app.core.config import settings
+from app.core.schema import FocusedKnowledge
 from app.agents.tools_registry import TOOL_POOL
-from langchain_core.messages import AIMessage
 from app.services.cache_service import cache_service
+from langchain_core.messages import AIMessage, HumanMessage
 
-# --- 🚀 决策大脑：只负责判断是否需要动用搜索工具 ---
-
-async def get_trend_cache(query: str) -> Optional[Dict[str, Any]]:
-    """
-    语义缓存探测引擎：利用 Redis 高性能读取能力。
-    """
-    hit_keywords = await cache_service.match_trends_in_text(query)
-    if hit_keywords:
-        primary_keyword = hit_keywords[0]
-        return await cache_service.get_hot_knowledge(primary_keyword)
-    return None
-
-def get_research_llm():
-    return create_llm(
-        model=settings.LLM_LOGIC_MODEL,
-        api_key=settings.LLM_API_KEY,
-        base_url=settings.LLM_BASE_URL,
-        temperature=0
-    ).bind_tools([TOOL_POOL["network_search"]])
+# --- 🚀 事实哨兵 5.0：搜证提纯一体化 (源头治水版) ---
 
 async def research_agent(state: UIProjectState) -> dict:
     """
-    【事实哨兵 4.0】：决策节点。
+    【事实哨兵 5.0】：不再利用 messages 传递废料。
+    在节点内部完成 [搜索 -> 提纯 -> 销毁] 闭环。
     """
     main_msgs = state.get("main_messages", [])
-    if not main_msgs: return {"intent_route": "END"}
+    if not main_msgs: return {}
     user_query = str(main_msgs[-1].content)
 
-    # 1. 优先嗅探热词缓存 (Redis)
-    cached = await get_trend_cache(user_query)
-    if cached:
-        print("🚀 [哨兵加速] 命中热点缓存，直接跳过搜索。")
-        cached["is_fact_ready"] = True
-        return {"retrieved_knowledge": cached}
+    # 1. 语义缓存嗅探 (Redis)
+    hit_keywords = await cache_service.match_trends_in_text(user_query)
+    if hit_keywords:
+        cached = await cache_service.get_hot_knowledge(hit_keywords[0])
+        if cached:
+            print(f"🚀 [哨兵加速] 命中缓存: {hit_keywords[0]}")
+            cached["is_fact_ready"] = True
+            return {"retrieved_knowledge": cached}
 
-    # 2. 缓存未命中，强制触发工具决策
-    llm = get_research_llm()
-    print(f"🔎 [决策中] 正在评估话题「{user_query[:15]}」是否需要联网搜证...")
+    # 2. 物理搜证启动
+    print(f"🔎 [搜证中] 正在为「{user_query[:10]}...」抓取全网真实数据...")
     
-    # 构建高强度指令，强化竞品搜索
-    system_msg = """你是一个严谨的搜证官。如果用户询问产品对比或参数，你必须调用 network_search。严禁根据记忆回答。
-    【⚠️ 竞品搜索铁律】：如果用户的输入中包含两个或以上的竞争品牌（例如：华为和苹果，A7C2和R6），你在构建搜索查询词时，【必须】将这两个品牌同时包含在查询中（例如：‘华为 Mate 60 对比评测 iPhone 15’），绝不允许只搜索其中一个！"""
-    
-    # ✨ 核心：将指令写入总线，触发 LangGraph 的 Tool Calling 机制
-    res = await llm.ainvoke([
-        ("system", system_msg),
-        ("human", f"请调研并对比以下内容：{user_query}")
-    ])
-    
-    return {"messages": [res]}
+    try:
+        # ✨ 核心改进：直接调用工具，不经过 ToolNode 路由
+        search_tool = TOOL_POOL["network_search"]
+        # 我们手动构造工具输入，模拟大模型的 Tool Call 行为
+        raw_web_content = await search_tool.ainvoke({"query": user_query})
+        
+        if not raw_web_content or len(str(raw_web_content)) < 50:
+            print("⚠️ [搜证失败] 互联网未返回有效信息。")
+            return {"retrieved_knowledge": {"is_fact_ready": False}}
 
-def should_continue_research(state: UIProjectState) -> str:
-    """
-    路由逻辑：如果有 tool_calls，去执行工具；否则去蒸馏。
-    """
-    # 检查 messages 列表
-    msgs = state.get("messages", [])
-    if not msgs: return "distill_node"
-    
-    last_msg = msgs[-1]
-    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-        return "tools"
-    return "distill_node"
+        # 3. 现场提纯（就在本节点内，废料不入库）
+        print(f"🧬 [现场提纯] 正在处理 {len(str(raw_web_content))} 字符的原始资料...")
+        
+        distill_llm = create_llm(
+            model=settings.LLM_BRAIN_MODEL, 
+            api_key=settings.LLM_API_KEY, 
+            base_url=settings.LLM_BASE_URL,
+            temperature=0
+        )
+        runnable = distill_llm.with_structured_output(FocusedKnowledge, method="function_calling")
+        
+        prompt = f"""你是一个极其严谨的数据提纯专家。
+        请将以下【原始网页碎片】提炼为结构化事实。找不到的参数严禁脑补。
+        【原始资料】:
+        {raw_web_content}
+        """
+        
+        knowledge: FocusedKnowledge = await runnable.ainvoke(prompt)
+        
+        if not knowledge or knowledge.entity_name in ["无", "未知"]:
+            return {"retrieved_knowledge": {"is_fact_ready": False}}
+
+        print(f"✅ [提纯完毕] 主体: {knowledge.entity_name} | 原始废料已随函数销毁")
+
+        # 4. 异步持久化
+        k_dict = knowledge.model_dump()
+        k_dict["is_fact_ready"] = True
+        asyncio.create_task(cache_service.set_hot_knowledge(knowledge.entity_name, k_dict))
+
+        # ✨ 亮点：messages 总线只留下一条精简的“搜证完成”记录，不带任何废料
+        status_msg = AIMessage(content=f"已完成对「{knowledge.entity_name}」的联网搜证，提取到 {len(k_dict.get('core_attributes', {}))} 项核心参数。")
+        
+        return {
+            "retrieved_knowledge": k_dict,
+            "messages": [status_msg]
+        }
+
+    except Exception as e:
+        print(f"❌ [搜证链路断裂]: {e}")
+        return {"retrieved_knowledge": {"is_fact_ready": False}}
