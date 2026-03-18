@@ -108,7 +108,9 @@ async def outline_agent(state: UIProjectState) -> dict:
         # 物理兜底：再次检查无图熔断
         if image_count == 0:
             original_len = len(blocks)
-            blocks = [b for b in blocks if b["component_type"] not in ["CoverSwiper", "CollageContainer", "PolaroidImage", "WeatherPolaroid"]]
+            # ✨ 物理清扫所有视觉组件
+            visual_components = ["CoverSwiper", "CollageContainer", "PolaroidImage", "WeatherPolaroid", "BentoGrid"]
+            blocks = [b for b in blocks if b["component_type"] not in visual_components]
             if len(blocks) < original_len:
                 print(f"🧹 [排版纠偏] 物理移除 {original_len - len(blocks)} 个无图可用的组件")
 

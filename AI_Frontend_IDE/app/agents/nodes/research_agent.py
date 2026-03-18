@@ -85,20 +85,31 @@ async def research_agent(state: UIProjectState) -> dict:
 
         print(f"✅ [提纯完毕] 主体: {knowledge.entity_name} | 捕获图片: {len(knowledge.image_urls)}")
 
-        # 4. 资产同步
+        # 4. 资产同步与物理拦截
         k_dict = knowledge.model_dump()
         k_dict["is_fact_ready"] = True
         
-        new_assets = []
+        # ✨ 终极防御：暴力剔除占位符
+        final_image_urls = []
         for url in knowledge.image_urls:
+            u_lower = url.lower()
+            if any(x in u_lower for x in ["example.com", "picsum.photos", "placeholder"]): continue
+            if url not in final_image_urls: final_image_urls.append(url)
+        
+        k_dict["image_urls"] = final_image_urls
+        
+        new_assets = []
+        for url in final_image_urls:
             new_assets.append({"url": url, "desc": f"{knowledge.entity_name} 真实素材"})
 
         asyncio.create_task(cache_service.set_hot_knowledge(knowledge.entity_name, k_dict))
 
+        status_msg = AIMessage(content=f"已完成对「{knowledge.entity_name}」的搜证。")
+        
         return {
             "retrieved_knowledge": k_dict,
             "image_assets": new_assets, 
-            "messages": [AIMessage(content=f"已完成对「{knowledge.entity_name}」的搜证。")]
+            "messages": [status_msg]
         }
 
     except Exception as e:

@@ -85,15 +85,16 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
 
 {type_specific_instruction}
 
-【📖 全局参考背景】:
+【📖 全局参考背景（仅供了解调性，严禁照抄）】:
 {global_content}
 
 {knowledge_str}
 
-【通用铁律】：
-1. 严禁复读：禁止直接照抄全局参考背景。你必须根据【任务简报】进行个性化创作。
-2. 真实性：100% 依据事实库。
-3. 图像：若图片库为空，image_url 设为 null。
+【通用铁律（致命级）】：
+1. 职责锁定：你的任务简报是唯一的最高指令。你【必须且只能】针对简报指派的细节进行创作。
+2. 严禁复读：严禁直接从‘全局参考背景’中搬运任何原句。你必须用自己的话重新组织。
+3. 物理极简：如果是 StoryText，每段话严禁超过 40 字，且总段落数限 1-2 段。
+4. 📸 零幻觉图像：严禁使用 example.com 或 placeholder。若无真图，必须设为 null。
 """
 
         prompt = ChatPromptTemplate.from_messages([

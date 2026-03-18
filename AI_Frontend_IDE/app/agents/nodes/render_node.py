@@ -35,8 +35,12 @@ def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], global_vars: D
 
     # --- 3. CoverSwiper (大图轮播) ---
     elif comp_type == "coverswiper":
-        urls = comp_data.get("image_urls") or ([comp_data.get("image_url")] if comp_data.get("image_url") else [])
-        if not urls or not any(urls): return "" # 物理熔断：无图不渲染
+        raw_urls = comp_data.get("image_urls") or ([comp_data.get("image_url")] if comp_data.get("image_url") else [])
+        
+        # ✨ 物理黑名单拦截：过滤掉所有占位符幽灵
+        urls = [u for u in raw_urls if u and "example.com" not in str(u) and "picsum.photos" not in str(u)]
+        
+        if not urls: return "" # 物理熔断：无真图不渲染
         
         img_tags = "".join([f'<img src="{u}" class="w-full h-full object-cover shrink-0 snap-center" />' for u in urls if u])
         return f'''
