@@ -5,149 +5,136 @@ from typing import Dict, Any, List
 from app.agents.state import UIProjectState
 from app.services.oss_client import upload_html_to_oss
 
-# --- 🚀 全量物理组件库 4.0 (Robust Edition) ---
+# --- 🚀 全量物理组件库 5.6 (Precision Edition) ---
 
-def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any]) -> str:
+def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
     """
-    【区块渲染核心】：对大小写不敏感，具备极致容错能力。
+    【物理组件锻造炉】：严禁脑补，数据驱动。
     """
-    if not block or not isinstance(block, dict): return ""
-        
-    comp_id = block.get("id", "unknown_id")
-    raw_type = block.get("component_type", "StoryText")
-    comp_type = raw_type.lower()
-    
+    if not block: return ""
+    comp_id = block.get("id")
+    comp_type = block.get("component_type", "").lower()
     comp_data = data_dsl.get(comp_id, {})
-    # ✨ 区块流模式下，样式由全局或 data_dsl 中的 style 决定，此处简单处理
-    computed_classes = "" 
+    
+    # 获取组件专属样式
+    style_info = data_dsl.get("style_dsl", {}).get(comp_id, {})
+    css_classes = style_info.get("css_classes", "")
 
-    # --- 🧱 物理组件模板矩阵 (Case-Insensitive) ---
+    # --- 1. TitleBlock (大标题) ---
+    if comp_type == "titleblock":
+        title = comp_data.get("title")
+        if not title: return ""
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-6 mt-4 {css_classes}"><h1 class="text-2xl font-black text-gray-900 leading-tight tracking-tight">{title}</h1></div>'
 
-    if comp_type in ["container", "collagecontainer"]:
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="w-full relative flex flex-col gap-6 {computed_classes}"></div>'
-
-    elif comp_type == "bentogrid":
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="grid grid-cols-2 gap-4 w-full {computed_classes}"></div>'
-
-    elif comp_type == "coverswiper":
-        images = comp_data.get("image_urls") or [comp_data.get("image_url")] or ["https://picsum.photos/seed/cover/800/800"]
-        img_tags = "".join([f'<img src="{url}" class="w-full h-full object-cover shrink-0" />' for url in images if url])
-        return f'''
-        <div id="{comp_id}" data-comp-id="{comp_id}" class="w-full h-[400px] overflow-hidden rounded-b-[48px] relative shadow-2xl {computed_classes}">
-            <div class="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">{img_tags}</div>
-            <div class="absolute bottom-6 right-6 bg-black/40 backdrop-blur-md text-white text-[10px] px-3 py-1 rounded-full border border-white/10 font-bold tracking-widest">1/{len(images)}</div>
-        </div>
-        '''
-
-    elif comp_type == "titleblock":
-        title = comp_data.get("title") or "发现新的灵感"
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-4 py-2 {computed_classes}"><h1 class="text-[24px] font-black text-gray-900 leading-tight tracking-tight">{title}</h1></div>'
-
+    # --- 2. StoryText (叙事文本) ---
     elif comp_type == "storytext":
-        paragraphs = comp_data.get("paragraphs") or ["正在构思..."]
-        inner = "".join([f'<p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">{p}</p>' for p in paragraphs])
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-4 {computed_classes}">{inner}</div>'
+        paras = comp_data.get("paragraphs") or [comp_data.get("title")]
+        if not paras or paras[0] in ["正在构思...", None]: return ""
+        html = "".join([f'<p class="mb-4 text-[15px] text-gray-700 leading-relaxed tracking-wide">{p}</p>' for p in paras if p])
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-6 {css_classes}">{html}</div>'
 
+    # --- 3. CoverSwiper (大图轮播) ---
+    elif comp_type == "coverswiper":
+        urls = comp_data.get("image_urls") or ([comp_data.get("image_url")] if comp_data.get("image_url") else [])
+        if not urls or not any(urls): return "" # 物理熔断：无图不渲染
+        
+        img_tags = "".join([f'<img src="{u}" class="w-full h-full object-cover shrink-0 snap-center" />' for u in urls if u])
+        return f'''
+        <div id="{comp_id}" data-comp-id="{comp_id}" class="w-full aspect-[4/5] relative overflow-hidden bg-gray-100 {css_classes}">
+            <div class="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">
+                {img_tags}
+            </div>
+            <div class="absolute bottom-4 right-4 bg-black/30 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full font-bold">1/{len(urls)}</div>
+        </div>
+        '''
+
+    # --- 4. VersusCard (红蓝对冲卡) ---
     elif comp_type == "versuscard":
-        # ✨ 4.0 核心：红蓝对峙组件
-        pro = comp_data.get("proText") or "优势点"
-        con = comp_data.get("conText") or "吐槽点"
+        title = comp_data.get("title", "极性博弈")
+        pros = comp_data.get("pros", {}).get("summary") or comp_data.get("proText")
+        cons = comp_data.get("cons", {}).get("summary") or comp_data.get("conText")
+        if not pros or not cons: return ""
+        
         return f'''
-        <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 h-48 rounded-[32px] overflow-hidden flex shadow-2xl border border-white/10 {computed_classes}">
-            <div class="w-1/2 bg-rose-500 p-5 flex flex-col justify-center text-white relative">
-                <div class="text-[9px] font-bold opacity-60 mb-1">THE GOOD</div>
-                <div class="text-sm font-black leading-tight line-clamp-4">{pro}</div>
+        <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 mt-2 {css_classes}">
+            <div class="flex items-center gap-2 mb-3 px-1">
+                <span class="w-1 h-3 bg-rose-500 rounded-full"></span>
+                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{title}</span>
             </div>
-            <div class="w-1/2 bg-zinc-900 p-5 flex flex-col justify-center text-right text-zinc-400 border-l border-white/5">
-                <div class="text-[9px] font-bold opacity-40 mb-1">THE BAD</div>
-                <div class="text-sm font-black leading-tight line-clamp-4">{con}</div>
-            </div>
-            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-2xl z-10 border-4 border-zinc-100 font-black italic text-xs text-zinc-900">VS</div>
-        </div>
-        '''
-
-    elif comp_type == "productcard":
-        title = comp_data.get("title") or "宝藏单品"
-        price = comp_data.get("price") or "参考价待定"
-        img = comp_data.get("image_url") or "https://via.placeholder.com/400"
-        return f'''
-        <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 bg-white rounded-[32px] overflow-hidden border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all {computed_classes}">
-            <div class="aspect-[4/3] bg-gray-50 overflow-hidden"><img src="{img}" class="w-full h-full object-cover" /></div>
-            <div class="p-5">
-                <div class="text-sm font-bold text-gray-900 mb-1">{title}</div>
-                <div class="text-[#ff2442] font-black text-xl italic">{price}</div>
+            <div class="relative h-44 rounded-[28px] overflow-hidden flex shadow-xl border border-white/20">
+                <div class="w-1/2 bg-rose-500 p-5 flex flex-col justify-center text-white">
+                    <div class="text-[8px] font-bold opacity-60 mb-1">PROS</div>
+                    <div class="text-[13px] font-black leading-snug line-clamp-4">{pros}</div>
+                </div>
+                <div class="w-1/2 bg-zinc-900 p-5 flex flex-col justify-center text-right text-zinc-400 border-l border-white/5">
+                    <div class="text-[8px] font-bold opacity-40 mb-1">CONS</div>
+                    <div class="text-[13px] font-black leading-snug line-clamp-4">{cons}</div>
+                </div>
+                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-9 h-9 bg-white rounded-full flex items-center justify-center shadow-2xl z-10 border-4 border-zinc-100 font-black italic text-[10px] text-zinc-900">VS</div>
             </div>
         </div>
         '''
 
+    # --- 5. TagList (话题标签) ---
     elif comp_type == "taglist":
-        tags = comp_data.get("tags") or ["话题", "记录生活"]
-        tags_html = "".join([f'<span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># {t}</span>' for t in tags])
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="flex flex-wrap gap-2 px-4 {computed_classes}">{tags_html}</div>'
+        tags = comp_data.get("tags") or comp_data.get("killer_tags")
+        if not tags: return ""
+        tag_html = "".join([f'<span class="text-blue-600 bg-blue-50/50 px-3 py-1 rounded-full text-[11px] font-bold border border-blue-100/50"># {t}</span>' for t in tags])
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-6 flex flex-wrap gap-2 {css_classes}">{tag_html}</div>'
 
-    elif comp_type == "interactionsbar":
-        likes = comp_data.get("likes", "0")
-        return f'''
-        <div id="{comp_id}" data-comp-id="{comp_id}" class="flex items-center justify-between px-4 py-8 border-t border-gray-100 mt-4 {computed_classes}">
-            <div class="flex gap-8 text-gray-400">
-                <div class="flex flex-col items-center gap-1"><span class="text-xl">🤍</span><span class="text-[10px] font-bold">{likes}</span></div>
-                <div class="flex flex-col items-center gap-1"><span class="text-xl">⭐</span><span class="text-[10px] font-bold">收藏</span></div>
-            </div>
-            <button class="px-8 py-3 bg-[#ff2442] text-white text-sm font-bold rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all">关注作者</button>
-        </div>
-        '''
+    # --- 6. ProductSpecCard (参数矩阵) ---
+    elif comp_type == "productspeccard":
+        features = comp_data.get("features") or comp_data.get("core_features", [])
+        if not features: return ""
+        items = "".join([f'<div class="bg-white/50 p-3 rounded-2xl border border-gray-100/50"><div class="text-[10px] text-gray-400 mb-1">Key Feature</div><div class="text-xs font-black text-gray-800">{f}</div></div>' for f in features])
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-6 grid grid-cols-2 gap-3 {css_classes}">{items}</div>'
 
-    return f'<div id="{comp_id}" class="p-4 border border-dashed border-red-200 text-red-400 text-xs rounded-xl">Unknown: {comp_type}</div>'
-
+    return ""
 
 async def render_node(state: UIProjectState) -> dict:
     """
-    【后端物理渲染器 4.0】：一维区块流渲染版。
+    【后端物理渲染器 5.6】：物理级数据校验，严禁占位符。
     """
     data_dsl = state.get("data_dsl", {})
     style_dsl = state.get("style_dsl", {})
     blocks = data_dsl.get("blocks", [])
     
-    # 聚合所有变量
+    # 聚合变量
     page_theme = data_dsl.get("page_theme") or {}
     style_vars = style_dsl.get("global_vars") or {}
     all_vars = {**page_theme, **style_vars}
     
-    # ✨ 哨兵补丁：提升底色饱和度
-    if "--bg-color" not in all_vars or all_vars["--bg-color"] == "#ffffff":
-        all_vars["--bg-color"] = "#f1f5f9"
+    # 强制修正背景色饱和度
+    if all_vars.get("--bg-color") == "#ffffff":
+        all_vars["--bg-color"] = "#f8fafc"
     
     css_vars_str = "; ".join([f"{k}: {v}" for k, v in all_vars.items()])
     
     if not blocks:
-        return {"final_html": "<h1>DSL Error: No Blocks Found</h1>"}
+        return {"final_html": "<div style='padding:40px; text-align:center;'>Waiting for content...</div>"}
 
-    body_content = "".join([render_block(b, data_dsl) for b in blocks])
+    # 执行物理区块渲染
+    body_content = "".join([render_block(b, data_dsl, all_vars) for b in blocks])
     
     html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>{data_dsl.get('page_title', 'XHS-Forge 4.0')}</title>
+    <title>{data_dsl.get('page_title', 'XHS-Forge Note')}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
     <style>
         :root {{ {css_vars_str} }}
-        body {{ 
-            background-color: var(--bg-color); 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0; padding: 0; display: flex; justify-content: center;
-        }}
-        [data-comp-id]:hover {{ outline: 2px dashed #ff2442; outline-offset: -2px; cursor: pointer; }}
+        body {{ background-color: var(--bg-color); margin: 0; padding: 0; display: flex; justify-content: center; }}
         .mobile-viewport {{
             width: 100%; max-width: 420px; min-height: 100vh;
             background-color: var(--bg-color);
             box-shadow: 0 40px 120px rgba(0,0,0,0.08);
-            padding-bottom: 100px;
-            display: flex; flex-direction: column; gap: 24px;
+            display: flex; flex-direction: column; gap: 28px;
+            padding-bottom: 100px; position: relative;
         }}
         .scrollbar-hide::-webkit-scrollbar {{ display: none; }}
+        [data-comp-id]:hover {{ outline: 2px dashed #ff2442; outline-offset: -2px; cursor: pointer; }}
     </style>
 </head>
 <body>
@@ -161,11 +148,11 @@ async def render_node(state: UIProjectState) -> dict:
         }});
     </script>
 </body>
-</html>
-"""
-    
+</html>"""
+
+    # 上传并返回
     try:
-        oss_url = upload_html_to_oss(html_template)
+        oss_url = await upload_html_to_oss(html_template)
     except:
         b64 = base64.b64encode(html_template.encode()).decode()
         oss_url = f"data:text/html;base64,{b64}"

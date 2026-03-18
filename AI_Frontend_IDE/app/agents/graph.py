@@ -86,7 +86,7 @@ def map_components(state: UIProjectState) -> list:
     active_archetype = state.get("active_archetype", "general")
     retrieved_knowledge = state.get("retrieved_knowledge", {})
     creator_persona = state.get("creator_persona", "硬核数码博主")
-    
+    # 派发任务！
     return [
         Send("component_builder", {
             "component_id": b["id"],
@@ -95,10 +95,13 @@ def map_components(state: UIProjectState) -> list:
             "user_query": user_query,
             "active_archetype": active_archetype,
             "retrieved_knowledge": retrieved_knowledge,
-            "creator_persona": creator_persona
+            "creator_persona": creator_persona,
+            # ✨ 核心重构：不再传递 content_messages，切断复读链路
+            "content_messages": [] 
         })
         for b in blocks
-    ] + ["style_node"] # ✨ 确保 style_node 也被执行以进行收束
+    ] + ["style_node"]
+
 
 def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None):
     workflow = StateGraph(UIProjectState)

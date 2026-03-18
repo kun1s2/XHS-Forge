@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>华为Mate 60 手机测评</title>
+    <title>产品对比与体验分享</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg-color: #f1f5f9; --primary-vibe: #ff2442; --radius: 16px; --spacing: 20px; --shadow-vibe: 0 10px 40px rgba(0, 0, 0, 0.05) }
+        :root { --bg-color: #f1f5f9; --primary-vibe: #333333; --radius: 8px; --spacing: 12px; --shadow-vibe: 0 10px 40px rgba(0, 0, 0, 0.05) }
         body { 
             background-color: var(--bg-color); 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -26,8 +26,13 @@
 </head>
 <body>
     <div class="mobile-viewport">
-        <div id="storytext_1" data-comp-id="storytext_1" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">⚙️【流畅体验】使用感受上，Mate 60的操作系统真是顺滑得让人心动，打开APP的速度、切换应用的流畅度，简直让我爱不释手！感觉自己像是在用一台高端游戏机一样，真的是太爽了！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">💬【总结】总的来说，华为Mate 60不仅在续航和影像上做得非常出色，还在日常使用的流畅性上给了我不小的惊喜！绝对是值得推荐的一款手机！🔥那么，问题来了：你们觉得Mate 60的优点足够吸引你们换机吗？还是更看重其他品牌的新机呢？评论区见！👇</p></div>
-        <div id="forced_vs" data-comp-id="forced_vs" class="mx-4 h-48 rounded-[32px] overflow-hidden flex shadow-2xl border border-white/10 ">
+        
+        <div id="cover_swiper_1" data-comp-id="cover_swiper_1" class="w-full h-[400px] overflow-hidden rounded-b-[48px] relative shadow-2xl ">
+            <div class="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide"><img src="http://example.com/image1.jpg" class="w-full h-full object-cover shrink-0" /><img src="http://example.com/image2.png" class="w-full h-full object-cover shrink-0" /><img src="http://example.com/image3.webp" class="w-full h-full object-cover shrink-0" /></div>
+            <div class="absolute bottom-6 right-6 bg-black/40 backdrop-blur-md text-white text-[10px] px-3 py-1 rounded-full border border-white/10 font-bold tracking-widest">1/3</div>
+        </div>
+        
+        <div id="vs_card_1" data-comp-id="vs_card_1" class="mx-4 h-48 rounded-[32px] overflow-hidden flex shadow-2xl border border-white/10 ">
             <div class="w-1/2 bg-rose-500 p-5 flex flex-col justify-center text-white relative">
                 <div class="text-[9px] font-bold opacity-60 mb-1">THE GOOD</div>
                 <div class="text-sm font-black leading-tight line-clamp-4">优势点</div>
@@ -38,7 +43,7 @@
             </div>
             <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-2xl z-10 border-4 border-zinc-100 font-black italic text-xs text-zinc-900">VS</div>
         </div>
-        <div id="storytext_2" data-comp-id="storytext_2" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">⚙️【流畅体验】使用感受上，Mate 60的操作系统真是顺滑得让人心动，打开APP的速度、切换应用的流畅度，简直让我爱不释手！感觉自己像是在用一台高端游戏机一样，真的是太爽了！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">💬【总结】总的来说，华为Mate 60不仅在续航和影像上做得非常出色，还在日常使用的流畅性上给了我不小的惊喜！绝对是值得推荐的一款手机！</p></div><div id="storytext_3" data-comp-id="storytext_3" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">🔋【续航无忧】Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">📸【影像实力】拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">⚙️【流畅体验】使用感受上，Mate 60的操作系统真是顺滑得让人心动，打开APP的速度、切换应用的流畅度，简直让我爱不释手！感觉自己像是在用一台高端游戏机一样，真的是太爽了！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">💬【总结】总的来说，华为Mate 60不仅在续航和影像上做得非常出色，还在日常使用的流畅性上给了我不小的惊喜！绝对是值得推荐的一款手机！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">🔥那么，问题来了：你们觉得Mate 60的优点足够吸引你们换机吗？还是更看重其他品牌的新机呢？评论区见！👇</p></div><div id="storytext_4" data-comp-id="storytext_4" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">作为一个硬核数码博主，今天我真心想和大家聊聊华为Mate 60的那些令人惊艳的地方！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">Mate 60的电池续航真的是可以打满分，不管是追剧、打游戏还是日常使用，完全不怕没电！再也不用时刻关注电量了，简直是我心中的“安心伴侣”！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">拍照方面，Mate 60的AI影像处理也是一绝！无论是风景照还是人像，都能轻松拍出专业级的效果，让我这个摄影小白也能变身摄影师！每次出门都想多拍几张，感觉每一张都能入选朋友圈的封面！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">使用感受上，Mate 60的操作系统真是顺滑得让人心动，打开APP的速度、切换应用的流畅度，简直让我爱不释手！感觉自己像是在用一台高端游戏机一样，真的是太爽了！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">总的来说，华为Mate 60不仅在续航和影像上做得非常出色，还在日常使用的流畅性上给了我不小的惊喜！绝对是值得推荐的一款手机！</p><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">那么，问题来了：你们觉得Mate 60的优点足够吸引你们换机吗？还是更看重其他品牌的新机呢？评论区见！</p></div><div id="taglist_1" data-comp-id="taglist_1" class="flex flex-wrap gap-2 px-4 "><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 华为Mate60</span><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 手机测评</span><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 数码博主</span><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 换机之选</span><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 黑科技</span></div>
+        <div id="story_text_1" data-comp-id="story_text_1" class="px-4 "><p class="mb-4 text-[15.5px] text-gray-800 leading-[1.8]">正在构思...</p></div><div id="bento_grid_1" data-comp-id="bento_grid_1" class="grid grid-cols-2 gap-4 w-full "></div><div id="tag_list_1" data-comp-id="tag_list_1" class="flex flex-wrap gap-2 px-4 "><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 华为</span><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 手机</span><span class="text-blue-800 bg-blue-50 px-3 py-1 rounded-full text-xs font-medium border border-blue-100/30"># 科技</span></div>
     </div>
     <script>
         document.addEventListener('click', e => {

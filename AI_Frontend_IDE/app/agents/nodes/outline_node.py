@@ -64,28 +64,24 @@ async def outline_agent(state: UIProjectState) -> dict:
     content_context = content_msgs[-1].content if content_msgs else "无特定的前置文案要求。"
 
     # 2. 构造 4.0 全栈架构师提示词
-    base_system = f"""你是一个顶级的移动端图流排版主编 (X-Forge 4.0)。
-你的任务是根据当前资产状况和叙事信号，编排一维线性“区块流 (Block Stream)”。
+    base_system = f"""你是一个顶级移动端排版主编。
+你的任务是根据当前资产状况和导演定调，编排一维线性“区块流 (Block Stream)”。
 
-【🚨 核心排版红线 (生死铁律)】:
-1. 视觉熔断：当前可用图片数为 [{image_count}]。
-   - 如果图片数为 0: 绝对严禁使用 CoverSwiper, CollageContainer, WeatherPolaroid, PolaroidImage 等图片积木！
-   - 如果图片数 > 0: 必须优先使用图片积木作为视觉锚点。
-2. 语义去重：
-   - 严禁连续开出职责重复的 StoryText。
-   - 如果需要多个文字块，必须在 content_brief 中明确区分侧重点（如：'block_1 讲外观', 'block_2 讲实测性能'），绝不允许模糊填充！
-3. 结构紧凑：页面由 4-6 个积木组成即可，拒绝冗余。
+【🚨 核心禁令 (违反即崩溃)】:
+1. 严禁代笔：禁止在 content_brief 中写出任何具体的描述、段落或评价！你只能下达“做什么”的指令（如：'根据事实包，对比屏幕刷新率'），绝不能写“怎么说”。
+2. 语义隔离：你必须确保每个积木的简报在逻辑上是互斥的。例如：block_1 只讲【参数】，block_2 只讲【个人主观感受】。
+3. 结构精简：4-5 个积木，多一分则累赘。
 
 【可用组件库】:
-- TitleBlock: 标题
-- StoryText: 叙事文本
-- VersusCard: 深度对比 (mode=contrast 时必选)
-- ProductCard: 单品展示
-- ProductSpecCard: 核心参数网格
-- CoverSwiper: 大图轮播 (要求图片数>0)
-- WeatherPolaroid: 时态氛围挂件 (要求图片数>0)
-- PollBlock: 互动投票
-- TagList: 话题标签
+- TitleBlock: 仅限一个，负责抓眼球。
+- StoryText: 限两个以内，简报必须明确区分职责（如：开头引导 vs 深度故事）。
+- VersusCard: 性能/观点大 PK。
+- ProductSpecCard: 核心参数网格。
+- CoverSwiper / WeatherPolaroid: 仅在 image_count > 0 时使用。
+- TagList: 仅限底部，总结关键词。
+
+【导演定调参考】:
+{content_context}
 
 【当前六维雷达信号】:
 - 叙事模式: {mode}

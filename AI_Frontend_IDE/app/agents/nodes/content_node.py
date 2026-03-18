@@ -1,157 +1,90 @@
 import json
 from pathlib import Path
 from pydantic import BaseModel, Field
+from typing import List, Optional
 from app.core.llm_factory import create_llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
-from app.agents.memory_utils import get_trimmed_messages
+from langchain_core.messages import AIMessage
+
+# --- 🚀 文案大脑 5.0：情感与逻辑定调输出 (去中心化版) ---
 
 class ContentOutput(BaseModel):
-    """文案创作大脑输出结构"""
-    thought_process: str = Field(description="文案创作思路与钩子设计推理")
-    final_content: str = Field(description="最终生成的小红书文案主体")
-
-# ✨ 性能优化：全局复用 LLM 实例
-_llm_instance = None
-
-def get_content_llm():
-    global _llm_instance
-    if _llm_instance is None:
-        # 🧠 哨兵三轨制：创作大脑切换为最强的 BRAIN 模型
-        _llm_instance = create_llm(
-            model=settings.LLM_BRAIN_MODEL, 
-            api_key=settings.LLM_API_KEY, 
-            base_url=settings.LLM_BASE_URL, 
-            temperature=0.7
-        )
-    return _llm_instance
+    """不再输出正文，只输出灵魂导引"""
+    thought_process: str = Field(description="创作思路")
+    storyline: str = Field(description="一句话描述本篇笔记的情绪起伏和逻辑动线。")
+    tone_vibe: str = Field(description="情感定调：如‘毒舌避雷’、‘温馨治愈’、‘专业硬核’。")
+    key_golden_phrases: List[str] = Field(description="为工兵准备的金句池（3-5句），工兵可以选择性使用。")
 
 async def content_agent(state: UIProjectState) -> dict:
-    llm = get_content_llm()
-    
-    # 提取用户指令
+    """
+    【文案大脑 5.0】：定调者。
+    为后续积木工兵提供灵魂（故事线），而非肉体（具体文字）。
+    """
+    # 1. 状态提取
+    know = state.get("retrieved_knowledge", {})
     main_msgs = state.get("main_messages", [])
-    trimmed_messages = get_trimmed_messages(main_msgs, max_tokens=4000)
-    raw_query = trimmed_messages[-1].content if trimmed_messages else "请构思一段文案。"
-    user_query = str([item["text"] for item in raw_query if item.get("type") == "text"]) if isinstance(raw_query, list) else str(raw_query)
-        
-    current_data_dsl = state.get("data_dsl", {})
-    selected_element = state.get("selected_element_id", "无 (全局修改)")
-    is_update = bool(current_data_dsl and current_data_dsl.get("page_order"))
+    user_query = str(main_msgs[-1].content) if main_msgs else ""
+    creator_persona = state.get("creator_persona", "专业博主")
     
-    scenarios = state.get("scenarios", [])
-    retrieved_knowledge = state.get("retrieved_knowledge", "")
-    user_stance = state.get("user_stance", "")
-    creator_persona = state.get("creator_persona", "硬核数码博主")
-    
-    target_text = "全局修改"
-    if selected_element != "无 (全局修改)" and selected_element in current_data_dsl:
-        target_comp = current_data_dsl[selected_element]
-        target_text = json.dumps({k: v for k, v in target_comp.items() if k in ["title", "subtitle", "heading", "paragraphs", "desc", "caption"]}, ensure_ascii=False)
-
+    # 提取六维信号
     intent_res = state.get("intent_result")
-    if isinstance(intent_res, dict):
-        audience = intent_res.get("target_audience", "泛人群")
-        cta_goal = intent_res.get("call_to_action", "none")
-    else:
-        audience = getattr(intent_res, "target_audience", "泛人群") if intent_res else "泛人群"
-        cta_goal = getattr(intent_res, "call_to_action", "none") if intent_res else "none"
+    audience = getattr(intent_res, "target_audience", "泛人群") if intent_res else "泛人群"
 
-    # ✨ 隐形人设注入
-    cta_instruction = ""
-    if cta_goal == "engagement":
-        cta_instruction = "【⚠️ 关键互动令】：在文案末尾，请务必抛出一个极具争议性或能引发大家疯狂评论的问题。"
-    elif cta_goal == "conversion":
-        cta_instruction = "【⚠️ 种草带货令】：请强调‘物超所值’、‘闭眼入’的紧迫感。"
-
-    prompt_path = Path(__file__).parents[2] / "prompts" / "content_system.xml"
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        system_template = f.read()
-
-    # ✨ 使用 Jinja2 模板直接处理所有动态变量，避免 Python f-string 拼接
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_template),
-        ("human", "【当前创作者人设】：{{ creator_persona }}\n【🎯 目标受众】：{{ audience }}\n{{ cta_instruction }}\n{% if user_stance %}【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{{ user_stance }}」。请务必严格遵守此立场！\n{% endif %}用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n请在创作文案的同时，规划创作思路并以 JSON 格式输出。")
-    ], template_format="jinja2")
-
+    # 2. 准备提示词
+    llm = create_llm(
+        model=settings.LLM_BRAIN_MODEL, 
+        api_key=settings.LLM_API_KEY, 
+        base_url=settings.LLM_BASE_URL,
+        temperature=0.7 
+    )
     structured_llm = llm.with_structured_output(ContentOutput, method="function_calling")
-    
-    # ✨ 哨兵三轨制：创作大脑切换为最强的 BRAIN 模型
-    # 并强制适配结构化 RAG 数据
-    retrieved_knowledge = state.get("retrieved_knowledge", {})
-    
-    fact_details = ""
-    if isinstance(retrieved_knowledge, dict) and retrieved_knowledge.get("entity_name"):
-        fact_details = f"""
-【核心事实依据 (结构化 JSON)】：
-- 实体名称: {retrieved_knowledge.get('entity_name')}
-- 核心参数: {json.dumps(retrieved_knowledge.get('core_attributes'), ensure_ascii=False)}
-- 核心卖点: {retrieved_knowledge.get('key_selling_points')}
-- 避雷点: {retrieved_knowledge.get('known_issues')}
-- 结论摘要: {retrieved_knowledge.get('summary')}
 
-【⚠️ 绝对服从令】：
-1. 你必须 100% 依据上述 JSON 中的参数进行创作。
-2. 严禁捏造任何不在上述列表中的新型号、价格或黑科技。
-3. 如果 core_attributes 为空，请基于 entity_name 进行通用创作，但依然严禁捏造具体数值。
-"""
+    system_prompt = f"""你是一个顶级的自媒体内容导演。
+    你的任务不是写出一整篇笔记，而是为这篇笔记设定【灵魂导引】。
     
-    from datetime import datetime
-    current_time = datetime.now().strftime("%Y-%m-%d")
-    
-    fact_constraint = f"""
-{fact_details}
-(今日日期: {current_time})
-"""
+    【导演准则】：
+    1. 设定动线：给出一句有冲击力的故事线（如：‘从深夜的焦虑到看到这一刻美景的释怀’）。
+    2. 提炼金句：写出几句符合【{creator_persona}】人设的黄金短句。
+    3. 拒绝执行：严禁输出任何长段落，你的输出将作为下游 5 个工兵的创作背景。
+
+    【核心事实依据】：
+    {json.dumps(know, ensure_ascii=False)}
+    """
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", "【🎯 目标受众】：{audience}\n【用户原始指令】：{query}\n请设定本篇笔记的灵魂导引。")
+    ])
 
     try:
-        inputs = {
-            "fact_constraint": fact_constraint, # ✨ 强制注入
-            "is_update": is_update,
-            "current_data": json.dumps(current_data_dsl, ensure_ascii=False) if current_data_dsl else "空",
-            "selected_element": selected_element,
-            "target_text": target_text,
-            "creator_persona": creator_persona,
-            "audience": audience,
-            "cta_instruction": cta_instruction,
-            "user_stance": user_stance,
-            "query": user_query,
-            "scenarios": scenarios,
-            "retrieved_knowledge": retrieved_knowledge
-        }
-        
-        rendered_messages = prompt.format_messages(**inputs)
-        prompt_data = [{"role": m.type, "content": m.content} for m in rendered_messages]
-        
-        # ✨ 修复：使用管道模式调用，让 LangChain 自动处理变量注入
+        # ✨ 修复：构建完整的链 (Chain)，否则 ainvoke 传 dict 会因缺少 Prompt 而报错
         chain = prompt | structured_llm
-        result = await chain.ainvoke(inputs)
+        result: ContentOutput = await chain.ainvoke({"audience": audience, "query": user_query})
         
-        new_content = result.final_content
-        thought = result.thought_process
+        # 封装导引包
+        vibe_content = f"【本篇创作动线】：{result.storyline}\n【情感风格】：{result.tone_vibe}\n【可用金句】：{' | '.join(result.key_golden_phrases)}"
+        
+        # 拟人化反馈
+        human_reply = AIMessage(content=f"✨ 导演已就位！本次创作定调为「{result.tone_vibe}」，故事线：{result.storyline}")
+
+        return {
+            "content_result": result,
+            "content_messages": [AIMessage(content=vibe_content)],
+            "main_messages": [human_reply]
+        }
     except Exception as e:
         print(f"❌ Content Agent 失败: {e}")
-        if settings.DEBUG_MODE:
-            raise e
-        new_content = "文案生成失败，请重试。"
-        thought = "思考过程中断"
-        prompt_data = []
-        result = None
-
-    content_msgs = state.get("content_messages", [])
-    main_msgs = state.get("main_messages", [])
-    from langchain_core.messages import SystemMessage, AIMessage
-    content_msgs.append(SystemMessage(content=new_content))
-    
-    # ✨ 拟人化回音：向主对话流追加一条干净的 AIMessage
-    hummanized_reply = AIMessage(content=f"✨ 文案工坊已出炉：\n\n{new_content}")
-    
-    return {
-        "content_result": result, # ✨ 供 WebSocket 截获思维链
-        "content_messages": content_msgs,
-        "main_messages": [hummanized_reply], # ✨ LangGraph 会自动根据 Reducer 追加
-        "node_prompts": {"content_node": prompt_data},
-        "has_controversy": False,
-        "user_stance": "" 
-    }
+        # 物理兜底：提供基础情感包，防止下游节点崩盘或复读
+        fallback_result = ContentOutput(
+            thought_process="系统兜底逻辑",
+            storyline="通过真实的参数和直观的视觉感受，向用户全方位展示产品的核心魅力。",
+            tone_vibe="客观专业",
+            key_golden_phrases=["硬核测评，不吹不黑", "参数只是起点，体验才是终点", "入手不亏的真香选择"]
+        )
+        return {
+            "content_result": fallback_result,
+            "content_messages": [AIMessage(content="【兜底模式】导演暂时离线，切换至标准专业模板。")],
+            "main_messages": [AIMessage(content="✨ 导演因网络波动暂退，已由副导演接管定调。")]
+        }
