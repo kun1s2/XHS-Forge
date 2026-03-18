@@ -79,8 +79,10 @@ class UIProjectState(TypedDict):
     structure_messages: Annotated[list[BaseMessage], add_messages]
     style_messages: Annotated[list[BaseMessage], add_messages]
     
-    # 兼容与路由
+    # ✨ 核心恢复：系统总线消息池 (LangGraph 工具调用专用)
     messages: Annotated[list[BaseMessage], add_messages]
+    
+    # 兼容与路由
     intent_route: str 
     # ✨ 核心新增：场景标签数组，支持混合场景 (如: ["travel", "food"])
     scenarios: List[str]
@@ -91,9 +93,6 @@ class UIProjectState(TypedDict):
     
     # ✨ 意图大脑的最新输出 (4.0 信号源)
     intent_result: Optional[Any] # 存储 IntentOutput 对象
-
-    # 素材与产物
-    image_urls: List[str]
     
     # ====== ✨ 现代化进化：加入 operator.add ======
     # 全局图库资产池 [{"url": "...", "desc": "..."}]
@@ -103,9 +102,6 @@ class UIProjectState(TypedDict):
     
     # 待打标的图片队列（本轮新上传的 URL，asset_node 处理完会清空）
     pending_images: List[str]
-    
-    entity_knowledge: Dict[str, Any]
-    visual_perception: List[Dict[str, Any]]
     
     content_template_id: str
     style_template_id: str
@@ -121,6 +117,7 @@ class UIProjectState(TypedDict):
     node_prompts: Annotated[dict, merge_dsl]
     
     # ✨ 核心重构：RAG 检索到的私域知识 (现已支持结构化字典)
+    # 大一统知识背包：整合了 RAG 结果、实体属性和外部事实
     retrieved_knowledge: Any
     
     # ✨ HITL 机制新增
@@ -133,9 +130,6 @@ class UIProjectState(TypedDict):
     # ✨ 动态实体消歧与自适应 HITL 新增
     needs_disambiguation: bool      # 是否需要人类协助消歧
     disambiguation_options: List[Dict[str, str]] # 消歧选项列表 [{"label": "...", "value": "..."}]
-    
-    # ✨ AST 自由之树：页面大纲现已升级为支持嵌套的虚拟 DOM 树
-    page_outline: dict # 存储 UINode 根节点字典
     
     final_oss_url: Optional[str]
     # 生成的 HTML 源码，供前端「源码」面板展示与时间胶囊回滚

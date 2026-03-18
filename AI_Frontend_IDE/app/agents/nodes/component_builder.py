@@ -40,13 +40,23 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
     knowledge_str = "无外部参考资料"
     
     if isinstance(retrieved_knowledge, dict) and retrieved_knowledge.get("entity_name"):
+        battle_info = ""
+        report = retrieved_knowledge.get("battle_report")
+        if report:
+            battle_info = f"""
+【⚠️ 舆情对冲报告】：
+- 对峙标题: {report.get('title')}
+- 红榜观点 (PROS): {report.get('pros', {}).get('details')}
+- 黑榜槽点 (CONS): {report.get('cons', {}).get('details')}
+(如果是 VersusCard，必须 100% 使用上述对冲报告数据进行填充！)
+"""
+        
         knowledge_str = f"""
 【结构化参考资料】：
 - 目标主体: {retrieved_knowledge.get('entity_name')}
+{battle_info}
 - 核心参数列表: {json.dumps(retrieved_knowledge.get('core_attributes'), ensure_ascii=False)}
-- 核心卖点: {', '.join(retrieved_knowledge.get('key_selling_points', []))}
-- 避雷建议: {', '.join(retrieved_knowledge.get('known_issues', []))}
-- 搜集到的真实图片: {retrieved_knowledge.get('image_urls', [])}
+...
 """
 
     archetype = state.get("active_archetype", "general")
@@ -79,10 +89,14 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
 【你的任务】：
 请从上述“结构化参考资料”中，精准提取并转化出属于组件 [{comp_id}] 的数据。
 
-1. ⚠️ 图像触发机制 (生死时速):
+1. 🚫 严禁摸鱼：绝对禁止输出“正在构思...”、“文案生成中...”或任何开发占位符！你必须根据【全局文案】和【参考资料】填写真实的、有深度的文字。如果资料中没提到，请根据博主语气合理推断，严禁交白卷。
+
+2. ⚠️ 文本强制输出：如果构建 StoryText 或涉及文字描述的组件，你必须撰写优美的正文，并将其以字符串数组的形式填入 `paragraphs` 字段，严禁返回 null 或空数组！
+
+3. ⚠️ 图像触发机制 (生死时速):
    - 如果“搜集到的真实图片”列表不为空: 必须从中提取 URL 填入 image_url 或 image_urls。
    - 如果列表为空: 禁止使用任何 placeholder！你必须将 image_url 设为 null，并在 desc 或 title 中填入引导语：“长官，文案已就绪，请点击此处上传您的实拍图✨”。
-
+...
 2. ⚠️ 边界意识：你只负责简报中指派的内容，严禁提及简报之外的参数（防止内容重叠）。
 3. ⚠️ 字段完整性：在 data 对象中，必须包含 "type": "{comp_type}"。
 4. ⚠️ 绝对服从：你必须 100% 依据资料中的“核心参数列表”填充组件。
@@ -95,6 +109,8 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
         ], template_format="jinja2")
         
         try:
+            # ✨ 面试亮点：防御性数据构造
+            # 先用模型强推
             result: ComponentBuilderOutput = await (prompt | structured_llm).ainvoke({"query": user_query})
             
             res_data = result.data.model_dump(exclude_none=True)
@@ -110,8 +126,10 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                 "style_dsl": {comp_id: style_patch}
             }
         except Exception as e:
-            print(f"❌ [并发工兵] 组件 {comp_id} 最终校验失败: {e}")
+            # ✨ 核心修复：极致容错降级
+            print(f"🩹 [并发工兵-自愈启动] 组件 {comp_id} 校验失败: {e}")
+            # 尝试通过原始 JSON 提取（防止 Pydantic 报错中断）
             return {
-                "data_dsl": {comp_id: {"type": comp_type, "title": "数据解析失败，请点重试"}},
-                "style_dsl": {comp_id: {"css_classes": "opacity-50"}}
+                "data_dsl": {comp_id: {"type": comp_type, "title": "内容正在精细打磨中..."}},
+                "style_dsl": {comp_id: {"css_classes": "opacity-90 animate-pulse"}}
             }

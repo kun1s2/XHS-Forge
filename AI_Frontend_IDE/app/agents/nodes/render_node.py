@@ -7,30 +7,27 @@ from app.services.oss_client import upload_html_to_oss
 
 # --- 🚀 全量物理组件库 4.0 (Robust Edition) ---
 
-def render_node_recursive(node: Dict[str, Any], data_dsl: Dict[str, Any]) -> str:
+def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any]) -> str:
     """
-    【递归渲染核心】：对大小写不敏感，具备极致容错能力。
+    【区块渲染核心】：对大小写不敏感，具备极致容错能力。
     """
-    if not node or not isinstance(node, dict): return ""
+    if not block or not isinstance(block, dict): return ""
         
-    comp_id = node.get("id", "unknown_id")
-    raw_type = node.get("component_type", "Container")
-    comp_type = raw_type.lower() # ✨ 强制转小写，消灭大小写不一致导致的报错
+    comp_id = block.get("id", "unknown_id")
+    raw_type = block.get("component_type", "StoryText")
+    comp_type = raw_type.lower()
     
-    props = node.get("props", {})
-    computed_classes = node.get("computed_classes", "")
     comp_data = data_dsl.get(comp_id, {})
-    
-    children_html = "".join([render_node_recursive(c, data_dsl) for c in node.get("children", [])])
+    # ✨ 区块流模式下，样式由全局或 data_dsl 中的 style 决定，此处简单处理
+    computed_classes = "" 
 
     # --- 🧱 物理组件模板矩阵 (Case-Insensitive) ---
 
     if comp_type in ["container", "collagecontainer"]:
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="w-full relative flex flex-col gap-6 {computed_classes}">{children_html}</div>'
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="w-full relative flex flex-col gap-6 {computed_classes}"></div>'
 
     elif comp_type == "bentogrid":
-        cols = props.get("cols", 2)
-        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="grid grid-cols-{cols} gap-4 w-full {computed_classes}">{children_html}</div>'
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="grid grid-cols-2 gap-4 w-full {computed_classes}"></div>'
 
     elif comp_type == "coverswiper":
         images = comp_data.get("image_urls") or [comp_data.get("image_url")] or ["https://picsum.photos/seed/cover/800/800"]
@@ -105,27 +102,27 @@ def render_node_recursive(node: Dict[str, Any], data_dsl: Dict[str, Any]) -> str
 
 async def render_node(state: UIProjectState) -> dict:
     """
-    【后端物理渲染器 4.0】：极致通透、大小写脱敏版。
+    【后端物理渲染器 4.0】：一维区块流渲染版。
     """
     data_dsl = state.get("data_dsl", {})
     style_dsl = state.get("style_dsl", {})
-    ast_root = data_dsl.get("root")
+    blocks = data_dsl.get("blocks", [])
     
     # 聚合所有变量
     page_theme = data_dsl.get("page_theme") or {}
     style_vars = style_dsl.get("global_vars") or {}
     all_vars = {**page_theme, **style_vars}
     
-    # ✨ 哨兵补丁：提升底色饱和度，撕掉“白布”
+    # ✨ 哨兵补丁：提升底色饱和度
     if "--bg-color" not in all_vars or all_vars["--bg-color"] == "#ffffff":
-        all_vars["--bg-color"] = "#f1f5f9" # 稍微深一点的蓝灰，增加对比度
+        all_vars["--bg-color"] = "#f1f5f9"
     
     css_vars_str = "; ".join([f"{k}: {v}" for k, v in all_vars.items()])
     
-    if not ast_root:
-        return {"final_html": "<h1>DSL Error: No Root Node</h1>"}
+    if not blocks:
+        return {"final_html": "<h1>DSL Error: No Blocks Found</h1>"}
 
-    body_content = render_node_recursive(ast_root, data_dsl)
+    body_content = "".join([render_block(b, data_dsl) for b in blocks])
     
     html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">

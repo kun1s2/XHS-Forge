@@ -162,6 +162,27 @@
         </div>
       </div>
 
+      <!-- ✨ 哨兵新增：实时热搜榜 (Hot Trends) -->
+      <div v-if="hotTrends.length > 0" class="mb-3">
+        <div class="flex items-center gap-2 mb-1.5 px-1">
+          <span class="text-[10px] font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1">
+            <span class="animate-bounce">🔥</span> Hot Trends
+          </span>
+          <div class="h-[1px] flex-1 bg-gradient-to-r from-orange-500/30 to-transparent"></div>
+        </div>
+        <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mask-fade-right">
+          <button 
+            v-for="(trend, idx) in hotTrends" 
+            :key="idx"
+            @click="quickSend(trend)"
+            class="whitespace-nowrap px-3 py-1.5 bg-[#2d2d2d] hover:bg-blue-600/20 border border-[#444] hover:border-blue-500/50 rounded-full text-[11px] text-gray-400 hover:text-blue-400 transition-all flex items-center gap-1.5 group"
+          >
+            <span class="opacity-50 group-hover:opacity-100 text-orange-400 font-mono">#{{ idx + 1 }}</span>
+            {{ trend }}
+          </button>
+        </div>
+      </div>
+
       <div class="relative flex items-end gap-2">
         <input type="file" ref="fileInput" accept="image/*" multiple class="hidden" @change="handleFileSelect" />
         <button @click="triggerFileInput" class="p-2.5 text-gray-400 hover:text-white hover:bg-[#3c3c3c] rounded-lg transition-colors shrink-0 mb-1" title="上传图片">
@@ -196,12 +217,17 @@ import Typewriter from '../common/Typewriter.vue'
 import AgentInspector from './AgentInspector.vue'
 
 const chatStore = useChatStore()
-const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, imageAssets, creatorPersona } = storeToRefs(chatStore)
+const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, imageAssets, creatorPersona, hotTrends } = storeToRefs(chatStore)
 const { setSelectedComponent, addImageAsset, removeImageAsset } = chatStore
 const inputText = ref('')
 const msgListRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const showInspector = ref(false)
+
+const quickSend = (trend: string) => {
+  inputText.value = `帮我针对「${trend}」做一个深度种草笔记`
+  handleSend()
+}
 
 interface PendingImage {
   file: File
@@ -307,5 +333,17 @@ watch(nodeStreamOutput, scrollToBottom)
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #444;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.mask-fade-right {
+  mask-image: linear-gradient(to right, black 85%, transparent 100%);
 }
 </style>

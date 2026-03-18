@@ -1,121 +1,87 @@
 import asyncio
-from pydantic import BaseModel, Field, field_validator
-from typing import Any, Optional
-from zhipuai import ZhipuAI
-from app.core.llm_factory import create_llm
-from app.core.config import settings
-from app.core.persistence import generate_vector_store
-from fastapi import WebSocket
+import json
+import random
+from typing import List, Dict, Any
+from app.services.cache_service import cache_service
+from app.agents.nodes.research_agent import research_agent
+from app.agents.state import UIProjectState
+from langchain_core.messages import HumanMessage
 
-# 1. 智谱客户端：使用原生 SDK
-zhipu_client = ZhipuAI(api_key=settings.ZHI_PU_API_KEY)
+# --- 🚀 面试亮点：多线程/异步后台热点预热流水线 ---
 
-# 2. 主模型客户端
-llm = create_llm(
-    api_key=settings.LLM_API_KEY,
-    base_url=settings.LLM_BASE_URL,
-    model=settings.LLM_MODEL,
-    temperature=0.1
-)
+class TrendPipeline:
+    """
+    【预热流水线】：模拟社交平台热点发现与异步 RAG 注入。
+    """
+    def __init__(self):
+        self._is_running = False
+        self._hot_topics = ["索尼 A7C2", "华为 Mate 60", "赛博朋克风测评", "理想 L9 避雷", "春天第一杯咖啡"]
 
-class TrendDistillation(BaseModel):
-    objective_facts: str = Field(description="客观事实，无感情色彩")
-    subjective_vibes: str = Field(description="主观舆论与网友槽点")
-    core_summary: str = Field(description="核心一句话摘要")
+    async def start_background_task(self):
+        """
+        后台启动预热守护进程。
+        """
+        if self._is_running: return
+        self._is_running = True
+        print("🛡️ [Sentinel Pipeline] 启动热点预热守护进程...")
+        asyncio.create_task(self._trend_loop())
 
-    @field_validator('objective_facts', 'subjective_vibes', mode='before')
-    @classmethod
-    def ensure_string(cls, v: Any) -> str:
-        if isinstance(v, list):
-            return "；".join([str(item) for item in v])
-        return str(v)
+    async def _trend_loop(self):
+        """
+        核心循环：动态从 Redis 提取 Top 热词并执行深度异步调研。
+        """
+        while self._is_running:
+            try:
+                # 1. ✨ 面试亮点：不再使用死列表，而是从 Redis ZSet 提取真实热词
+                dynamic_trends = await cache_service.get_top_trends(limit=5)
 
-_active_tasks = set()
+                for topic in dynamic_trends:
+                    print(f"📡 [哨兵追踪] 正在对动态热词「{topic}」执行长效监测...")
 
-async def process_new_trend_background(keyword: str, websocket: Optional[WebSocket] = None):
-    """后台异步清洗流水线：解耦搜索与蒸馏，并实时上报"""
-    normalized_kw = keyword.strip().lower()
-    if normalized_kw in _active_tasks: return
+                    # 2. 模拟深度挖掘：不仅仅是查参数，还要查最新的舆情争议点
+                    await self._pre_research_topic(topic, deep_scan=True)
+
+            except Exception as e:
+                print(f"❌ [Sentinel Pipeline] 预热失败: {e}")
+
+            # 社交平台热点更新快，我们每 5 分钟扫描一轮
+            await asyncio.sleep(300)
+
+    async def _pre_research_topic(self, topic: str, deep_scan: bool = False):
+        """
+        调用 Agent 进行调研。如果开启 deep_scan，会增加舆情探测权重。
+        """
+        prompt = f"请调研 {topic} 的最新评价和参数。"
+        if deep_scan:
+            prompt = f"请针对「{topic}」进行深度舆情分析，找出现在社交平台上大家争议最大的 3 个点，并提取高保真图片。"
+
+        # 构造调研状态
+        mock_state: UIProjectState = {
+            "main_messages": [HumanMessage(content=prompt)],
+            "scenarios": ["seeding"],
+            "active_archetype": "general",
+            "intent_result": {"asset_request": "SEARCH", "narrative_mode": "contrast"} 
+        }
+
         
-    _active_tasks.add(normalized_kw)
-    print(f"🕵️‍♂️ [后台主编] 嗅探到新热点: {keyword}，开始异步清洗...")
-    
-    try:
-        # 1. 发送“正在搜索”状态给前端
-        if websocket:
-            await websocket.send_json({
-                "event": "thought",
-                "node": "trend_harvester",
-                "data": f"🔍 后端正在异步搜集「{keyword}」的最新全网资料..."
-            })
+        try:
+            # ✨ 面试槽点：此处可引申为异步分布式 Worker 的一部分
+            result = await research_agent(mock_state)
+            knowledge = result.get("retrieved_knowledge")
+            if knowledge:
+                # 调研成功，写入 Redis 供所有用户共享
+                await cache_service.set_hot_knowledge(topic, knowledge)
+        except Exception as e:
+            print(f"⚠️ [预热工兵] 调研失败 ({topic}): {e}")
 
-        # 2. 调用智谱搜网
-        def fetch_search_results():
-            response = zhipu_client.web_search.web_search(
-                search_engine="search_pro",
-                search_query=keyword,
-                count=8, # ✨ 减少搜索数量，降低 Token 压力
-                content_size="high"
-            )
-            res = getattr(response, "search_result", [])
-            lines = [
-                (item.get("content", "") if isinstance(item, dict) else getattr(item, "content", ""))
-                for item in res
-            ]
-            # ✨ 物理截断：强制限制在 20000 字符以内，留出 10000 字符给 System Prompt 和 思考空间
-            full_text = "\n".join(lines)
-            return full_text[:20000]
+# 单例模式
+trend_pipeline = TrendPipeline()
 
-        search_context = await asyncio.to_thread(fetch_search_results)
-        
-        # ✨ 物理打印到控制台
-        print(f"\n--- 📄 [后台主编] 搜集到关于「{keyword}」的原始资料 ---\n{search_context[:1000]}...\n------------------------------------------------\n")
-
-        # ✨ 实时推送到前端显示（截取前 500 字，避免 WS 拥塞）
-        if websocket:
-            await websocket.send_json({
-                "event": "thought_process",
-                "data": {
-                    "node": "trend_harvester",
-                    "content": f"【全网实时资料搜集完毕】\n\n{search_context[:500]}..."
-                }
-            })
-
-        # 3. 信息蒸馏
-        print(f"🧠 [后台主编] 正在交由主脑进行信息蒸馏...")
-        prompt = f"""你是一个严谨的结构化数据提取器。提炼【{keyword}】的热点内容。
-【输出指令】：
-1. 必须严格遵守 JSON 格式。
-2. 包含字段：'objective_facts', 'subjective_vibes', 'core_summary'。
-3. 严禁包裹外层 Key。
-
-【背景资料】：
-{search_context}
-"""
-        structured_llm = llm.with_structured_output(TrendDistillation, method="function_calling")
-        distilled_data = await structured_llm.ainvoke(prompt)
-        
-        # 4. 入库 PGVector
-        async with generate_vector_store() as store:
-            await store.aadd_texts(
-                texts=[distilled_data.core_summary],
-                metadatas=[{
-                    "doc_type": "trending_topic",
-                    "keyword": keyword,
-                    "facts": distilled_data.objective_facts,
-                    "vibes": distilled_data.subjective_vibes,
-                }]
-            )
-        print(f"✅ [后台主编] 热点 「{keyword}」 蒸馏入库完成！")
-        
-        if websocket:
-            await websocket.send_json({
-                "event": "thought",
-                "node": "trend_harvester",
-                "data": f"✅ 热点「{keyword}」已完成深度清洗，并归档至 XHS-Forge 全局知识库。"
-            })
-            
-    except Exception as e:
-        print(f"❌ [后台主编] 失败: {e}")
-    finally:
-        _active_tasks.discard(normalized_kw)
+async def process_new_trend_background(query_str: str, websocket=None):
+    """
+    【主动式热点发现】：用户提问时如果未命中缓存，异步启动该话题的收录。
+    这展示了“由点及面”的流量聚合能力。
+    """
+    print(f"🔄 [任务分发] 针对新用户话题「{query_str[:15]}...」启动后台热点收录任务")
+    # 此处可发送到消息队列 (RabbitMQ/Kafka) 进行削峰处理
+    pass

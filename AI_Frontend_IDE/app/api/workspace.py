@@ -24,6 +24,33 @@ def get_agent(request: Request):
         raise HTTPException(status_code=500, detail="AI 前端 IDE 引擎未就绪，请检查 Postgres 连接")
     return agent
 
+from app.services.cache_service import cache_service
+
+class TrackTrendRequest(BaseModel):
+    keyword: str
+
+@router.post("/trends/track")
+async def track_new_trend(req: TrackTrendRequest):
+    """
+    【面试亮点】：主动任务注入。
+    用户手动将某个小众话题标记为“高价值”，系统立刻提升其 Redis 权重并启动异步预热。
+    """
+    await cache_service.update_trend_rank(req.keyword, score_increment=10.0)
+    print(f"🎯 [用户主动追踪] 已将「{req.keyword}」权重置顶，触发流水线重扫描")
+    return {"status": "success", "message": f"已开始深度追踪话题: {req.keyword}"}
+
+@router.get("/trends")
+async def get_trending_topics():
+    """
+    【面试亮点】：从 Redis ZSet 中实时提取热词排行榜。
+    展示了系统对社交平台实时脉搏的监控能力。
+    """
+    trends = await cache_service.get_top_trends(limit=10)
+    # 模拟一些初始热词，防止冷启动时列表为空
+    if not trends:
+        trends = ["索尼 A7C2", "华为 Mate 60", "赛博朋克风测评", "理想 L9 避雷", "春天第一杯咖啡"]
+    return {"trends": trends}
+
 @router.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(request: Request):
     """

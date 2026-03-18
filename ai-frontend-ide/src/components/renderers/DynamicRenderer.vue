@@ -12,12 +12,13 @@
     </div>
 
     <!-- 动态生成的笔记内容 -->
-    <div class="w-full px-4 pt-4 flex flex-col min-h-[80vh]">
-      <!-- ✨ 哨兵回归：由于 DSL 已升级为 AST，此处直接调用 XForgeRenderer 开启递归渲染 -->
+    <div class="w-full px-4 pt-4 flex flex-col gap-6 min-h-[80vh]">
+      <!-- ✨ 4.0 大重构：废弃递归 AST，拥抱扁平区块流 -->
       <XForgeRenderer 
-        v-if="astRoot" 
-        :node="astRoot" 
-        :index="0"
+        v-for="(block, idx) in blocks" 
+        :key="block.id" 
+        :node="block" 
+        :index="idx"
         :pageData="pageData"
       />
       
@@ -49,9 +50,9 @@ import { storeToRefs } from 'pinia'
 const chatStore = useChatStore()
 const { pageData, styleData, currentNode } = storeToRefs(chatStore)
 
-// 从 AST 结构中提取根节点
-const astRoot = computed(() => {
-  return (pageData.value as any)?.root || null
+// 从 DSL 结构中提取区块列表
+const blocks = computed(() => {
+  return (pageData.value as any)?.blocks || []
 })
 
 const globalStyles = computed(() => {

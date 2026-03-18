@@ -50,6 +50,21 @@ async def content_agent(state: UIProjectState) -> dict:
         target_comp = current_data_dsl[selected_element]
         target_text = json.dumps({k: v for k, v in target_comp.items() if k in ["title", "subtitle", "heading", "paragraphs", "desc", "caption"]}, ensure_ascii=False)
 
+    intent_res = state.get("intent_result")
+    if isinstance(intent_res, dict):
+        audience = intent_res.get("target_audience", "泛人群")
+        cta_goal = intent_res.get("call_to_action", "none")
+    else:
+        audience = getattr(intent_res, "target_audience", "泛人群") if intent_res else "泛人群"
+        cta_goal = getattr(intent_res, "call_to_action", "none") if intent_res else "none"
+
+    # ✨ 隐形人设注入
+    cta_instruction = ""
+    if cta_goal == "engagement":
+        cta_instruction = "【⚠️ 关键互动令】：在文案末尾，请务必抛出一个极具争议性或能引发大家疯狂评论的问题。"
+    elif cta_goal == "conversion":
+        cta_instruction = "【⚠️ 种草带货令】：请强调‘物超所值’、‘闭眼入’的紧迫感。"
+
     prompt_path = Path(__file__).parents[2] / "prompts" / "content_system.xml"
     with open(prompt_path, "r", encoding="utf-8") as f:
         system_template = f.read()
@@ -57,7 +72,7 @@ async def content_agent(state: UIProjectState) -> dict:
     # ✨ 使用 Jinja2 模板直接处理所有动态变量，避免 Python f-string 拼接
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
-        ("human", "【当前创作者人设】：{{ creator_persona }}\n{% if user_stance %}【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{{ user_stance }}」。请务必严格遵守此立场！\n{% endif %}用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n请在创作文案的同时，规划创作思路并以 JSON 格式输出。")
+        ("human", "【当前创作者人设】：{{ creator_persona }}\n【🎯 目标受众】：{{ audience }}\n{{ cta_instruction }}\n{% if user_stance %}【⚠️ 创作立场要求】：指挥官已定夺本次创作立场为：「{{ user_stance }}」。请务必严格遵守此立场！\n{% endif %}用户的最新指令：\n<user_input>\n{{ query }}\n</user_input>\n请在创作文案的同时，规划创作思路并以 JSON 格式输出。")
     ], template_format="jinja2")
 
     structured_llm = llm.with_structured_output(ContentOutput, method="function_calling")
@@ -98,6 +113,8 @@ async def content_agent(state: UIProjectState) -> dict:
             "selected_element": selected_element,
             "target_text": target_text,
             "creator_persona": creator_persona,
+            "audience": audience,
+            "cta_instruction": cta_instruction,
             "user_stance": user_stance,
             "query": user_query,
             "scenarios": scenarios,

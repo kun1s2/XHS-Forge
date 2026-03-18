@@ -73,6 +73,31 @@ const metaInfo = computed(() => [
         </div>
         
         <div class="mt-4">
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-2 flex justify-between items-center">
+            <span>动态追踪雷达</span>
+            <span class="text-[8px] bg-orange-900/30 text-orange-500 px-1 rounded animate-pulse">Live</span>
+          </div>
+          <div class="bg-[#2d2d2d]/50 p-3 rounded-lg border border-[#3c3c3c] flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] text-gray-300">
+                当前主体: 
+                <span class="text-blue-400 font-bold ml-1">{{ (chatStore.agentMeta.retrieved_knowledge as any)?.entity_name || '未识别' }}</span>
+              </span>
+              <button 
+                v-if="(chatStore.agentMeta.retrieved_knowledge as any)?.entity_name"
+                @click="chatStore.trackTrend((chatStore.agentMeta.retrieved_knowledge as any).entity_name)"
+                class="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[9px] rounded shadow-lg transition-all active:scale-95"
+              >
+                开启深度追踪
+              </button>
+            </div>
+            <div class="text-[9px] text-gray-500 italic leading-tight">
+              点击追踪后，后端将利用 Redis ZSet 提升权重并启动异步预热。
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4">
           <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-2">活跃标签</div>
           <div class="flex flex-wrap gap-1.5">
             <span v-for="tag in (chatStore.pageData?.archetype_tags || ['general'])" :key="tag" class="bg-blue-900/20 text-blue-400 px-2 py-0.5 rounded-full border border-blue-800/30 text-[9px] font-bold uppercase tracking-tighter">
@@ -98,7 +123,25 @@ const metaInfo = computed(() => [
 
       <!-- Tab 3: 检索记忆 (RAG) -->
       <div v-if="activeTab === 'rag'" class="space-y-3 animate-in fade-in duration-300">
-        <div v-if="!chatStore.thoughtText && !chatStore.nodeStreamOutput" class="text-center py-10 opacity-30 italic text-[10px]">
+        <!-- ✨ 4.0 增强：舆情对冲报告可视化 -->
+        <div v-if="(chatStore.agentMeta.retrieved_knowledge as any)?.battle_report" class="space-y-2 mb-4">
+          <div class="flex items-center gap-2 bg-gradient-to-r from-rose-900/20 to-blue-900/20 text-rose-400 p-2 rounded-lg border border-rose-800/20">
+            <span class="animate-pulse">⚔️</span>
+            <span class="font-bold uppercase tracking-tighter text-[10px]">Opinion Clash Report (天平对冲引擎)</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="bg-rose-950/20 p-2 rounded border border-rose-500/20">
+              <div class="text-[8px] text-rose-500 font-bold mb-1">PROS AGENT</div>
+              <div class="text-[10px] text-gray-300 leading-tight">{{ (chatStore.agentMeta.retrieved_knowledge as any).battle_report.pros?.summary }}</div>
+            </div>
+            <div class="bg-blue-950/20 p-2 rounded border border-blue-500/20">
+              <div class="text-[8px] text-blue-500 font-bold mb-1">CONS AGENT</div>
+              <div class="text-[10px] text-gray-300 leading-tight">{{ (chatStore.agentMeta.retrieved_knowledge as any).battle_report.cons?.summary }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!chatStore.thoughtText && !chatStore.nodeStreamOutput && !(chatStore.agentMeta.retrieved_knowledge as any)?.battle_report" class="text-center py-10 opacity-30 italic text-[10px]">
           <div class="text-3xl mb-2">🔭</div>
           等待 Agent 激活搜索引擎...
         </div>

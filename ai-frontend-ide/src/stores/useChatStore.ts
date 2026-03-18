@@ -37,6 +37,7 @@ export const useChatStore = defineStore('chat', () => {
   const hoveredComponentId = ref<string | null>(null)
   const activeCheckpointId = ref<string | null>(null)
   const creatorPersona = ref<string>("硬核数码博主")
+  const hotTrends = ref<string[]>([]) // ✨ 哨兵新增：热词排行榜
   
   // ✨ 哨兵白盒化：Agent 决策元数据
   const agentMeta = ref({
@@ -68,14 +69,42 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // ✨ 哨兵新增：主动追踪话题
+  const trackTrend = async (keyword: string) => {
+    try {
+      const baseUrl = getBaseUrl('http')
+      await fetch(`${baseUrl}/workspace/trends/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword })
+      })
+      await fetchTrends() // 刷新列表
+    } catch (e) {
+      console.error('追踪失败:', e)
+    }
+  }
+
   const getBaseUrl = (protocol: 'http' | 'ws' = 'http') => {
     // 假设后端始终在 8000 端口
     const host = `${window.location.hostname}:8000`
     return protocol === 'ws' ? `ws://${host}` : `http://${host}`
   }
 
+  // ✨ 哨兵新增：从后端拉取实时热点
+  const fetchTrends = async () => {
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/trends`)
+      const data = await res.json()
+      hotTrends.value = data.trends || []
+    } catch (e) {
+      console.error('获取热词失败:', e)
+    }
+  }
+
   const fetchSessions = async () => {
     try {
+      fetchTrends() // ✨ 初始化时同步拉取热词
       const baseUrl = getBaseUrl('http')
       const res = await fetch(`${baseUrl}/workspace/sessions`)
       const data = await res.json()

@@ -37,8 +37,8 @@
         <rule>必须严格输出 JSON 格式。包含以下主要字段：</rule>
         <rule>- thought_process: 简述你选择这些组件的排版思路。</rule>
         <rule>- page_title: 页面标题。</rule>
-        <rule>- page_order: 组件 ID 的排列顺序数组。</rule>
-        <rule>- components: 组件数据的字典，每个组件需包含 type 等属性。</rule>
+        <rule>- blocks: 一维线性区块列表。每个区块包含 id, component_type, content_brief。</rule>
+        <rule>- components: 组件数据的字典，键为 block id，值为组件数据负载。</rule>
         <rule>- detected_archetype: 选用的契约原型名称。</rule>
     </output_format>
 
@@ -53,7 +53,13 @@
             {
                 "thought_process": "当前为旅游场景，重点突出风光图片和故事感。我将使用 CoverSwiper 置顶展示风景照，接着用 TitleBlock 和 StoryText 进行叙事，遇到提到海滩的句子生成 LocationBlock 模拟真实打卡，最后加上 InteractionsBar 提升种草感。",
                 "page_title": "周末看海日记",
-                "page_order": ["swiper_1", "title_1", "location_1", "text_1", "social_1"],
+                "blocks": [
+                    { "id": "swiper_1", "component_type": "CoverSwiper", "content_brief": "展示阿那亚绝美海景图" },
+                    { "id": "title_1", "component_type": "TitleBlock", "content_brief": "撰写抓人眼球的看海标题" },
+                    { "id": "location_1", "component_type": "LocationBlock", "content_brief": "标注地理坐标" },
+                    { "id": "text_1", "component_type": "StoryText", "content_brief": "描述吹着海风的心情故事" },
+                    { "id": "social_1", "component_type": "InteractionsBar", "content_brief": "点赞互动引导" }
+                ],
                 "components": {
                     "swiper_1": { "type": "CoverSwiper", "image_urls": ["url1"] },
                     "title_1": { "type": "TitleBlock", "title": "✨逃离城市！这片绝美海滩不能错过" },
@@ -65,13 +71,20 @@
             }
             </ideal_output>
         </example>
+
         <example>
             <user_input>（假设 active_archetype 为 seeding，正在测评一双跑鞋，只有一张图片）</user_input>
             <ideal_output>
             {
                 "thought_process": "当前为好物种草场景，核心是突出商品和参数。既然只有一张图，我优先使用 ProductCard 置顶，然后跟上 ProductSpecCard 展示尺码和透气性参数，接着是 TitleBlock 和 StoryText 讲述穿着体验，最后加上 InteractionsBar。",
                 "page_title": "超好穿的碳板跑鞋",
-                "page_order": ["product_1", "spec_1", "title_1", "text_1", "social_1"],
+                "blocks": [
+                    { "id": "product_1", "component_type": "ProductCard", "content_brief": "展示跑鞋主图与价格" },
+                    { "id": "spec_1", "component_type": "ProductSpecCard", "content_brief": "详列碳板与透气参数" },
+                    { "id": "title_1", "component_type": "TitleBlock", "content_brief": "撰写种草标题" },
+                    { "id": "text_1", "component_type": "StoryText", "content_brief": "分享实测跑步感受" },
+                    { "id": "social_1", "component_type": "InteractionsBar", "content_brief": "点赞互动引导" }
+                ],
                 "components": {
                     "product_1": { "type": "ProductCard", "image_url": "url1", "title": "竞速碳板跑鞋", "price": "￥599", "rating": 4.8 },
                     "spec_1": { "type": "ProductSpecCard", "core_features": ["全掌碳板", "超轻透气网面", "缓震回弹"] },
@@ -83,5 +96,6 @@
             }
             </ideal_output>
         </example>
+
     </examples>
 </system_prompt>

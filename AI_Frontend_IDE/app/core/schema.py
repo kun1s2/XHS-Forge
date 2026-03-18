@@ -15,35 +15,18 @@ class ArchetypeContract(BaseModel):
 
 # --- ✨ 维度二：工程契约 —— DSL 规范 ---
 
-class UINode(BaseModel):
-    """UI 抽象语法树的核心节点"""
-    id: str = Field(description="组件全局唯一ID，如 hero_bento_1, text_intro")
-    component_type: str = Field(description="前端组件字典中的类型，如 Container, BentoGrid, ProductCard, StoryText")
-    
-    # 核心：用语义化 Props 替代 Tailwind class
-    props: Dict[str, Any] = Field(
-        default_factory=dict, 
-        description="语义化属性。例如 {'variant': 'glassmorphism', 'layout': 'row', 'emphasis': 'high', 'animation': 'fade-up'}"
-    )
-    
-    # 核心：上下文切片（仅对需要生成内容的叶子节点有效）
-    content_brief: Optional[str] = Field(
-        None, 
-        description="任务简报。如果该组件需要并发工兵填充内容，在此写明指令（如：'仅撰写屏幕参数，限50字'）"
-    )
-    
-    # 核心：无限嵌套能力
-    children: Optional[List['UINode']] = Field(None, description="嵌套的子组件列表")
-
-# 解决 Pydantic 的递归类型引用
-UINode.model_rebuild()
+class UIBlock(BaseModel):
+    """一维线性 UI 积木块"""
+    id: str = Field(..., description="组件全局唯一ID，如 title_1, vs_card_1")
+    component_type: str = Field(..., description="前端组件类型，如 TitleBlock, VersusCard, StoryText, CoverSwiper 等")
+    content_brief: str = Field(..., description="给下游工兵的文案撰写简报与要求。请描述该组件在页面中的职责。")
 
 class OutlineOutput(BaseModel):
-    """大纲大脑输出的页面结构 (基于 AST)"""
+    """大纲大脑输出的页面结构 (基于线性区块流)"""
     thought_process: str = Field(description="大纲排版与组件选型的推理过程")
     page_title: str = Field(..., description="网页标签标题")
     page_theme: Dict[str, str] = Field(default_factory=dict, description="全局 CSS 变量字典，如 {'--primary': '#FF2D55', '--radius': '16px'}")
-    root: UINode = Field(description="页面的根节点，通常是一个 Container")
+    blocks: List[UIBlock] = Field(..., description="自上而下、一维线性排布的 UI 积木区块列表")
     
     # ✅ 已重构：ArchetypeEnum -> str
     detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
@@ -115,7 +98,7 @@ class StructurePatchOutput(BaseModel):
     """排版大脑输出的 DSL 宪法结构"""
     thought_process: str = Field(description="排版决策推理过程")
     page_title: str = Field(..., description="网页标签标题")
-    page_order: List[str] = Field(..., description="组件 ID 的线性排列顺序")
+    blocks: List[UIBlock] = Field(..., description="组件 ID 的线性排列顺序与积木定义")
     components: Dict[str, ComponentData] = Field(..., description="组件的具体数据负载")
     
     # ✅ 已重构：ArchetypeEnum -> str
@@ -174,19 +157,43 @@ class FocusedKnowledge(BaseModel):
     summary: str = Field(..., description="一句话情报摘要")
 
 class IntentOutput(BaseModel):
-    """意图分析大脑的输出结构 (4.0 大一统叙事协议版)"""
+    """意图分析大脑的输出结构 (4.0 六维意图雷达版)"""
     thought_process: str = Field(description="思维链推理过程")
     reason: str = Field(..., description="极简理由（10字以内）。")
     intent_route: Literal["content_node", "structure_node", "style_node", "rag_node", "patch_node"] = Field(..., description="决定路由的节点名")
     
-    # ✨ 4.0 大一统叙事协议
+    # ✨ 维度 1/2: 基础叙事协议
     narrative_mode: Literal["contrast", "sequential", "suspense", "spatial"] = Field(
         default="spatial", 
         description="叙事模式"
     )
     intensity_level: float = Field(default=0.0, description="情绪烈度")
 
-    # ✨ 哨兵热修复：资产请求探针
+    # ✨ 维度 3: 视觉美学风向
+    visual_vibe: Literal["general", "minimalist", "vintage", "cyberpunk", "y2k", "natural", "kawaii", "luxury"] = Field(
+        default="general", 
+        description="视觉美学风向（如：极简、复古、千禧风等）"
+    )
+    
+    # ✨ 维度 4: 受众画像靶向
+    target_audience: str = Field(
+        default="泛人群", 
+        description="推测的目标受众画像（如：早八大学生、中产宝妈、硬核极客等）"
+    )
+
+    # ✨ 维度 5: 核心互动目标 (CTA)
+    call_to_action: Literal["none", "engagement", "conversion", "follower", "help"] = Field(
+        default="none", 
+        description="核心互动目标：engagement(骗评互动), conversion(种草带货), follower(涨粉), help(求助答疑)"
+    )
+
+    # ✨ 维度 6: 时态与环境感知
+    temporal_context: Optional[str] = Field(
+        default=None, 
+        description="时态/环境感知（如：清晨、深夜放毒、周末、雨天等），用于触发环境氛围组件"
+    )
+
+    # ✨ 物理探针
     asset_request: Literal["NONE", "SEARCH", "GENERATE"] = Field(
         default="NONE", 
         description="资产请求：NONE(默认), SEARCH(搜图), GENERATE(AI生图)"

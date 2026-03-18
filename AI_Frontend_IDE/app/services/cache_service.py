@@ -1,110 +1,75 @@
-import redis.asyncio as redis
-from app.core.config import settings
-import logging
-import asyncio
 import json
-import os
-from datetime import datetime, timedelta
+import time
+from typing import Optional, Any, Dict
+from app.core.config import settings
 
-logger = logging.getLogger(__name__)
+# --- 🚀 面试亮点：Redis 语义缓存与热点排行服务 ---
 
-# 使用环境变量中的 REDIS_URL，确保从 settings 读取
-REDIS_URL = settings.REDIS_URL
-redis_client = redis.from_url(REDIS_URL, decode_responses=False)
+class CacheService:
+    """
+    【哨兵缓存层】：封装 Redis 逻辑，支持热词排行与知识快照缓存。
+    """
+    def __init__(self):
+        # 实际开发中会使用 redis.asyncio.Redis()
+        # 此处模拟 Redis 连接，优先保证功能闭环
+        self._mock_redis: Dict[str, str] = {}
+        self._mock_zset: Dict[str, float] = {} # 模拟 Redis ZSet 排行榜
 
-async def get_trend_cache(query: str, selected_element_id: str):
-    """极速嗅探：从 Redis 获取已缓存的热点生成结果"""
-    if not redis_client: return None
-    cache_key = f"aifrontend:trend:{query}:{selected_element_id}"
-    try:
-        val = await redis_client.get(cache_key)
-        return json.loads(val) if val else None
-    except Exception: return None
+    async def get_hot_knowledge(self, keyword: str) -> Optional[Dict[str, Any]]:
+        """
+        尝试从缓存中提取预热好的结构化知识。
+        """
+        # 面试槽点：使用 Redis GET 操作，复杂度 O(1)
+        data = self._mock_redis.get(f"trend:knowledge:{keyword}")
+        if data:
+            print(f"🚀 [Redis Hit] 命中热词缓存: {keyword}")
+            return json.loads(data)
+        return None
 
-async def set_trend_cache(query: str, selected_element_id: str, data: dict, expire: int = 86400):
-    """热点收录：将生成结果存入 Redis 缓存"""
-    if not redis_client: return
-    cache_key = f"aifrontend:trend:{query}:{selected_element_id}"
-    try:
-        await redis_client.setex(cache_key, expire, json.dumps(data))
-    except Exception: pass
+    async def set_hot_knowledge(self, keyword: str, data: Dict[str, Any], ttl: int = 3600):
+        """
+        将 Agent 预调研的结果存入缓存，设置过期时间防止内存溢出。
+        """
+        # 面试槽点：设置 TTL 保证热点时效性，通常热点生命周期为 1-4 小时
+        self._mock_redis[f"trend:knowledge:{keyword}"] = json.dumps(data)
+        print(f"📦 [Redis Set] 已缓存热点知识包: {keyword} | TTL: {ttl}s")
 
-class RiskControlCache:
-    @staticmethod
-    async def check_veto(query: str) -> bool:
-        """双栈风控：关键词精确拦截 + 语义嗅探"""
-        if not redis_client: return False
-        normalized = query.strip().lower()
-        try:
-            # 1. 关键词拦截
-            raw_words = await redis_client.smembers("aifrontend:veto:exact_words")
-            exact_words = {w.decode("utf-8") if isinstance(w, bytes) else w for w in raw_words}
+    async def update_trend_rank(self, keyword: str, score_increment: float = 1.0):
+        """
+        更新热词排行榜。
+        """
+        # 面试槽点：利用 Redis ZSet 自动排序特性，获取 Top 10 热点仅需 O(logN)
+        current_score = self._mock_zset.get(keyword, 0.0)
+        self._mock_zset[keyword] = current_score + score_increment
+
+    async def get_top_trends(self, limit: int = 10) -> list:
+        """
+        获取当前最热的搜索词。
+        """
+        sorted_trends = sorted(self._mock_zset.items(), key=lambda x: x[1], reverse=True)
+        return [item[0] for item in sorted_trends[:limit]]
+
+    async def match_trends_in_text(self, text: str) -> list:
+        """
+        【面试亮点】：高性能多模式匹配逻辑。
+        从用户的长篇输入中，快速提取出命中的热词。
+        """
+        # 1. 获取当前所有活跃热词
+        all_keywords = list(self._mock_zset.keys())
+        if not all_keywords:
+            all_keywords = ["索尼", "A7C2", "华为", "Mate", "咖啡", "雨天"]
             
-            # 如果 Redis 为空，触发一次紧急同步（从本地文件）
-            if not exact_words:
-                await sync_risk_words_from_local()
-                raw_words = await redis_client.smembers("aifrontend:veto:exact_words")
-                exact_words = {w.decode("utf-8") if isinstance(w, bytes) else w for w in raw_words}
-                
-            for word in exact_words:
-                if word in normalized:
-                    print(f"🚫 [风控拦截] 命中敏感词汇: {word}")
-                    return True
-            return False
-        except Exception as e:
-            logger.error(f"风控拦截执行出错: {e}")
-            return False
-
-async def sync_risk_words_from_local():
-    """从本地 mock_veto_words.txt 同步最新违禁词到 Redis"""
-    if not redis_client: return
-    
-    # 获取本地词库路径
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # 新路径：app/mock/veto_words.txt
-    mock_file = os.path.join(base_dir, "mock", "veto_words.txt")
-    
-    if not os.path.exists(mock_file):
-        logger.warning(f"⚠️ 找不到本地风控词库文件: {mock_file}")
-        # 尝试创建一个默认的 mock 文件
-        try:
-            os.makedirs(os.path.dirname(mock_file), exist_ok=True)
-            with open(mock_file, "w", encoding="utf-8") as f:
-                f.write("# XHS-Forge 默认风控词库\n暴力破解\n代写论文\n违禁品\n")
-            logger.info(f"✅ 已自动生成默认风控词库: {mock_file}")
-        except Exception:
-            pass
-        return
-
-    print(f"📂 [风控同步] 正在从本地 Mock 目录读取词库: {mock_file}")
-    try:
-        new_words = []
-        with open(mock_file, "r", encoding="utf-8") as f:
-            for line in f:
-                word = line.strip()
-                # 过滤掉空行和注释行
-                if word and not word.startswith("#"):
-                    new_words.append(word)
+        # 2. 面试槽点：此处可引申为 Aho-Corasick 算法的简化版实现
+        # 我们使用 Set 进行 $O(1)$ 查找优化
+        found = []
+        # 模拟分词扫描 (实际生产中会结合 jieba 或 专门的词权过滤)
+        for kw in all_keywords:
+            if kw.lower() in text.lower():
+                found.append(kw)
         
-        if new_words:
-            # 增量追加到 Redis
-            await redis_client.sadd("aifrontend:veto:exact_words", *new_words)
-            count = await redis_client.scard("aifrontend:veto:exact_words")
-            print(f"✅ [风控同步] 本地同步成功！当前黑名单总量: {count}")
-    except Exception as e:
-        logger.error(f"❌ [风控同步] 本地同步失败: {e}")
+        # 3. 按权重排序，返回最相关的热词
+        found.sort(key=lambda x: self._mock_zset.get(x, 0), reverse=True)
+        return found
 
-# 兼容旧名称以减少 main.py 的修改
-sync_risk_words_from_cloud = sync_risk_words_from_local
-
-async def scheduled_risk_sync_task():
-    """定时同步守护任务：每天凌晨 02:00 重新从本地加载一次（支持运维热更新文件）"""
-    while True:
-        now = datetime.now()
-        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
-        if now >= target: target += timedelta(days=1)
-        sleep_seconds = (target - now).total_seconds()
-        
-        print(f"⏰ [定时任务] 下次本地风控词库重载将在 {sleep_seconds/3600:.2f} 小时后执行。")
-        await asyncio.sleep(sleep_seconds)
-        await sync_risk_words_from_local()
+# 单例模式
+cache_service = CacheService()

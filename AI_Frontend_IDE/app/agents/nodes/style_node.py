@@ -1,80 +1,105 @@
-import json
 from typing import Dict, Any
 from app.agents.state import UIProjectState
 from app.services.scenario_manager import scenario_manager
 
-def apply_visual_styles(node: Dict[str, Any], scenario_id: str) -> Dict[str, Any]:
-    """
-    【递归样式映射引擎 3.0】：强制通透化，抹除一切“滤镜”隐患
-    """
-    props = node.get("props", {})
-    computed_classes = []
-    
-    # 1. 动态获取场景自治词典
-    scenario_config = scenario_manager.get_config(scenario_id)
-    style_rules = scenario_config.get("visual_rules", {})
-    
-    for category, mappings in style_rules.items():
-        val = props.get(category)
-        if val and val in mappings:
-            computed_classes.append(mappings[val])
-            
-    # 2. 通用布局拦截器 (Infrastructure Props)
-    if "col_span" in props:
-        computed_classes.append(f"col-span-{props['col_span']}")
-    
-    # 视觉优先级处理 (✨ 哨兵修复：抹除灰度滤镜，仅保留阴影和缩放)
-    priority = props.get("visual_priority", "medium")
-    if priority == "high":
-        computed_classes.append("shadow-2xl z-10 scale-[1.03]")
-    elif priority == "low":
-        computed_classes.append("opacity-90 scale-95") # 移除 grayscale 
-
-    # 3. 注入翻译后的物理类名
-    node["computed_classes"] = " ".join(computed_classes)
-    
-    # 4. 递归处理
-    for child in node.get("children", []):
-        if isinstance(child, dict):
-            apply_visual_styles(child, scenario_id)
-            
-    return node
-
 async def style_agent(state: UIProjectState) -> dict:
     """
-    【视觉总监】：接管全量视觉变量，撕掉白布滤镜
+    【视觉总监 4.0】：六维雷达驱动的调性引擎。
+    不再依赖图片取色，而是根据 visual_vibe 信号强制注入美学风格。
     """
     data_dsl = state.get("data_dsl", {})
-    ast_root = data_dsl.get("root")
+    blocks = data_dsl.get("blocks", [])
     scenario_id = state.get("scenarios", ["general"])[0]
     
-    if not ast_root: return {}
+    intent_res = state.get("intent_result")
+    if isinstance(intent_res, dict):
+        vibe_signal = intent_res.get("visual_vibe", "general")
+        intensity = intent_res.get("intensity_level", 0.0)
+    else:
+        vibe_signal = getattr(intent_res, "visual_vibe", "general") if intent_res else "general"
+        intensity = getattr(intent_res, "intensity_level", 0.0) if intent_res else 0.0
 
-    # 获取场景偏好
-    scenario_config = scenario_manager.get_config(scenario_id)
-    vibe = scenario_config.get("visual_preference", {})
-    
-    # ✨ 核心修复：优先使用配置中的 bg_color，否则根据材质自动降级
-    bg_color = vibe.get("bg_color")
-    if not bg_color:
-        material = vibe.get("variant", "flat-light")
-        bg_color = "#0f172a" if material == "flat-dark" else "#f9fafb"
-    
-    # 构造全局变量补丁 (确保投送到 style_dsl)
-    global_vars = {
-        "--bg-color": bg_color,
-        "--primary-vibe": vibe.get("color_palette", "#ff2442")
+    # 1. 定义风格映射表 (Style Matrix)
+    STYLE_MATRIX = {
+        "minimalist": {
+            "--bg-color": "#ffffff",
+            "--primary-vibe": "#333333",
+            "--radius": "8px",
+            "--spacing": "12px"
+        },
+        "cyberpunk": {
+            "--bg-color": "#050505",
+            "--primary-vibe": "#00f2ff",
+            "--accent-vibe": "#ff00ff",
+            "--radius": "0px",
+            "--spacing": "24px"
+        },
+        "vintage": {
+            "--bg-color": "#f4efe1",
+            "--primary-vibe": "#5d4037",
+            "--radius": "16px",
+            "--spacing": "20px"
+        },
+        "luxury": {
+            "--bg-color": "#1a1a1a",
+            "--primary-vibe": "#d4af37",
+            "--radius": "4px",
+            "--spacing": "32px"
+        },
+        "kawaii": {
+            "--bg-color": "#fff5f7",
+            "--primary-vibe": "#ff8fab",
+            "--radius": "32px",
+            "--spacing": "16px"
+        }
     }
 
-    print(f"🎨 [Style Agent] 视觉通透化处理完成，底色: {bg_color}")
-    
-    # 执行递归映射
-    styled_ast = apply_visual_styles(ast_root, scenario_id)
-    data_dsl["root"] = styled_ast
+    # 2. 确定全局变量
+    style_config = STYLE_MATRIX.get(vibe_signal, {
+        "--bg-color": "#f1f5f9",
+        "--primary-vibe": "#ff2442",
+        "--radius": "16px",
+        "--spacing": "20px"
+    })
+
+    # 3. 情绪烈度补丁 (High Intensity Patch)
+    if intensity > 0.8:
+        style_config["--primary-vibe"] = "#ff0000" # 强制警示红
+        style_config["--shadow-vibe"] = "0 10px 40px rgba(255, 0, 0, 0.2)"
+    else:
+        style_config["--shadow-vibe"] = "0 10px 40px rgba(0, 0, 0, 0.05)"
+
+    # 4. 生成组件级样式补丁 (Component-level Style Overrides)
+    style_dsl = {
+        "global_vars": style_config
+    }
+
+    # 为每个 block 预分配风格 class
+    for block in blocks:
+        block_id = block["id"]
+        comp_type = block["component_type"]
+        
+        classes = ["transition-all duration-500"]
+        
+        # 针对风格注入特定的 Tailwind 类名
+        if vibe_signal == "cyberpunk":
+            classes.append("border border-[#00f2ff]/30 shadow-[0_0_15px_rgba(0,242,255,0.2)] bg-black/80")
+        elif vibe_signal == "minimalist":
+            classes.append("border-b border-gray-100 pb-4 mb-4")
+        elif vibe_signal == "vintage":
+            classes.append("sepia-[0.2] contrast-[0.9] brightness-[1.05]")
+        
+        # 情绪高涨时的动态效果
+        if intensity > 0.8:
+            classes.append("ring-2 ring-red-500/20")
+
+        style_dsl[block_id] = {
+            "css_classes": " ".join(classes),
+            "inline_styles": {}
+        }
+
+    print(f"🎨 [六维风格引擎] 激活风格: {vibe_signal} | 情绪烈度: {intensity:.1f}")
     
     return {
-        "data_dsl": data_dsl,
-        "style_dsl": {
-            "global_vars": global_vars
-        }
+        "style_dsl": style_dsl
     }

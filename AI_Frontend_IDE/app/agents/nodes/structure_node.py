@@ -94,7 +94,7 @@ async def structure_agent(state: UIProjectState) -> dict:
         # 依靠 state.py 里的 merge_dsl 自动完成深度合并
         dsl_patch = {
             "page_title": result.page_title,
-            "page_order": result.page_order
+            "blocks": [b.model_dump() for b in result.blocks]
         }
         for comp_id, comp_data in result.components.items():
             # 过滤掉 None 值，确保补丁包的纯净

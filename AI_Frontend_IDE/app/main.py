@@ -16,12 +16,17 @@ from app.api.workspace import router as workspace_router
 from app.api.chat import router as chat_router
 from app.api.upload import router as upload_router
 
+from app.services.trend_pipeline import trend_pipeline
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ================= 启动阶段 (Startup) =================
     print("🚀 [System] 正在初始化系统组件...")
     
-    # 1. 项目启动时，在后台拉取一次最新词库（不阻塞主流程）
+    # 1. 启动哨兵热点预热流水线
+    await trend_pipeline.start_background_task()
+    
+    # 2. 项目启动时，在后台拉取一次最新词库（不阻塞主流程）
     asyncio.create_task(sync_risk_words_from_cloud())
     
     # 2. 启动后台守护协程，执行定时同步 (已改为每天凌晨 02:00)

@@ -20,6 +20,8 @@ from app.agents.nodes.structure_node import structure_agent
 from app.agents.nodes.patch_node import surgical_patch_agent # ✨ 引入手术刀节点
 from app.agents.nodes.style_node import style_agent
 from app.agents.nodes.render_node import render_node
+from app.agents.nodes.battle_node import battle_node # ✨ 引入对冲引擎
+from app.agents.nodes.distill_node import distill_node # ✨ 引入提纯器
 from app.agents.nodes.outline_node import outline_agent # ✨ 引入大纲节点
 from app.agents.nodes.component_builder import component_builder_node # ✨ 引入单体工兵节点
 from app.services.location_enricher import enrich_page_dsl # ✨ 引入位置增强服务
@@ -106,38 +108,17 @@ def route_intent(state: UIProjectState) -> str:
 
 def map_components(state: UIProjectState) -> list:
     """
-    【AST 调度器】：遍历整棵虚拟 DOM 树，提取所有需要并发生成的叶子节点任务。
+    【区块流调度器】：遍历扁平的 blocks 列表，为每个积木发射并发生成任务。
     """
-    ast_root = state.get("page_outline")
-    if not ast_root:
-        print("⚠️ [并发调度] AST 大纲为空，跳过并发阶段。")
+    # ✨ 核心重构：直接从统一事实来源 data_dsl 中读取区块流，彻底废弃 page_outline
+    data_dsl = state.get("data_dsl") or {}
+    blocks = data_dsl.get("blocks", [])
+    
+    if not blocks:
+        print("⚠️ [并发调度] 区块列表为空，跳过并发阶段。")
         return ["style_node"]
         
-    tasks = []
-    
-    # 递归遍历 AST 提取任务
-    def extract_tasks(node: dict):
-        # 只要节点配置了 content_brief，就说明它需要大模型填空
-        if node.get("content_brief"):
-            tasks.append({
-                "id": node.get("id"),
-                "type": node.get("component_type"),
-                "brief": node.get("content_brief")
-            })
-        
-        # 继续遍历子节点
-        children = node.get("children") or []
-        for child in children:
-            if isinstance(child, dict):
-                extract_tasks(child)
-                
-    extract_tasks(ast_root)
-    
-    if not tasks:
-        print("⚠️ [并发调度] AST 中未找到需要填充数据的叶子节点。")
-        return ["style_node"]
-        
-    print(f"🚀 [并发调度] 发射 {len(tasks)} 个组件构建特种兵！")
+    print(f"🚀 [并发调度] 发现 {len(blocks)} 个区块，发射特种兵进行内容填充！")
     
     # 构造共享上下文
     main_msgs = state.get("main_messages", [])
@@ -152,15 +133,15 @@ def map_components(state: UIProjectState) -> list:
     # 派发任务！
     return [
         Send("component_builder", {
-            "component_id": t["id"],
-            "component_type": t["type"],
-            "content_brief": t["brief"],
+            "component_id": b["id"],
+            "component_type": b["component_type"],
+            "content_brief": b.get("content_brief", "请根据上下文填充内容。"),
             "user_query": user_query,
             "active_archetype": active_archetype,
             "retrieved_knowledge": retrieved_knowledge,
             "creator_persona": creator_persona
         })
-        for t in tasks
+        for b in blocks
     ]
 
 def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None):
@@ -174,9 +155,12 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     # 2. 注册所有特种兵 (Nodes) —— 注入性能监控
     workflow.add_node("asset_processor", with_performance_profiling("asset_processor", asset_processor_node))
     workflow.add_node("intent_agent", with_performance_profiling("intent_agent", intent_agent))
-    workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent)) # ✨ 引入 Tool Calling 大脑
+    workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent))
     workflow.add_node("tools", ToolNode(RESEARCH_TOOLS)) # ✨ 注册工具执行节点
+    workflow.add_node("distill_node", with_performance_profiling("distill_node", distill_node)) # ✨ 注册事实提纯器
     workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
+
+    workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node)) # ✨ 注册对冲引擎
     workflow.add_node("content_node", with_performance_profiling("content_node", content_agent))
     workflow.add_node("outline_node", with_performance_profiling("outline_node", outline_agent)) # ✨ 引入大纲节点
     workflow.add_node("component_builder", component_builder_node) # ✨ 引入单体工兵节点 (由于 Send API 限制，这里不加耗时包装，或者确保包装器兼容 Send 状态)
@@ -209,12 +193,26 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     # 手术刀通道：微调完直接渲染
     workflow.add_edge("patch_node", "render")
 
-    # 核心生成链路：必须保证【调研 -> 文案 -> 结构 -> 渲染】的死命令时序
-    # 第一步：调研完成后，嗅探舆情
-    workflow.add_edge("research_agent", "controversy_sniffer")
+    # 第一步：调研决策
+    # 🌟 核心重构：事实性三段论
+    # 意图路由 -> research_agent (决策) -> (如有 tool_call) -> tools -> distill_node -> sniffer
+    from app.agents.nodes.research_agent import should_continue_research
+    workflow.add_conditional_edges(
+        "research_agent",
+        should_continue_research,
+        {
+            "tools": "tools",
+            "distill_node": "distill_node"
+        }
+    )
+    workflow.add_edge("tools", "distill_node")
+    workflow.add_edge("distill_node", "controversy_sniffer")
 
-    # 第二步：舆情过关，主编写文案
-    workflow.add_edge("controversy_sniffer", "content_node")
+    # ✨ 舆情嗅探后，进入并发对冲引擎
+    workflow.add_edge("controversy_sniffer", "battle_node")
+
+    # 第二步：观点合成完毕，主编写文案
+    workflow.add_edge("battle_node", "content_node")
 
     # 第三步：文案定调，策划出大纲
     workflow.add_edge("content_node", "outline_node")
