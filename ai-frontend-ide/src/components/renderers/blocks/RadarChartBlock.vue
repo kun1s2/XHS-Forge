@@ -7,6 +7,7 @@ const props = defineProps<{
     title?: string;
     metrics?: Array<{ label: string; value: number }>; // value 为 0-100
   };
+  style?: any;
 }>();
 
 const title = computed(() => props.data.title || "综合能力评估");
@@ -20,6 +21,8 @@ const metrics = computed(() => {
   ];
   return props.data.metrics || defaultMetrics;
 });
+const cssClasses = computed(() => props.style?.css_classes || '');
+const inlineStyles = computed(() => props.style?.inline_styles || {});
 
 // 计算雷达图坐标
 const sides = computed(() => metrics.value.length);
@@ -48,7 +51,7 @@ const gridLines = computed(() => {
 </script>
 
 <template>
-  <div class="w-full bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-700">
+  <div :class="['w-full bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-700', cssClasses]" :style="inlineStyles">
     <div class="text-sm font-black text-gray-800 mb-6 flex items-center gap-2">
       <span class="w-1.5 h-1.5 bg-[var(--primary-vibe)] rounded-full animate-ping"></span>
       {{ title }}

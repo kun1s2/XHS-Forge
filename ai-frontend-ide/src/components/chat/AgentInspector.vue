@@ -42,6 +42,25 @@ const metaInfo = computed(() => [
   { label: '意图路由', value: chatStore.currentNode || 'IDLE', color: 'text-pink-400' },
   { label: 'Checkpoint', value: chatStore.activeCheckpointId?.slice(0, 8) || 'NONE', color: 'text-gray-500' }
 ]);
+
+const knowledge = computed(() => (chatStore.agentMeta.retrieved_knowledge as any) || {})
+const factSources = computed(() => Array.isArray(knowledge.value?.fact_sources) ? knowledge.value.fact_sources : [])
+const factConflicts = computed(() => Array.isArray(knowledge.value?.fact_conflicts) ? knowledge.value.fact_conflicts : [])
+const factConfidence = computed(() => String(knowledge.value?.fact_confidence || 'unknown'))
+const confirmedFacts = computed(() => {
+  const raw = knowledge.value?.confirmed_facts
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  return Object.entries(raw).map(([field, payload]: [string, any]) => ({
+    field,
+    fieldLabel: payload?.field_label || field,
+    value: payload?.value || '',
+    sources: Array.isArray(payload?.sources) ? payload.sources : [],
+  }))
+})
+
+const confirmFact = async (field: string, value: string, sources: string[] = []) => {
+  await chatStore.confirmFactValue(field, value, sources)
+}
 </script>
 
 <template>
@@ -123,8 +142,118 @@ const metaInfo = computed(() => [
 
       <!-- Tab 3: 检索记忆 (RAG) -->
       <div v-if="activeTab === 'rag'" class="space-y-3 animate-in fade-in duration-300">
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-[#252526] p-2 rounded-lg border border-[#333]">
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider">置信度</div>
+            <div
+              class="mt-1 text-[11px] font-bold"
+              :class="{
+                'text-emerald-400': factConfidence === 'high',
+                'text-yellow-400': factConfidence === 'medium',
+                'text-rose-400': factConfidence === 'low',
+              }"
+            >
+              {{ factConfidence }}
+            </div>
+          </div>
+          <div class="bg-[#252526] p-2 rounded-lg border border-[#333]">
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider">来源数</div>
+            <div class="mt-1 text-[11px] font-bold text-blue-400">{{ factSources.length }}</div>
+          </div>
+          <div class="bg-[#252526] p-2 rounded-lg border border-[#333]">
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider">人工确认</div>
+            <div
+              class="mt-1 text-[11px] font-bold"
+              :class="knowledge.needs_fact_confirmation ? 'text-rose-400' : 'text-emerald-400'"
+            >
+              {{ knowledge.needs_fact_confirmation ? '建议确认' : '当前无需' }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="confirmedFacts.length > 0" class="space-y-2">
+          <div class="flex items-center gap-2 bg-emerald-900/10 text-emerald-400 p-2 rounded-lg border border-emerald-800/20">
+            <span>✅</span>
+            <span class="font-bold">已确认事实</span>
+          </div>
+          <div
+            v-for="item in confirmedFacts"
+            :key="item.field"
+            class="bg-[#252526] p-3 rounded-lg border border-[#333] space-y-1"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-[10px] font-bold text-gray-200">{{ item.fieldLabel }}</div>
+              <span class="text-[8px] px-1.5 py-0.5 rounded-full border text-emerald-300 border-emerald-700/40 bg-emerald-900/10">
+                confirmed
+              </span>
+            </div>
+            <div class="text-[10px] font-mono text-emerald-300">{{ item.value }}</div>
+            <div v-if="item.sources.length" class="text-[9px] text-gray-500 leading-tight">
+              来源: {{ item.sources.join(' / ') }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="factConflicts.length > 0" class="space-y-2">
+          <div class="flex items-center gap-2 bg-rose-900/10 text-rose-400 p-2 rounded-lg border border-rose-800/20">
+            <span>⚠️</span>
+            <span class="font-bold">发现事实冲突，建议人工确认后再用于强结论</span>
+          </div>
+          <div
+            v-for="conflict in factConflicts"
+            :key="conflict.field"
+            class="bg-[#252526] p-3 rounded-lg border border-[#333] space-y-2"
+          >
+            <div class="text-[10px] font-bold text-rose-300">{{ conflict.field }}</div>
+            <div
+              v-for="item in conflict.values"
+              :key="item.value"
+              class="rounded-lg border border-[#333] bg-[#1e1e1e] p-2 text-[10px] text-gray-300 leading-tight space-y-2"
+            >
+              <div>
+                <span class="font-mono text-yellow-300">{{ item.value }}</span>
+                <span class="text-gray-500"> ← {{ (item.sources || []).join(' / ') }}</span>
+              </div>
+              <button
+                @click="confirmFact(conflict.field, item.value, item.sources || [])"
+                :disabled="chatStore.factConfirmingField === conflict.field"
+                class="rounded-md border px-2 py-1 text-[9px] font-bold transition-all"
+                :class="chatStore.factConfirmingField === conflict.field
+                  ? 'border-[#444] text-gray-500 bg-[#2a2a2a] cursor-not-allowed'
+                  : 'border-emerald-700/40 text-emerald-300 bg-emerald-900/10 hover:bg-emerald-900/20'"
+              >
+                {{ chatStore.factConfirmingField === conflict.field ? '确认中...' : '采用这个值' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="factSources.length > 0" class="space-y-2">
+          <div class="flex items-center gap-2 bg-emerald-900/10 text-emerald-400 p-2 rounded-lg border border-emerald-800/20">
+            <span>📎</span>
+            <span class="font-bold">本轮事实来源</span>
+          </div>
+          <div
+            v-for="source in factSources"
+            :key="source.url || source.title"
+            class="bg-[#252526] p-3 rounded-lg border border-[#333] space-y-1"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-[10px] font-bold text-gray-200 leading-tight">{{ source.title || '未命名来源' }}</div>
+              <span
+                class="text-[8px] px-1.5 py-0.5 rounded-full border"
+                :class="source.source_type === 'official' ? 'text-emerald-300 border-emerald-700/40 bg-emerald-900/10' : 'text-slate-400 border-slate-700/40 bg-slate-900/10'"
+              >
+                {{ source.source_type === 'official' ? 'official' : 'web' }}
+              </span>
+            </div>
+            <div class="text-[9px] text-gray-500 break-all">{{ source.url }}</div>
+            <div class="text-[10px] text-gray-400 leading-tight">{{ source.snippet }}</div>
+          </div>
+        </div>
+
         <!-- ✨ 4.0 增强：舆情对冲报告可视化 -->
-        <div v-if="(chatStore.agentMeta.retrieved_knowledge as any)?.battle_report" class="space-y-2 mb-4">
+        <div v-if="knowledge?.battle_report" class="space-y-2 mb-4">
           <div class="flex items-center gap-2 bg-gradient-to-r from-rose-900/20 to-blue-900/20 text-rose-400 p-2 rounded-lg border border-rose-800/20">
             <span class="animate-pulse">⚔️</span>
             <span class="font-bold uppercase tracking-tighter text-[10px]">Opinion Clash Report (天平对冲引擎)</span>
@@ -132,16 +261,16 @@ const metaInfo = computed(() => [
           <div class="grid grid-cols-2 gap-2">
             <div class="bg-rose-950/20 p-2 rounded border border-rose-500/20">
               <div class="text-[8px] text-rose-500 font-bold mb-1">PROS AGENT</div>
-              <div class="text-[10px] text-gray-300 leading-tight">{{ (chatStore.agentMeta.retrieved_knowledge as any).battle_report.pros?.summary }}</div>
+              <div class="text-[10px] text-gray-300 leading-tight">{{ knowledge.battle_report.pros?.summary }}</div>
             </div>
             <div class="bg-blue-950/20 p-2 rounded border border-blue-500/20">
               <div class="text-[8px] text-blue-500 font-bold mb-1">CONS AGENT</div>
-              <div class="text-[10px] text-gray-300 leading-tight">{{ (chatStore.agentMeta.retrieved_knowledge as any).battle_report.cons?.summary }}</div>
+              <div class="text-[10px] text-gray-300 leading-tight">{{ knowledge.battle_report.cons?.summary }}</div>
             </div>
           </div>
         </div>
 
-        <div v-if="!chatStore.thoughtText && !chatStore.nodeStreamOutput && !(chatStore.agentMeta.retrieved_knowledge as any)?.battle_report" class="text-center py-10 opacity-30 italic text-[10px]">
+        <div v-if="!chatStore.thoughtText && !chatStore.nodeStreamOutput && !knowledge?.battle_report && factSources.length === 0 && factConflicts.length === 0" class="text-center py-10 opacity-30 italic text-[10px]">
           <div class="text-3xl mb-2">🔭</div>
           等待 Agent 激活搜索引擎...
         </div>

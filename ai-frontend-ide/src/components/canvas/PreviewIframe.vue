@@ -31,6 +31,13 @@
         >
           <span>🧠</span> Agent 状态
         </button>
+        <button
+          @click="viewMode = 'assets'"
+          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'assets', 'text-gray-500 hover:text-gray-300': viewMode !== 'assets'}"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
+        >
+          <span>🖼️</span> 素材库
+        </button>
       </div>
 
       <div class="flex items-center">
@@ -143,6 +150,24 @@
       </div>
 
       <div
+        v-show="viewMode === 'assets'"
+        class="w-full h-full bg-[#1e1e1e] overflow-auto p-8"
+      >
+        <div class="mx-auto max-w-4xl">
+          <AssetLibrary
+            :current-assets="imageAssets"
+            :search-results="searchedAssets"
+            :asset-search-loading="assetSearchLoading"
+            :current-cover-url="currentCoverUrl"
+            :imported-asset-urls="importedAssetUrls"
+            @search="searchAssets"
+            @import="importAsset"
+            @cover="setAsCover"
+          />
+        </div>
+      </div>
+
+      <div
         v-if="viewMode === 'preview' && hoveredComponentId && pageData[hoveredComponentId]"
         class="absolute right-4 top-4 w-72 bg-[#1e1e1e]/95 backdrop-blur shadow-2xl rounded-xl border border-[#333] p-4 z-50 pointer-events-none transition-all"
       >
@@ -158,17 +183,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/useChatStore'
 import DynamicRenderer from '../renderers/DynamicRenderer.vue'
 import AgentInspector from '../chat/AgentInspector.vue'
+import AssetLibrary from '../chat/AssetLibrary.vue'
 
 const chatStore = useChatStore()
-const { previewUrl, pageData, nodePrompts, hoveredComponentId, sourceCode } = storeToRefs(chatStore)
+const { previewUrl, pageData, nodePrompts, hoveredComponentId, sourceCode, imageAssets, searchedAssets, assetSearchLoading } = storeToRefs(chatStore)
 
 // 控制当前视图是预览、代码、提示词检查器还是 Agent 状态
-const viewMode = ref<'preview' | 'code' | 'prompts' | 'state'>('preview')
+const viewMode = ref<'preview' | 'code' | 'prompts' | 'state' | 'assets'>('preview')
 const isCopied = ref(false)
 const copiedSubNode = ref<string | null>(null) // 追踪当前被复制的单条提示词 ID
 
@@ -195,6 +221,28 @@ const copyIndividualPrompt = async (text: string, subNodeId: string) => {
     console.error('复制失败:', err)
   }
 }
+
+const searchAssets = async (query: string) => {
+  await chatStore.searchAssetImages(query)
+}
+
+const importAsset = async (asset: { url: string; desc: string; source_type?: string; query?: string }) => {
+  await chatStore.importAssetToLibrary(asset)
+}
+
+const setAsCover = async (asset: { url: string; desc: string; source_type?: string; query?: string }) => {
+  await chatStore.setAssetAsCover(asset)
+}
+
+const currentCoverUrl = computed(() => {
+  const blocks = ((pageData.value as any)?.blocks || []) as Array<Record<string, any>>
+  const coverBlock = blocks.find(block => block.component_type === 'CoverSwiper')
+  if (!coverBlock?.id) return null
+  const coverData = (pageData.value as Record<string, any>)[coverBlock.id] || {}
+  return coverData.image_urls?.[0] || coverData.image_url || null
+})
+
+const importedAssetUrls = computed(() => imageAssets.value.map(asset => asset.url))
 
 // 监听 iframe 传来的 hover/select 事件 (现在不通过 iframe，但保留以便兼容)
 const handleMessage = (event: MessageEvent) => {

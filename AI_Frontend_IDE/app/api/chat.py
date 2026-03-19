@@ -34,6 +34,41 @@ TOOL_THOUGHT_MAP = {
     "generate_images_tool": "🎨 正在调用 CogView 绘制视觉素材..."
 }
 
+
+def _build_turn_end_payload(
+    checkpoint_id: str,
+    *,
+    oss_url,
+    image_assets,
+    page_data,
+    style_data,
+    source_code,
+    node_prompts=None,
+):
+    """
+    统一构造 turn_end 包，并兼容 snake_case / camelCase 两套前端字段。
+    """
+    payload = {
+        "checkpoint_id": checkpoint_id,
+        "checkpointId": checkpoint_id,
+        "oss_url": oss_url,
+        "ossUrl": oss_url,
+        "image_assets": image_assets or [],
+        "imageAssets": image_assets or [],
+        "page_data": page_data or {},
+        "pageData": page_data or {},
+        "noteData": page_data or {},
+        "style_data": style_data or {},
+        "styleData": style_data or {},
+        "source_code": source_code or "",
+        "sourceCode": source_code or "",
+        "htmlPreview": source_code or "",
+    }
+    if node_prompts is not None:
+        payload["node_prompts"] = node_prompts
+        payload["nodePrompts"] = node_prompts
+    return payload
+
 @router.websocket("/chat/{thread_id}")
 async def websocket_chat(websocket: WebSocket, thread_id: str):
     await websocket.accept()
@@ -100,14 +135,14 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     await websocket.send_json({"event": "token", "node": "risk_gateway", "data": "\n🛡️ 系统检测到高危/敏感内容，风控拦截已生效！"})
                     await websocket.send_json({
                         "event": "turn_end",
-                        "data": {
-                            "checkpoint_id": payload.parent_checkpoint_id or "veto_hit",
-                            "oss_url": None,
-                            "image_assets": payload.current_assets or [],
-                            "page_data": veto_dsl,
-                            "style_data": {"global_vars": {"--primary-vibe": "#ff2442"}},
-                            "source_code": ""
-                        }
+                        "data": _build_turn_end_payload(
+                            payload.parent_checkpoint_id or "veto_hit",
+                            oss_url=None,
+                            image_assets=payload.current_assets or [],
+                            page_data=veto_dsl,
+                            style_data={"global_vars": {"--primary-vibe": "#ff2442"}},
+                            source_code="",
+                        ),
                     })
                     continue
 
@@ -121,14 +156,14 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     await websocket.send_json({"event": "token", "node": "cache", "data": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"})
                     await websocket.send_json({
                         "event": "turn_end",
-                        "data": {
-                            "checkpoint_id": payload.parent_checkpoint_id or "cache_hit",
-                            "oss_url": None,
-                            "image_assets": payload.current_assets or [],
-                            "page_data": cached_result,
-                            "style_data": {},
-                            "source_code": ""
-                        }
+                        "data": _build_turn_end_payload(
+                            payload.parent_checkpoint_id or "cache_hit",
+                            oss_url=None,
+                            image_assets=payload.current_assets or [],
+                            page_data=cached_result,
+                            style_data={},
+                            source_code="",
+                        ),
                     })
                     continue
                 else:
@@ -176,6 +211,8 @@ async def _run_graph_loop(agent, inputs, config, websocket):
     current_inputs = inputs
     resume_count = 0
     MAX_RESUME = 10
+    last_next_signature = None
+    repeated_next_count = 0
     
     # 🌟 哨兵监控：实时捕获最后一公里产生的物理资产
     final_oss_url = None
@@ -243,14 +280,38 @@ async def _run_graph_loop(agent, inputs, config, websocket):
             # ✨ 哨兵补丁：优先使用实时捕获的结果，如果没捕获到再用快照兜底
             await websocket.send_json({
                 "event": "turn_end",
-                "data": {
-                    "checkpoint_id": snapshot.config["configurable"]["checkpoint_id"],
-                    "oss_url": final_oss_url or snapshot.values.get("final_oss_url"),
-                    "image_assets": snapshot.values.get("image_assets", []),
-                    "page_data": snapshot.values.get("data_dsl", {}),
-                    "style_data": snapshot.values.get("style_dsl", {}),
-                    "source_code": final_html or snapshot.values.get("final_html", ""),
-                }
+                "data": _build_turn_end_payload(
+                    snapshot.config["configurable"]["checkpoint_id"],
+                    oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
+                    image_assets=snapshot.values.get("image_assets", []),
+                    page_data=snapshot.values.get("data_dsl", {}),
+                    style_data=snapshot.values.get("style_dsl", {}),
+                    source_code=final_html or snapshot.values.get("final_html", ""),
+                    node_prompts=snapshot.values.get("node_prompts"),
+                ),
+            })
+            return
+
+        next_signature = tuple(snapshot.next)
+        if current_inputs is None and next_signature == last_next_signature:
+            repeated_next_count += 1
+        else:
+            repeated_next_count = 0
+        last_next_signature = next_signature
+
+        if repeated_next_count >= 2:
+            print(f"⚠️ [AUTO RESUME GUARD] 检测到重复续火 {next_signature}，提前下发当前快照避免前端卡死。")
+            await websocket.send_json({
+                "event": "turn_end",
+                "data": _build_turn_end_payload(
+                    snapshot.config["configurable"]["checkpoint_id"],
+                    oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
+                    image_assets=snapshot.values.get("image_assets", []),
+                    page_data=snapshot.values.get("data_dsl", {}),
+                    style_data=snapshot.values.get("style_dsl", {}),
+                    source_code=final_html or snapshot.values.get("final_html", ""),
+                    node_prompts=snapshot.values.get("node_prompts"),
+                ),
             })
             return
 
@@ -266,6 +327,22 @@ async def _run_graph_loop(agent, inputs, config, websocket):
         if settings.XHS_FORGE_DEBUG: print(f"\033[90m🔥 [AUTO RESUME] 命中中断点 {snapshot.next}，正在自动唤醒...\033[0m")
         current_inputs = None
         resume_count += 1
+
+    snapshot = await agent.aget_state(config)
+    print(f"⚠️ [AUTO RESUME GUARD] 超过最大自动续火次数，强制回传当前快照: {snapshot.next}")
+    await websocket.send_json({
+        "event": "turn_end",
+        "data": _build_turn_end_payload(
+            snapshot.config["configurable"]["checkpoint_id"],
+            oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
+            image_assets=snapshot.values.get("image_assets", []),
+            page_data=snapshot.values.get("data_dsl", {}),
+            style_data=snapshot.values.get("style_dsl", {}),
+            source_code=final_html or snapshot.values.get("final_html", ""),
+            node_prompts=snapshot.values.get("node_prompts"),
+        ),
+    })
+    return
 
 def _extract_thought(output):
     if not isinstance(output, dict): return None

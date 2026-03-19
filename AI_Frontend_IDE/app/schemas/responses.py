@@ -16,10 +16,13 @@ class CheckpointInfo(BaseModel):
 class WorkspaceDataResponse(BaseResponse):
     """首屏加载的完整状态数据"""
     is_new: bool
-    messages: Dict[str, List[str]]  # 分面板的聊天记录
+    messages: Dict[str, List[Dict[str, Any]]]  # 分面板的结构化聊天记录
     active_panel: str
     selected_element_id: Optional[str]
     data_dsl: Dict[str, Any]
     style_dsl: Dict[str, Any]
+    image_assets: List[Dict[str, Any]] = []
+    node_prompts: Dict[str, Any] = {}
     oss_url: Optional[str]
+    source_code: str = ""
     checkpoints: List[CheckpointInfo]

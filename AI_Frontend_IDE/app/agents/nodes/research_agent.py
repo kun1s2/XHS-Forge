@@ -2,6 +2,7 @@ import asyncio
 from typing import List, Dict, Optional, Any
 from app.agents.state import UIProjectState
 from app.agents.tools_registry import TOOL_POOL
+from app.agents.utils.entity_utils import normalize_entity_name
 from app.tools.serpapi_search import search_google_images
 from langchain_core.messages import AIMessage, ToolMessage
 
@@ -11,9 +12,19 @@ async def research_agent(state: UIProjectState) -> dict:
     """
     【事实哨兵 6.6】：根据意图信号按需取证，平衡效率与成本。
     """
+    def _extract_user_text(message_content: Any) -> str:
+        if isinstance(message_content, list):
+            return "".join(
+                str(part.get("text"))
+                for part in message_content
+                if isinstance(part, dict) and part.get("type") == "text" and part.get("text")
+            ).strip()
+        return str(message_content or "").strip()
+
     main_msgs = state.get("main_messages", [])
     if not main_msgs: return {}
-    user_query = str(main_msgs[-1].content)
+    user_query = _extract_user_text(main_msgs[-1].content)
+    entity_name = normalize_entity_name(user_query)
 
     # 1. 缓存嗅探
     from app.services.cache_service import cache_service
@@ -76,13 +87,12 @@ async def research_agent(state: UIProjectState) -> dict:
     return {
         # 直接将战术情报返回给全局状态，而不是去污染聊天记录！
         "retrieved_knowledge": {
-            "entity_name": user_query,
+            "entity_name": entity_name or user_query,
             "is_fact_ready": True,
             "battle_report": None, # 暂时置空，交由 downstream 处理
             "text_facts": str(raw_web_content) # 保留原始文本供提纯
         },
         "image_assets": final_assets,
         # 仅返回一条简短的系统通知
-        "messages": [AIMessage(content=f"已完成对「{user_query}」的物理搜证。")]
+        "messages": [AIMessage(content=f"已完成对「{entity_name or user_query}」的物理搜证。")]
     }
-

@@ -8,6 +8,7 @@ const props = defineProps<{
     options?: string[];
     total_votes?: number;
   };
+  style?: any;
 }>();
 
 const question = computed(() => props.data.question || "大家觉得这个设计怎么样？");
@@ -16,6 +17,8 @@ const options = computed(() => props.data.options || ["真香，必入！", "再
 const selectedOption = ref<number | null>(null);
 const voteCount = ref<number[]>(options.value.map(() => Math.floor(Math.random() * 100)));
 const totalVotes = computed(() => voteCount.value.reduce((a, b) => a + b, 0));
+const cssClasses = computed(() => props.style?.css_classes || '');
+const inlineStyles = computed(() => props.style?.inline_styles || {});
 
 const handleVote = (idx: number) => {
   if (selectedOption.value !== null) return;
@@ -30,7 +33,7 @@ const getPercentage = (idx: number) => {
 </script>
 
 <template>
-  <div class="w-full bg-gradient-to-br from-gray-50 to-white p-6 rounded-[32px] border border-gray-100 shadow-sm animate-in fade-in zoom-in duration-500">
+  <div :class="['w-full bg-gradient-to-br from-gray-50 to-white p-6 rounded-[32px] border border-gray-100 shadow-sm animate-in fade-in zoom-in duration-500', cssClasses]" :style="inlineStyles">
     <!-- 头部引导 -->
     <div class="flex items-center gap-2 mb-4">
       <div class="w-8 h-8 bg-[var(--primary-vibe)] rounded-full flex items-center justify-center text-white text-xs shadow-lg shadow-[var(--primary-vibe)]/20">

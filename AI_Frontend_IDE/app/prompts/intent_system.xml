@@ -35,6 +35,11 @@
         【5. 互动目标 (CTA)】：
         - engagement: 只要出现“大家怎么看、在线等、你们觉得呢、评论区见、求推荐、求助”。
         - conversion: 出现“链接、多少钱、值得入、入手、值不值、价格”。
+
+        【6. 场景判定建议 (Scenario Hints)】：
+        - seeding: 只要涉及“数码测评、参数分析、值不值得买、避雷、对比、开箱、热点产品”，优先判为 `seeding`。
+        - travel: 只要涉及“旅行、探店、路线、城市漫游、打卡、门票、交通、攻略”，优先判为 `travel`。
+        - daily_share: 只要涉及“日常分享、生活记录、碎碎念、周记、vlog 文案、情绪记录、日常照片”，优先判为 `daily_share`。
     </task_directives>
 
         【3. 物理资产请求探针 (asset_request)】：

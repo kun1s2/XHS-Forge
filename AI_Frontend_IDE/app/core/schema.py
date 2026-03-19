@@ -192,6 +192,20 @@ class FocusedKnowledge(BaseModel):
     key_selling_points: List[str] = Field(default_factory=list, description="核心卖点/亮点列表")
     known_issues: List[str] = Field(default_factory=list, description="客观缺点/避雷点")
     summary: str = Field(..., description="一句话情报摘要")
+    fact_sources: List[Dict[str, Any]] = Field(default_factory=list, description="结构化事实来源列表")
+    fact_conflicts: List[Dict[str, Any]] = Field(default_factory=list, description="已识别的事实冲突列表")
+    confirmed_facts: Dict[str, Any] = Field(default_factory=dict, description="已经过人工确认的事实键值")
+    fact_confidence: str = Field(default="medium", description="当前事实置信度：low/medium/high")
+    needs_fact_confirmation: bool = Field(default=False, description="是否建议进行人工确认")
+    fact_review_status: str = Field(default="clear", description="事实审核状态：clear/pending/confirmed")
+
+    @field_validator('domain_category')
+    @classmethod
+    def validate_domain_category(cls, v: str) -> str:
+        banned_markers = ("非法", "违规", "违法", "金融", "医疗诊断")
+        if any(marker in v for marker in banned_markers):
+            raise ValueError("domain_category 命中受限领域")
+        return v
 
 class IntentOutput(BaseModel):
     """意图分析大脑的输出结构 (4.0 六维意图雷达版)"""

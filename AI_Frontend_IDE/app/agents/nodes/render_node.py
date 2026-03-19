@@ -1,13 +1,13 @@
 import base64
 import random
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any
 from app.agents.state import UIProjectState
 from app.services.oss_client import upload_html_to_oss
 
 # --- 🚀 全量物理组件库 5.6 (Precision Edition) ---
 
-def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
+def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], style_dsl: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
     """
     【物理组件锻造炉】：严禁脑补，数据驱动。
     """
@@ -17,7 +17,7 @@ def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], global_vars: D
     comp_data = data_dsl.get(comp_id, {})
     
     # 获取组件专属样式
-    style_info = data_dsl.get("style_dsl", {}).get(comp_id, {})
+    style_info = style_dsl.get(comp_id, {})
     css_classes = style_info.get("css_classes", "")
 
     # --- 1. TitleBlock (大标题) ---
@@ -93,6 +93,78 @@ def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], global_vars: D
         items = "".join([f'<div class="bg-white/50 p-3 rounded-2xl border border-gray-100/50"><div class="text-[10px] text-gray-400 mb-1">Key Feature</div><div class="text-xs font-black text-gray-800">{f}</div></div>' for f in features])
         return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="px-6 grid grid-cols-2 gap-3 {css_classes}">{items}</div>'
 
+    # --- 7. RadarChartBlock (雷达图) ---
+    elif comp_type == "radarchartblock":
+        dimensions = comp_data.get("dimensions") or []
+        scores = comp_data.get("scores") or []
+        if not dimensions or not scores: return ""
+        rows = []
+        for dim, score in zip(dimensions[:6], scores[:6]):
+            safe_score = max(0, min(100, int(score)))
+            rows.append(
+                f'''
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between text-[12px] font-semibold text-slate-700">
+                        <span>{dim}</span>
+                        <span>{safe_score}</span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-200 overflow-hidden">
+                        <div class="h-full rounded-full bg-[var(--primary-vibe)]" style="width:{safe_score}%"></div>
+                    </div>
+                </div>
+                '''
+            )
+        return f'<div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 p-5 {css_classes}"><div class="text-sm font-black text-slate-800 mb-4">五维表现雷达</div>{"".join(rows)}</div>'
+
+    # --- 8. PollBlock (投票卡) ---
+    elif comp_type == "pollblock":
+        question = comp_data.get("question")
+        option_a = comp_data.get("option_a")
+        option_b = comp_data.get("option_b")
+        if not question or not option_a or not option_b: return ""
+        return f'''
+        <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 p-5 {css_classes}">
+            <div class="text-sm font-black text-slate-900 mb-4">{question}</div>
+            <div class="space-y-3">
+                <button class="w-full text-left rounded-2xl bg-rose-50 border border-rose-100 px-4 py-3 text-sm font-bold text-rose-700">{option_a}</button>
+                <button class="w-full text-left rounded-2xl bg-slate-100 border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">{option_b}</button>
+            </div>
+        </div>
+        '''
+
+    # --- 9. LocationBlock (地点卡) ---
+    elif comp_type == "locationblock":
+        poi_name = comp_data.get("poi_name") or comp_data.get("title")
+        location = comp_data.get("location") or comp_data.get("desc")
+        if not poi_name and not location: return ""
+        return f'''
+        <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 p-5 {css_classes}">
+            <div class="text-[11px] font-black uppercase tracking-[0.18em] text-[var(--primary-vibe)] mb-2">Location</div>
+            <div class="text-base font-black text-slate-900">{poi_name or "目的地"}</div>
+            <div class="mt-2 text-sm leading-relaxed text-slate-600">{location or ""}</div>
+        </div>
+        '''
+
+    # --- 10. WeatherPolaroid (天气拍立得) ---
+    elif comp_type == "weatherpolaroid":
+        image_url = comp_data.get("image_url")
+        desc = comp_data.get("desc") or ""
+        weather = comp_data.get("weather") or ""
+        temperature = comp_data.get("temperature") or ""
+        time = comp_data.get("time") or ""
+        if not image_url and not desc: return ""
+        image_html = f'<img src="{image_url}" class="w-full aspect-[4/5] object-cover" />' if image_url else ""
+        meta = " ".join(part for part in [weather, temperature, time] if part)
+        return f'''
+        <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 overflow-hidden {css_classes}">
+            {image_html}
+            <div class="p-4">
+                <div class="text-[11px] font-bold text-slate-500 mb-2">{meta}</div>
+                <div class="text-sm leading-relaxed text-slate-700">{desc}</div>
+            </div>
+        </div>
+        '''
+
     return ""
 
 async def render_node(state: UIProjectState) -> dict:
@@ -106,7 +178,7 @@ async def render_node(state: UIProjectState) -> dict:
     # 聚合变量
     page_theme = data_dsl.get("page_theme") or {}
     style_vars = style_dsl.get("global_vars") or {}
-    all_vars = {**page_theme, **style_vars}
+    all_vars = {**style_vars, **page_theme}
     
     # 强制修正背景色饱和度
     if all_vars.get("--bg-color") == "#ffffff":
@@ -118,7 +190,7 @@ async def render_node(state: UIProjectState) -> dict:
         return {"final_html": "<div style='padding:40px; text-align:center;'>Waiting for content...</div>"}
 
     # 执行物理区块渲染
-    body_content = "".join([render_block(b, data_dsl, all_vars) for b in blocks])
+    body_content = "".join([render_block(b, data_dsl, style_dsl, all_vars) for b in blocks])
     
     html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">

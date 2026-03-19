@@ -4,6 +4,32 @@
 export interface ImageAsset {
   url: string
   desc: string
+  source_type?: string
+  query?: string
+  primary_color?: string
+  accent_color?: string
+}
+
+export interface ShowcaseProfile {
+  id: string
+  scenarioId: string
+  title: string
+  persona: string
+  whyThisMatters: string
+  highlightFeatures: string[]
+  talkingPoints: string[]
+  demoScript: ShowcaseDemoStep[]
+  starterPrompt: string
+  editPrompt: string
+  themePrompt: string
+  branchPrompt: string
+}
+
+export interface ShowcaseDemoStep {
+  label: string
+  goal: string
+  action: 'start' | 'fill'
+  prompt: string
 }
 
 export interface ChatMessage {
@@ -37,13 +63,22 @@ export interface WSEvent {
   node?: string
   content?: string
   checkpoint_id?: string
+  checkpointId?: string
   oss_url?: string
+  ossUrl?: string
   message?: string
   image_assets?: ImageAsset[]
+  imageAssets?: ImageAsset[]
   page_data?: Record<string, unknown>
+  pageData?: Record<string, unknown>
+  noteData?: Record<string, unknown>
   style_data?: Record<string, unknown>
+  styleData?: Record<string, unknown>
   node_prompts?: Record<string, string>
+  nodePrompts?: Record<string, string>
   source_code?: string
+  sourceCode?: string
+  htmlPreview?: string
 }
 
 export interface WSPayload {

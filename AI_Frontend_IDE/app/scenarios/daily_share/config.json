@@ -1,0 +1,25 @@
+{
+  "scenario_id": "daily_share",
+  "name": "日常分享与生活记录",
+  "description": "强调长期上下文、情绪表达与可持续编辑的生活方式笔记赛道",
+  "contract": {
+    "required_components": ["TitleBlock", "StoryText"],
+    "suggested_order": ["CoverSwiper", "TitleBlock", "StoryText", "WeatherPolaroid", "PollBlock"]
+  },
+  "visual_rules": {
+    "variant": {
+      "soft-journal": "bg-[#fffdf8] rounded-[28px] border border-stone-200 shadow-[0_12px_30px_rgba(120,113,108,0.08)]",
+      "clean-diary": "bg-white rounded-[24px] border border-slate-200 shadow-sm"
+    },
+    "animation": {
+      "gentle-rise": "transition-all duration-700 hover:-translate-y-0.5",
+      "soft-fade": "transition-opacity duration-700"
+    }
+  },
+  "allowed_tools": ["image_vibe", "network_search"],
+  "visual_preference": {
+    "variant": "soft-journal",
+    "color_palette": "#6b7280",
+    "bg_color": "#fffaf5"
+  }
+}

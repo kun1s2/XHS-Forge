@@ -6,6 +6,7 @@ uvicorn[standard]==0.41.0
 python-multipart==0.0.22
 
 # LangChain / LangGraph（template_format="jinja2" 需安装 jinja2）
+langchain==1.2.12
 langchain-openai==1.1.10
 langchain-core==1.2.15
 langchain-community==0.4.1

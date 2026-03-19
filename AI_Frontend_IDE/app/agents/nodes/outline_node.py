@@ -35,10 +35,24 @@ async def outline_agent(state: UIProjectState) -> dict:
     # 2. 状态提取
     intent_res = state.get("intent_result")
     mode = getattr(intent_res, "narrative_mode", "spatial") if not isinstance(intent_res, dict) else intent_res.get("narrative_mode", "spatial")
+    knowledge = state.get("retrieved_knowledge", {}) if isinstance(state.get("retrieved_knowledge", {}), dict) else {}
+    has_controversy = state.get("has_controversy", False)
+    battle_report = knowledge.get("battle_report")
     
     # 获取用户真实指令，这是大纲排版的最核心依据！
     main_msgs = state.get("main_messages", [])
-    user_query = str(main_msgs[-1].content) if main_msgs else "自由排版"
+    if main_msgs:
+        raw_content = getattr(main_msgs[-1], "content", "")
+        if isinstance(raw_content, list):
+            user_query = "".join(
+                str(part.get("text"))
+                for part in raw_content
+                if isinstance(part, dict) and part.get("type") == "text" and part.get("text")
+            ).strip() or "自由排版"
+        else:
+            user_query = str(raw_content)
+    else:
+        user_query = "自由排版"
 
     # 3. 构造 ReAct 提示词
     # 强制告知大模型：必须使用工具来操作画布
@@ -75,9 +89,18 @@ async def outline_agent(state: UIProjectState) -> dict:
 - 积木限额：全篇积木数（不含标题）必须达到 5-7 个，以确保页面内容的极致丰满度和专业感。
 - 只有满足上述两点，你才能调用 finish_layout 工具来结束工作。
 
+【🔥 对冲内容优先级】：
+- 如果系统已提供 battle_report，你必须至少加入一个 VersusCard 来承接正反观点。
+- 如果 has_controversy = true，优先考虑加入 PollBlock 强化互动站队。
+
 【⚠️ 绝对铁律】：
 - 严禁直接输出 JSON 结构！所有动作必须通过工具完成。
 """
+
+    if battle_report:
+        system_prompt += f"\n【battle_report 已就绪】:\n{json.dumps(battle_report, ensure_ascii=False)}\n"
+    if has_controversy:
+        system_prompt += "\n【当前内容存在争议信号】has_controversy = true\n"
 
     llm = get_outline_agent_llm()
     

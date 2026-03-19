@@ -1,6 +1,7 @@
 import contextlib
 from langgraph.store.postgres import AsyncPostgresStore
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from app.core.config import settings
 from langchain_postgres import PGVector
 from langchain_community.embeddings import ZhipuAIEmbeddings
@@ -15,7 +16,15 @@ async def generate_store():
 # 异步 Checkpointer 工厂 (保持不变)
 @contextlib.asynccontextmanager
 async def generate_checkpointer():
-    async with AsyncPostgresSaver.from_conn_string(settings.POSTGRES_URL) as saver:
+    serializer = JsonPlusSerializer(
+        allowed_msgpack_modules=[
+            ("app.core.schema", "IntentOutput"),
+        ]
+    )
+    async with AsyncPostgresSaver.from_conn_string(
+        settings.POSTGRES_URL,
+        serde=serializer,
+    ) as saver:
         await saver.setup()
         yield saver
 

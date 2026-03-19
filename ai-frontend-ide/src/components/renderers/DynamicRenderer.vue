@@ -21,6 +21,7 @@
           :node="block" 
           :index="idx" 
           :pageData="pageData"
+          :styleData="styleData"
         />
       </template>
       
@@ -72,11 +73,11 @@ const globalStyles = computed(() => {
     '--bg-color': '#ffffff' // 默认白
   }
   
-  // 优先级：默认 < 页面主题 < 样式大脑
+  // 优先级：默认 < 样式大脑 < 用户主题
   const vars = { 
     ...defaultSpacing, 
-    ...((pageData.value as any)?.page_theme || {}),
-    ...(styleData.value?.global_vars || {})
+    ...(styleData.value?.global_vars || {}),
+    ...((pageData.value as any)?.page_theme || {})
   }
   
   return Object.entries(vars).map(([k, v]) => `${k}: ${v}`).join(';')

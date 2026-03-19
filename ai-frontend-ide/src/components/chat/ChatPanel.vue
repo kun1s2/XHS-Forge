@@ -35,6 +35,13 @@
       </div>
     </div>
 
+    <ShowcaseRail
+      v-if="showcaseEnabled"
+      :profiles="showcaseProfiles"
+      @start="startShowcase"
+      @use-prompt="applyPrompt"
+    />
+
     <!-- ✨ Agent Inspector 驾驶舱 (可折叠) -->
     <div v-if="showInspector" class="p-4 pb-0 animate-in slide-in-from-top duration-300">
       <AgentInspector />
@@ -145,10 +152,27 @@
         </div>
       </div>
 
-      <div v-if="selectedComponentId" class="mb-2 flex items-center">
-        <div class="bg-blue-900/40 border border-blue-700 text-blue-300 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 shadow-sm animate-in fade-in zoom-in duration-200">
-          <span>🎯 正在局部修改: <strong class="font-mono text-blue-200">{{ selectedComponentId }}</strong></span>
-          <button @click="setSelectedComponent(null)" class="hover:text-white transition-colors ml-1">✖</button>
+      <div v-if="selectedComponentId" class="mb-3 flex flex-col gap-2">
+        <div class="flex items-center">
+          <div class="bg-blue-900/40 border border-blue-700 text-blue-300 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 shadow-sm animate-in fade-in zoom-in duration-200">
+            <span>
+              🎯 正在局部修改:
+              <strong class="font-mono text-blue-200">{{ selectedSelectionLabel }}</strong>
+              <span class="text-blue-400/80 ml-1">({{ selectedComponentId }})</span>
+            </span>
+            <button @click="setSelectedComponent(null, null)" class="hover:text-white transition-colors ml-1">✖</button>
+          </div>
+        </div>
+
+        <div v-if="selectedQuickActions.length > 0" class="flex flex-wrap gap-2">
+          <button
+            v-for="action in selectedQuickActions"
+            :key="action.label"
+            @click="applySelectedQuickAction(action.prompt)"
+            class="px-3 py-1.5 rounded-full text-[11px] bg-[#1e1e1e] border border-[#3c3c3c] text-gray-300 hover:text-blue-300 hover:border-blue-500/60 hover:bg-blue-500/10 transition-all"
+          >
+            {{ action.label }}
+          </button>
         </div>
       </div>
 
@@ -190,7 +214,7 @@
         </button>
 
         <textarea
-          v-model="inputText"
+          v-model="composerDraft"
           @keydown.enter.prevent="handleSend"
           placeholder="给 AI 下达指令 (Enter 发送)..."
           class="w-full bg-[#1e1e1e] text-sm text-gray-200 border border-[#3c3c3c] rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none h-[52px] min-h-[52px] max-h-32 placeholder-gray-600 transition-all"
@@ -198,7 +222,7 @@
 
         <button
           @click="handleSend"
-          :disabled="(!inputText.trim() && imageAssets.length === 0) || isUploading || currentNode !== ''"
+          :disabled="(!composerDraft.trim() && imageAssets.length === 0) || isUploading || currentNode !== ''"
           class="absolute right-2 bottom-2 p-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-[#3c3c3c] disabled:text-gray-500 text-white rounded-lg transition-colors"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
@@ -209,24 +233,119 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, watch, nextTick, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/useChatStore'
 import { uploadImage } from '../../api/upload'
 import Typewriter from '../common/Typewriter.vue'
 import AgentInspector from './AgentInspector.vue'
+import ShowcaseRail from './ShowcaseRail.vue'
+import type { ShowcaseProfile } from '../../types/chat'
 
 const chatStore = useChatStore()
-const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, imageAssets, creatorPersona, hotTrends } = storeToRefs(chatStore)
-const { setSelectedComponent, addImageAsset, removeImageAsset } = chatStore
-const inputText = ref('')
+const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, selectedParagraphIndex, imageAssets, creatorPersona, hotTrends, showcaseProfiles, pageData, composerDraft } = storeToRefs(chatStore)
+const { setSelectedComponent, addPendingUploadAsset, removeImageAsset } = chatStore
+const showcaseEnabled = chatStore.showcaseEnabled
 const msgListRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const showInspector = ref(false)
 
 const quickSend = (trend: string) => {
-  inputText.value = `帮我针对「${trend}」做一个深度种草笔记`
+  composerDraft.value = `帮我针对「${trend}」做一个深度种草笔记`
   handleSend()
+}
+
+const componentLabelMap: Record<string, string> = {
+  TitleBlock: '标题块',
+  StoryText: '正文块',
+  CoverSwiper: '封面轮播',
+  ProductSpecCard: '参数卡',
+  PollBlock: '投票卡',
+  RadarChartBlock: '雷达图',
+  VersusCard: '对比卡',
+  LocationBlock: '地点卡',
+  WeatherPolaroid: '氛围图卡',
+}
+
+const selectedBlock = computed(() => {
+  const blocks = ((pageData.value as any)?.blocks || []) as Array<Record<string, any>>
+  return blocks.find((block) => block.id === selectedComponentId.value) || null
+})
+
+const selectedPayload = computed(() => {
+  if (!selectedComponentId.value) return {}
+  return ((pageData.value as Record<string, any>)?.[selectedComponentId.value] || {}) as Record<string, any>
+})
+
+const selectedComponentLabel = computed(() => {
+  const componentType = String(selectedBlock.value?.component_type || '')
+  return componentLabelMap[componentType] || componentType || '区块'
+})
+
+const selectedSelectionLabel = computed(() => {
+  if (selectedComponentLabel.value === '正文块' && typeof selectedParagraphIndex.value === 'number') {
+    return `${selectedComponentLabel.value} · 第${selectedParagraphIndex.value + 1}段`
+  }
+  return selectedComponentLabel.value
+})
+
+const selectedQuickActions = computed(() => {
+  const componentType = String(selectedBlock.value?.component_type || '')
+  const actions: Array<{ label: string; prompt: string }> = []
+
+  if (componentType === 'StoryText') {
+    const paragraphs = Array.isArray(selectedPayload.value?.paragraphs)
+      ? selectedPayload.value.paragraphs.filter((item: unknown) => typeof item === 'string')
+      : []
+    if (paragraphs.length > 0) {
+      if (typeof selectedParagraphIndex.value === 'number') {
+        const displayIndex = selectedParagraphIndex.value + 1
+        actions.push({ label: '这一段简短一点', prompt: `把这个正文块的第${displayIndex}段简短一点，保留核心信息。` })
+        actions.push({ label: '这一段更尖锐', prompt: `把这个正文块的第${displayIndex}段改得更尖锐一点，但不要失真。` })
+        actions.push({ label: '重写这一段', prompt: `重写这个正文块的第${displayIndex}段，让表达更有冲击力。` })
+      } else {
+        actions.push({ label: '简短一点', prompt: '把这个正文块简短一点，保留核心信息。' })
+        actions.push({ label: '更尖锐', prompt: '把这个正文块改得更尖锐一点，但不要失真。' })
+      }
+      paragraphs.slice(0, 3).forEach((_, idx) => {
+        actions.push({
+          label: `重写第${idx + 1}段`,
+          prompt: `重写这个正文块的第${idx + 1}段，让表达更有冲击力。`,
+        })
+      })
+    }
+  }
+
+  if (componentType === 'TitleBlock') {
+    actions.push({ label: '标题更丰富', prompt: '把这个标题块改得更丰富一点，更像爆款标题。' })
+    actions.push({ label: '标题更克制', prompt: '把这个标题块改得更克制一点，但保留吸引力。' })
+  }
+
+  if (componentType === 'CoverSwiper') {
+    actions.push({ label: '封面更克制', prompt: '把这个封面区块改得更克制一点，减少花哨感。' })
+    actions.push({ label: '封面更有冲击力', prompt: '把这个封面区块改得更有视觉冲击力。' })
+  }
+
+  if (componentType === 'PollBlock') {
+    actions.push({ label: '更毒舌', prompt: '把这个投票块改得更毒舌一点。' })
+    actions.push({ label: '更温和', prompt: '把这个投票块改得更温和一点。' })
+  }
+
+  return actions
+})
+
+const applySelectedQuickAction = (prompt: string) => {
+  composerDraft.value = prompt
+}
+
+const applyPrompt = (prompt: string, persona?: string) => {
+  if (persona) chatStore.setCreatorPersona(persona)
+  composerDraft.value = prompt
+}
+
+const startShowcase = async (profile: ShowcaseProfile) => {
+  composerDraft.value = ''
+  await chatStore.startShowcaseDemo(profile)
 }
 
 interface PendingImage {
@@ -236,6 +355,7 @@ interface PendingImage {
   status: 'uploading' | 'success' | 'error'
 }
 const pendingImages = ref<PendingImage[]>([])
+const stagedUploadUrls = ref<string[]>([])
 const isUploading = computed(() => pendingImages.value.some(img => img.status === 'uploading'))
 
 const nodeMap: Record<string, string> = {
@@ -271,7 +391,8 @@ const handleFileSelect = async (e: Event) => {
       const { url } = await uploadImage(file)
       imgObj.ossUrl = url
       imgObj.status = 'success'
-      addImageAsset({ url, desc: '用户上传图片' })
+      stagedUploadUrls.value.push(url)
+      addPendingUploadAsset({ url, desc: '用户上传图片', source_type: 'upload' })
       URL.revokeObjectURL(previewUrl)
     } catch (error) {
       console.error('上传失败', error)
@@ -283,10 +404,11 @@ const handleFileSelect = async (e: Event) => {
 }
 
 const handleSend = () => {
-  if ((!inputText.value.trim() && imageAssets.value.length === 0) || isUploading.value || currentNode.value !== '') return
+  if ((!composerDraft.value.trim() && imageAssets.value.length === 0) || isUploading.value || currentNode.value !== '') return
 
-  chatStore.sendMessage(inputText.value)
-  inputText.value = ''
+  chatStore.sendMessage(composerDraft.value, { imageUrls: stagedUploadUrls.value })
+  stagedUploadUrls.value = []
+  composerDraft.value = ''
 }
 
 // 自动滚动到底部
@@ -303,6 +425,12 @@ const scrollToBottom = () => {
 
 watch(messages, scrollToBottom, { deep: true })
 watch(nodeStreamOutput, scrollToBottom)
+
+onMounted(() => {
+  if (showcaseEnabled && showcaseProfiles.value.length === 0) {
+    chatStore.fetchShowcaseProfiles()
+  }
+})
 </script>
 
 <style scoped>

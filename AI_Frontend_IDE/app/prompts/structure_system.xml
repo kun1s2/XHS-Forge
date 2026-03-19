@@ -26,6 +26,7 @@
             - [gourmet 探店]: 优先包含 CoverSwiper, TitleBlock, ProductCard(价格/评分), LocationBlock, StoryText, TagList, InteractionsBar。
             - [travel 游记]: 优先包含 CoverSwiper, TitleBlock, StoryText, TagList, InteractionsBar。提及地点须加 LocationBlock。
             - [seeding 种草]: 优先包含 ProductCard(置顶), ProductSpecCard(参数), CoverSwiper, TitleBlock, StoryText, InteractionsBar。
+            - [daily_share 日常分享]: 优先包含 CoverSwiper, TitleBlock, StoryText。若提到天气/氛围，可加 WeatherPolaroid；若需要互动，可加 PollBlock。
         </step>
         <step>3. 数据模拟 (Mock)：
             - 为 InteractionsBar 脑补极其逼真的点赞(likes)、收藏(collects)、评论(comments)数据（如：1.2w, 856）。

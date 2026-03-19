@@ -49,27 +49,34 @@ def test_focused_knowledge_schema():
 # --- 🧪 Test Suite 2: 测试主线阻塞与时序流转 ---
 
 @pytest.mark.asyncio
-@patch("app.agents.nodes.research_agent.structured_research_llm")
-async def test_research_node_blocking_flow(mock_llm):
+@patch.dict(
+    "app.agents.nodes.research_agent.TOOL_POOL",
+    {
+        "network_search": MagicMock(
+            ainvoke=AsyncMock(side_effect=[
+                "小米 17 Ultra 参数: CPU=Snapdragon 8 Gen 5, 价格=6999",
+                "用户评价: 影像强，但价格偏高"
+            ])
+        )
+    },
+)
+@patch("app.agents.nodes.research_agent.search_google_images", new_callable=AsyncMock)
+@patch("app.services.cache_service.cache_service.get_hot_knowledge", new_callable=AsyncMock)
+@patch("app.services.cache_service.cache_service.match_trends_in_text", new_callable=AsyncMock)
+async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowledge, mock_search_google_images):
     """【核心战役】：验证 research_node 必须阻塞并正确填充 State"""
-    
-    # 1. 模拟 LLM 的结构化输出结果
-    mock_knowledge = FocusedKnowledge(
-        domain_category="3C数码测评",
-        entity_name="小米 17 Ultra",
-        core_attributes={"CPU": "Snapdragon 8 Gen 5"},
-        key_selling_points=["High Power"],
-        known_issues=["Expensive"],
-        summary="Final Info"
-    )
-    mock_llm.ainvoke = AsyncMock(return_value=mock_knowledge)
+
+    mock_match_trends.return_value = []
+    mock_get_hot_knowledge.return_value = None
+    mock_search_google_images.return_value = []
     
     # 2. 构造初始状态
     from langchain_core.messages import HumanMessage
     state: UIProjectState = {
         "main_messages": [HumanMessage(content="我想写小米17 Ultra")],
         "active_panel": "main",
-        "retrieved_knowledge": None # 初始为空
+        "retrieved_knowledge": None,
+        "intent_result": {"asset_request": "NONE"},
     }
     
     # 3. 触发节点（执行必须是阻塞的）
@@ -77,9 +84,10 @@ async def test_research_node_blocking_flow(mock_llm):
     
     # 4. 生死断言：检查状态机是否被同步更新
     assert result["retrieved_knowledge"] is not None
-    assert result["retrieved_knowledge"]["entity_name"] == "小米 17 Ultra"
-    assert "CPU" in result["retrieved_knowledge"]["core_attributes"]
-    assert result["active_archetype"] == "seeding"
+    assert result["retrieved_knowledge"]["entity_name"] == "小米17 Ultra"
+    assert result["retrieved_knowledge"]["is_fact_ready"] is True
+    assert "Snapdragon 8 Gen 5" in result["retrieved_knowledge"]["text_facts"]
+    assert result["image_assets"] == []
     print("\n✅ [时序校验通过]: research_node 已阻塞完成并成功回填 State。")
 
 # --- 🧪 Test Suite 3: 测试白盒探针 API ---

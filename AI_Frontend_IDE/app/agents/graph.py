@@ -6,7 +6,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 from langgraph.prebuilt import ToolNode
-from langgraph.constants import Send
+from langgraph.types import Send
 
 # 引入我们定义的全局状态
 from app.agents.state import UIProjectState
@@ -27,7 +27,11 @@ from app.agents.nodes.refusal_node import refusal_node
 from app.agents.nodes.battle_node import battle_node
 from app.agents.nodes.outline_node import outline_agent, should_continue_outlining
 from app.agents.nodes.component_builder import component_builder_node
+from app.agents.nodes.note_editor_node import note_editor_node
+from app.agents.nodes.verify_note_node import verify_note_node
 from app.agents.tools_registry import RESEARCH_TOOLS, OUTLINE_TOOLS
+from app.agents.utils.entity_utils import normalize_entity_name
+from app.agents.utils.fact_utils import summarize_confirmed_attributes
 
 def with_performance_profiling(node_name: str, func):
     @functools.wraps(func)
@@ -52,14 +56,92 @@ def with_context_engineering(node_func):
         return await node_func(cloned_state)
     return wrapper
 
+
+def _has_local_selection(state: UIProjectState) -> bool:
+    selected = state.get("selected_element_id")
+    return selected not in [None, "", "无", "无 (全局修改)", "none"]
+
+
+def _has_existing_canvas(state: UIProjectState) -> bool:
+    data_dsl = state.get("data_dsl") or {}
+    return bool(data_dsl.get("blocks"))
+
+
+def _latest_user_text(state: UIProjectState) -> str:
+    main_msgs = state.get("main_messages", []) or []
+    if not main_msgs:
+        return ""
+    content = getattr(main_msgs[-1], "content", "") or ""
+    if isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                text_parts.append(str(part.get("text")))
+        return "".join(text_parts).strip()
+    return str(content)
+
+
+def _looks_like_existing_canvas_edit(user_text: str) -> bool:
+    return any(
+        token in (user_text or "")
+        for token in [
+            "保留",
+            "改",
+            "修改",
+            "重写",
+            "优化",
+            "调整",
+            "简短",
+            "简洁",
+            "精简",
+            "丰富",
+            "删除",
+            "删掉",
+            "替换",
+            "换成",
+            "移动",
+            "挪",
+            "加强",
+            "弱化",
+            "润色",
+            "改成",
+            "改一下",
+            "标题",
+            "正文",
+            "文本",
+            "段落",
+            "封面",
+            "主题",
+            "风格",
+            "第二段",
+            "第一段",
+            "第三段",
+        ]
+    )
+
+
 def route_intent(state: UIProjectState) -> str:
     route = state.get("intent_route", "").lower()
+    has_local_selection = _has_local_selection(state)
+    has_existing_canvas = _has_existing_canvas(state)
+    latest_user_text = _latest_user_text(state)
     if "refusal" in route: return "refusal_node"
+    if has_local_selection and any(kw in route for kw in ["patch", "content", "文案", "structure", "结构", "style", "样式"]):
+        return "note_editor"
+    if (
+        not has_local_selection
+        and has_existing_canvas
+        and _looks_like_existing_canvas_edit(latest_user_text)
+        and any(kw in route for kw in ["patch", "content", "文案", "structure", "结构", "style", "样式"])
+    ):
+        return "note_editor"
+    if not has_local_selection and has_existing_canvas and _looks_like_existing_canvas_edit(latest_user_text):
+        return "note_editor"
     if "patch" in route: return "patch_node"
     elif any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]):
         return "research_agent" 
-    elif "structure" in route or "结构" in route: return "structure_node"
-    elif "style" in route or "样式" in route: return "style_node"
+    elif "structure" in route or "结构" in route: return "note_editor"
+    elif "style" in route or "样式" in route: return "note_editor"
     return END
 
 async def outline_synthesizer(state: UIProjectState) -> dict:
@@ -67,17 +149,63 @@ async def outline_synthesizer(state: UIProjectState) -> dict:
     【大纲合成器】：验证并收束由画布工具直接修改的 data_dsl 状态。
     """
     # 此时 data_dsl 已经被 append_block 等工具直接修改好了
-    data_dsl = state.get("data_dsl", {})
-    blocks = data_dsl.get("blocks", [])
+    data_dsl = dict(state.get("data_dsl", {}))
+    blocks = list(data_dsl.get("blocks", []))
+    retrieved_knowledge = state.get("retrieved_knowledge", {}) if isinstance(state.get("retrieved_knowledge", {}), dict) else {}
+    main_msgs = state.get("main_messages", []) or []
+    user_query = str(getattr(main_msgs[-1], "content", "") or "") if main_msgs else ""
+    entity_name = normalize_entity_name(retrieved_knowledge.get("entity_name") or user_query or "这篇笔记")
+    summary = str(retrieved_knowledge.get("summary") or "").strip()
+    selling_points = [str(item).strip() for item in (retrieved_knowledge.get("key_selling_points") or []) if str(item).strip()]
+    confirmed_summaries = summarize_confirmed_attributes(retrieved_knowledge)
+
+    def _append_guard_block(component_type: str, content_brief: str, *, insert_at: int | None = None):
+        nonlocal blocks
+        existing_ids = {str(block.get("id") or "") for block in blocks}
+        prefix = "title" if component_type == "TitleBlock" else "story"
+        candidate_id = f"{prefix}_{len(blocks) + 1}"
+        serial = 1
+        while candidate_id in existing_ids:
+            serial += 1
+            candidate_id = f"{prefix}_{serial}"
+        guard_block = {
+            "id": candidate_id,
+            "component_type": component_type,
+            "content_brief": content_brief,
+        }
+        if insert_at is None or insert_at >= len(blocks):
+            blocks.append(guard_block)
+        else:
+            blocks.insert(max(insert_at, 0), guard_block)
+
+    has_title = any(block.get("component_type") == "TitleBlock" for block in blocks)
+    has_story = any(block.get("component_type") == "StoryText" for block in blocks)
+
+    if not has_title:
+        _append_guard_block("TitleBlock", f"{entity_name} 深度种草", insert_at=0)
+
+    if not has_story:
+        story_parts = []
+        if summary:
+            story_parts.append(summary)
+        if confirmed_summaries:
+            story_parts.append("已确认参数：" + " / ".join(confirmed_summaries[:3]))
+        if selling_points:
+            story_parts.append("亮点速读：" + " / ".join(selling_points[:3]))
+        if not story_parts:
+            story_parts.append(f"围绕 {entity_name} 做一段有观点、有节奏的正文总结。")
+        title_index = next((idx for idx, block in enumerate(blocks) if block.get("component_type") == "TitleBlock"), -1)
+        _append_guard_block("StoryText", " ".join(story_parts), insert_at=title_index + 1 if title_index >= 0 else 0)
     
     # 校验并强制填充必要的字段
     for i, b in enumerate(blocks):
         if not b.get("id"): b["id"] = f"block_{i}"
-        
+
+    resolved_page_title = data_dsl.get("page_title") or f"{entity_name} 深度种草"
     print(f"✅ [大纲合成] 画布定稿，共 {len(blocks)} 个区块。")
     return {
         "data_dsl": {
-            "page_title": data_dsl.get("page_title", "XHS-Forge Note"),
+            "page_title": resolved_page_title,
             "page_theme": data_dsl.get("page_theme", {}),
             "blocks": blocks
         }
@@ -88,8 +216,7 @@ def map_components(state: UIProjectState) -> list:
     blocks = data_dsl.get("blocks", [])
     if not blocks: return ["style_node"]
     
-    main_msgs = state.get("main_messages", [])
-    user_query = str(main_msgs[-1].content) if main_msgs else ""
+    user_query = _latest_user_text(state)
     active_archetype = state.get("active_archetype", "general")
     retrieved_knowledge = state.get("retrieved_knowledge", {})
     creator_persona = state.get("creator_persona", "硬核数码博主")
@@ -128,6 +255,8 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_node("outline_synthesizer", outline_synthesizer)
 
     workflow.add_node("component_builder", component_builder_node)
+    workflow.add_node("note_editor", with_performance_profiling("note_editor", note_editor_node))
+    workflow.add_node("verify_note", with_performance_profiling("verify_note", verify_note_node))
     workflow.add_node("structure_node", with_performance_profiling("structure_node", structure_agent))
     workflow.add_node("patch_node", with_performance_profiling("patch_node", surgical_patch_agent))
     workflow.add_node("style_node", with_performance_profiling("style_node", style_agent))
@@ -140,13 +269,14 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_conditional_edges("intent_agent", route_intent, {
         "patch_node": "patch_node",
         "research_agent": "research_agent",
-        "structure_node": "structure_node",
-        "style_node": "style_node",
+        "note_editor": "note_editor",
         "refusal_node": "refusal_node",
         END: END
     })
 
     workflow.add_edge("patch_node", "render")
+    workflow.add_edge("note_editor", "verify_note")
+    workflow.add_edge("verify_note", "style_node")
     workflow.add_edge("refusal_node", END)
 
     # RAG 链：决策与物理强取 -> 提纯 -> 争议嗅探
