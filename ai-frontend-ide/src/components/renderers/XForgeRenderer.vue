@@ -21,6 +21,9 @@ import GiftBox from './blocks/GiftBox.vue';
 import RadarChartBlock from './blocks/RadarChartBlock.vue';
 import PollBlock from './blocks/PollBlock.vue';
 import WeatherPolaroid from './blocks/WeatherPolaroid.vue';
+import ProgressBarSpec from './blocks/ProgressBarSpec.vue';
+import QuoteBlock from './blocks/QuoteBlock.vue';
+import TimelineBlock from './blocks/TimelineBlock.vue';
 
 // 2. 建立组件注册表
 const componentMap: Record<string, any> = {
@@ -40,23 +43,20 @@ const componentMap: Record<string, any> = {
   GiftBox,
   RadarChartBlock,
   PollBlock,
-  WeatherPolaroid
+  WeatherPolaroid,
+  ProgressBarSpec,
+  QuoteBlock,
+  TimelineBlock
 };
 
-const windowWidth = window.innerWidth;
-const breakpoint = getCurrentBreakpoint(windowWidth);
-
-interface UIBlock {
-  id: string;
-  component_type: string;
-  props?: Record<string, any>;
-}
-
 const props = defineProps<{
-  node: UIBlock;
+  node: { id: string; component_type: string; props?: Record<string, any> };
   index: number;
   pageData: Record<string, any>;
 }>();
+
+const windowWidth = window.innerWidth;
+const breakpoint = getCurrentBreakpoint(windowWidth);
 
 // 语义样式解析
 const computedClasses = computed(() => {
@@ -80,10 +80,7 @@ const nodeData = computed(() => {
 // 动态组件解析逻辑 (大小写不敏感匹配)
 const resolveComp = (type: string) => {
   if (!type) return null;
-  // 先尝试直接匹配
   if (componentMap[type]) return componentMap[type];
-  
-  // 失败后尝试全小写匹配
   const lowerType = type.toLowerCase();
   const entry = Object.entries(componentMap).find(([name]) => name.toLowerCase() === lowerType);
   return entry ? entry[1] : null;
@@ -97,7 +94,6 @@ const resolveComp = (type: string) => {
     :class="['w-full transition-all duration-700 animate-fade-up', computedClasses]"
     :style="{ transitionDelay }"
   >
-    <!-- 1. 动态业务组件分发（扁平区块流模式） -->
     <template v-if="resolveComp(node.component_type)">
       <component 
         :is="resolveComp(node.component_type)"
@@ -109,15 +105,13 @@ const resolveComp = (type: string) => {
       />
     </template>
 
-    <!-- 2. 🚨 哨兵防弹衣：未知组件优雅降级 (Error Boundary) -->
     <template v-else>
-      <div class="m-2 p-4 border-2 border-dashed border-amber-400 bg-amber-50 rounded-2xl flex flex-col gap-2">
-        <div class="flex items-center gap-2 text-amber-700 font-bold text-xs uppercase tracking-tighter">
-          <span>⚠️</span>
-          <span>Block Not Registered</span>
+      <div class="m-2 p-4 border-2 border-dashed border-amber-400 bg-amber-50 rounded-2xl flex flex-col gap-2 opacity-50">
+        <div class="flex items-center gap-2 text-amber-700 font-bold text-[8px] uppercase">
+          <span>⚠️ Component Not Ready</span>
         </div>
-        <div class="text-[10px] text-amber-600/80 font-mono break-all bg-white/50 p-2 rounded-lg">
-          [幻觉拦截] 尝试渲染未定义的区块: <{{ node.component_type }}>
+        <div class="text-[9px] text-amber-600/80 font-mono break-all bg-white/50 p-2 rounded-lg">
+          [幻觉拦截] 待开发区块: <{{ node.component_type }}>
         </div>
       </div>
     </template>
@@ -125,11 +119,9 @@ const resolveComp = (type: string) => {
 </template>
 
 <style scoped>
-/* 确保动画类名在全局生效 */
 .animate-fade-up {
   animation: fadeUp 0.6s ease-out forwards;
 }
-
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }

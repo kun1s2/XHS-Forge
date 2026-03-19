@@ -89,13 +89,13 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
 【🎭 重点：舆情对冲模式】：这是一个 VersusCard！
 请务必使用下述已合成的对冲观点进行填充：
 - 标题: {battle_report.get('title')}
-- 正方(PROS): {battle_report.get('pros', {}).get('details')}
-- 反方(CONS): {battle_report.get('cons', {}).get('details')}
+- 填入 proText 字段 (正方): {battle_report.get('pros', {}).get('details')}
+- 填入 conText 字段 (反方): {battle_report.get('cons', {}).get('details')}
 """
             else:
                 system_prompt += f"""
 【🎭 重点：双向分析模式】：这是一个 VersusCard！
-当前没有激烈的舆情对冲，请你根据【结构化事实库】客观提炼该产品的核心优势（填入 pros）和客观存在的局限/注意事项（填入 cons）。
+当前没有激烈的舆情对冲，请你根据【结构化事实库】客观提炼该产品的核心优势（填入 proText 字段）和客观存在的局限/注意事项（填入 conText 字段）。
 - 语气需客观、中立。
 - 严禁将数据塞进 paragraphs！
 """

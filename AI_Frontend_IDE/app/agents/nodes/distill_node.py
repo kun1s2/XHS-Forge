@@ -7,7 +7,7 @@ from app.core.llm_factory import create_llm
 from app.core.config import settings
 from app.core.schema import FocusedKnowledge
 from app.services.cache_service import cache_service
-from langchain_core.messages import ToolMessage, AIMessage
+from langchain_core.messages import ToolMessage, AIMessage, RemoveMessage
 
 async def distill_node(state: UIProjectState) -> dict:
     """
@@ -16,9 +16,12 @@ async def distill_node(state: UIProjectState) -> dict:
     all_msgs = state.get("messages", [])
     raw_content = ""
     image_links = []
+    messages_to_remove = []
     
     # 1. 遍历总线，搜集所有证据
     for msg in all_msgs:
+        if msg.id: messages_to_remove.append(RemoveMessage(id=msg.id))
+        
         if isinstance(msg, ToolMessage):
             # 获取工具名称（支持不同版本的映射）
             tool_name = getattr(msg, "name", "").lower()
@@ -76,8 +79,11 @@ async def distill_node(state: UIProjectState) -> dict:
         return {
             "retrieved_knowledge": k_dict,
             "image_assets": new_assets,
-            "messages": [AIMessage(content=f"已完成对「{knowledge.entity_name}」的搜证。")]
+            "messages": messages_to_remove + [AIMessage(content=f"已完成对「{knowledge.entity_name}」的搜证。")]
         }
     except Exception as e:
         print(f"❌ [蒸馏失败]: {e}")
-        return {"retrieved_knowledge": {"is_fact_ready": False}}
+        return {
+            "retrieved_knowledge": {"is_fact_ready": False},
+            "messages": messages_to_remove
+        }

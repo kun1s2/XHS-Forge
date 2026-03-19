@@ -5,18 +5,24 @@ from langgraph.graph.message import add_messages
 
 def merge_dsl(left: dict, right: dict) -> dict:
     """
-    深度合并字典（增加防御性编程）
+    深度合并字典（增加防御性编程与列表覆盖机制）
     """
-    # 【防御1】：确保 left 永远是字典
     if not isinstance(left, dict):
         left = {}
         
     merged = left.copy()
     
-    # 【防御2】：如果大模型发神经返回了 list 或 None，直接忽略本次更新，防止系统崩溃
     if not isinstance(right, dict):
         print(f"⚠️ [状态机警告] 丢弃非字典类型的更新包: {type(right)}")
         return merged
+    
+    # ✨ 核心加固：处理画布手术刀发来的覆盖指令
+    if right.get("_blocks_override"):
+        if "blocks" in right:
+            merged["blocks"] = right["blocks"]
+        # 消费掉这个 flag，不污染持久化状态
+        right.pop("_blocks_override", None)
+        right.pop("blocks", None)
     
     for k, v in right.items():
         if v is None:

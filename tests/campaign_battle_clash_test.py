@@ -65,7 +65,7 @@ async def run_battle_clash_test():
     vs_card_id = next((b["id"] for b in blocks if b["component_type"] == "VersusCard"), None)
     if vs_card_id and vs_card_id in data_dsl:
         vs_data = data_dsl[vs_card_id]
-        print(f"📦 [VersusCard 数据校验] 标题存在: {bool(vs_data.get('title'))} | Pros存在: {bool(vs_data.get('pros'))}")
+        print(f"📦 [VersusCard 数据校验] 标题存在: {bool(vs_data.get('title'))} | Pros存在: {bool(vs_data.get('proText'))}")
     else:
         print(f"⚠️ [VersusCard 数据校验] 未在 data_dsl 中找到 VersusCard 数据")
 

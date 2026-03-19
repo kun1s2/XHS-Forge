@@ -43,10 +43,19 @@ async def research_agent(state: UIProjectState) -> dict:
 
     raw_web_content, real_image_urls = await asyncio.gather(search_task, image_task)
 
+    # 构造虚假的 AIMessage 包含 tool_calls
+    fake_ai_msg = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "network_search", "args": {"query": f"{user_query} 深度资料"}, "id": "manual_search"},
+            {"name": "google_images", "args": {"query": f"{user_query} 真实素材图"}, "id": "manual_images"}
+        ]
+    )
+
     # 构造 ToolMessage 容器
     text_tool_msg = ToolMessage(content=str(raw_web_content), tool_call_id="manual_search", name="network_search")
-    img_tool_msg = ToolMessage(content="\n".join(real_image_urls) if real_image_urls else "", tool_call_id="manual_images", name="google_images")
+    img_tool_msg = ToolMessage(content="\n".join(real_image_urls) if real_image_urls else "无图片", tool_call_id="manual_images", name="google_images")
 
     return {
-        "messages": [text_tool_msg, img_tool_msg]
+        "messages": [fake_ai_msg, text_tool_msg, img_tool_msg]
     }

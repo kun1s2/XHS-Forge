@@ -1,19 +1,23 @@
 import time
 import functools
+import json
+from typing import Dict, Any, List
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 from langgraph.prebuilt import ToolNode
+from langgraph.constants import Send
 
 # 引入我们定义的全局状态
 from app.agents.state import UIProjectState
 from app.core.config import settings
+from app.core.schema import OutlineOutput
 
 # 引入节点
 from app.agents.nodes.asset_node import asset_processor_node
 from app.agents.nodes.intent_node import intent_agent
-from app.agents.nodes.research_agent import research_agent, should_continue_research
-from app.agents.nodes.distill_node import distill_node
+from app.agents.nodes.research_agent import research_agent
+from app.agents.nodes.distill_node import distill_node # ✨ 导入提纯节点
 from app.agents.nodes.review_node import controversy_sniffer_node
 from app.agents.nodes.structure_node import structure_agent
 from app.agents.nodes.patch_node import surgical_patch_agent
@@ -21,11 +25,9 @@ from app.agents.nodes.style_node import style_agent
 from app.agents.nodes.render_node import render_node
 from app.agents.nodes.refusal_node import refusal_node
 from app.agents.nodes.battle_node import battle_node
-from app.agents.nodes.outline_node import outline_agent
+from app.agents.nodes.outline_node import outline_agent, should_continue_outlining
 from app.agents.nodes.component_builder import component_builder_node
-from app.agents.tools_registry import RESEARCH_TOOLS
-from langgraph.constants import Send
-import json
+from app.agents.tools_registry import RESEARCH_TOOLS, OUTLINE_TOOLS
 
 def with_performance_profiling(node_name: str, func):
     @functools.wraps(func)
@@ -59,6 +61,27 @@ def route_intent(state: UIProjectState) -> str:
     elif "structure" in route or "结构" in route: return "structure_node"
     elif "style" in route or "样式" in route: return "style_node"
     return END
+
+async def outline_synthesizer(state: UIProjectState) -> dict:
+    """
+    【大纲合成器】：验证并收束由画布工具直接修改的 data_dsl 状态。
+    """
+    # 此时 data_dsl 已经被 append_block 等工具直接修改好了
+    data_dsl = state.get("data_dsl", {})
+    blocks = data_dsl.get("blocks", [])
+    
+    # 校验并强制填充必要的字段
+    for i, b in enumerate(blocks):
+        if not b.get("id"): b["id"] = f"block_{i}"
+        
+    print(f"✅ [大纲合成] 画布定稿，共 {len(blocks)} 个区块。")
+    return {
+        "data_dsl": {
+            "page_title": data_dsl.get("page_title", "XHS-Forge Note"),
+            "page_theme": data_dsl.get("page_theme", {}),
+            "blocks": blocks
+        }
+    }
 
 def map_components(state: UIProjectState) -> list:
     data_dsl = state.get("data_dsl") or {}
@@ -95,10 +118,15 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_node("refusal_node", with_performance_profiling("refusal_node", refusal_node))
     workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent))
     workflow.add_node("tools", ToolNode(RESEARCH_TOOLS)) 
-    workflow.add_node("distill_node", with_performance_profiling("distill_node", distill_node))
+    workflow.add_node("distill_node", with_performance_profiling("distill_node", distill_node)) # ✨ 注册提纯节点
     workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
     workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node))
-    workflow.add_node("outline_node", with_context_engineering(with_performance_profiling("outline_node", outline_agent)))
+    
+    # ✨ 核心重构：大纲 ReAct 节点组
+    workflow.add_node("outline_node", with_performance_profiling("outline_node", outline_agent))
+    workflow.add_node("outline_tools", ToolNode(OUTLINE_TOOLS))
+    workflow.add_node("outline_synthesizer", outline_synthesizer)
+
     workflow.add_node("component_builder", component_builder_node)
     workflow.add_node("structure_node", with_performance_profiling("structure_node", structure_agent))
     workflow.add_node("patch_node", with_performance_profiling("patch_node", surgical_patch_agent))
@@ -121,24 +149,25 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_edge("patch_node", "render")
     workflow.add_edge("refusal_node", END)
 
-    # RAG 核心三段论：决策 -> 工具 -> 提纯
+    # RAG 链：决策与物理强取 -> 提纯 -> 争议嗅探
+    workflow.add_edge("research_agent", "distill_node")
+    workflow.add_edge("distill_node", "controversy_sniffer")
+    workflow.add_edge("controversy_sniffer", "battle_node")
+    
+    # ✨ 核心重构：大纲 ReAct 循环
+    workflow.add_edge("battle_node", "outline_node")
     workflow.add_conditional_edges(
-        "research_agent",
-        should_continue_research,
+        "outline_node", 
+        should_continue_outlining, 
         {
-            "tools": "tools",
-            "distill_node": "distill_node"
+            "outline_tools": "outline_tools",
+            "outline_synthesizer": "outline_synthesizer"
         }
     )
-    workflow.add_edge("tools", "distill_node")
-    workflow.add_edge("distill_node", "controversy_sniffer")
-
-    # 对冲与排版
-    workflow.add_edge("controversy_sniffer", "battle_node")
-    workflow.add_edge("battle_node", "outline_node")
+    workflow.add_edge("outline_tools", "outline_node") # 循环连回思考节点
     
-    # 并发积木填充
-    workflow.add_conditional_edges("outline_node", map_components, ["component_builder", "style_node"])
+    # 合成完毕后分发并发任务
+    workflow.add_conditional_edges("outline_synthesizer", map_components, ["component_builder", "style_node"])
     
     workflow.add_edge("style_node", "render")
     workflow.add_edge("render", END)

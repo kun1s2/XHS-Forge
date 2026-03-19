@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.schema import SurgicalPatchOutput
-from app.agents.tools_registry import google_image_search_tool
+from app.agents.tools_registry import google_images
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ✨ 性能优化：全局复用 LLM 实例
