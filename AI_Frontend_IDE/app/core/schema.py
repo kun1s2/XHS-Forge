@@ -58,6 +58,36 @@ class ComponentData(BaseModel):
     poi_name: Optional[str] = Field(None, description="POI 地点名称（用于搜索）")
     lat: Optional[float] = Field(None, description="纬度")
     lng: Optional[float] = Field(None, description="经度")
+
+    # --- 🚀 扩军计划：高阶互动与可视化组件专属字段 ---
+    
+    # 1. 📊 雷达图 (RadarChartBlock)
+    dimensions: Optional[List[str]] = Field(None, description="评估维度数组，如 ['性能', '续航', '拍照']")
+    scores: Optional[List[int]] = Field(None, description="维度对应的分数数组 (0-100)")
+    
+    # 2. 🗳️ 互动投票卡 (PollBlock)
+    question: Optional[str] = Field(None, description="极具争议性的投票问题")
+    option_a: Optional[str] = Field(None, description="正方选项，极具煽动性")
+    option_b: Optional[str] = Field(None, description="反方选项，极具煽动性")
+    
+    # 3. 🎁 盲盒刮刮乐 (BlindBox)
+    hint: Optional[str] = Field(None, description="盲盒外部的诱饵提示语")
+    hidden_content: Optional[str] = Field(None, description="刮开后显示的震撼事实或反转结论")
+    
+    # 4. ⏱️ 编年史/时间轴 (TimelineBlock)
+    events: Optional[List[Dict[str, str]]] = Field(None, description="时间轴事件数组，含 timestamp, title, description")
+    
+    # 5. 📸 天气拍立得 (WeatherPolaroid)
+    temperature: Optional[str] = Field(None, description="温度，如 24°C")
+    weather: Optional[str] = Field(None, description="天气状况，如 小雨, 晴天")
+    time: Optional[str] = Field(None, description="时间标签，如 下午 3:15")
+    
+    # 6. 💬 痛点金句放大卡 (QuoteBlock)
+    quote: Optional[str] = Field(None, description="极具情绪感染力的金句，必须带双引号")
+    author: Optional[str] = Field(None, description="金句的出处或发言人")
+    
+    # 7. 🗣️ 评价弹幕条 (UserReviewMarquee)
+    reviews: Optional[List[str]] = Field(None, description="真实网友评价的短句数组")
     core_features: Optional[List[str]] = Field(None, description="核心参数/特性列表（用于 ProductSpecCard）")
     likes: Optional[Union[str, int]] = Field(None, description="点赞数（如 1.2w）")
     collects: Optional[Union[str, int]] = Field(None, description="收藏数")
