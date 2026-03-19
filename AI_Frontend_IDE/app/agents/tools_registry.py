@@ -5,6 +5,7 @@ from app.tools.image_recognition import describe_image_async
 from app.tools.serpapi_search import search_google_images
 from app.tools.block_search import search_block_manual # ✨ 导入积木检索工具
 from app.tools.canvas_tools import append_block, insert_block, remove_block, update_block_brief, finish_layout # ✨ 导入画布手术刀
+from app.tools.patch_tools import apply_diff_update, inspect_component_state # ✨ 导入微创手术刀
 from langchain_core.tools import tool
 
 # 🛠️ 【X-Forge 全球工具池】：所有原子能力在此注册为标准 @tool
@@ -50,9 +51,12 @@ TOOL_POOL = {
     "insert_block": insert_block,
     "remove_block": remove_block,
     "update_block_brief": update_block_brief,
-    "finish_layout": finish_layout
+    "finish_layout": finish_layout,
+    "apply_diff_update": apply_diff_update,
+    "inspect_component_state": inspect_component_state
 }
 
 # 默认工具集划分
 RESEARCH_TOOLS = [network_search, google_images]
 OUTLINE_TOOLS = [search_block_manual, append_block, insert_block, remove_block, update_block_brief, finish_layout]
+PATCH_TOOLS = [inspect_component_state, apply_diff_update, google_images] # ✨ 手术刀专用工具箱

@@ -1,156 +1,75 @@
 import json
-import re
-import random
-from pathlib import Path
+from langgraph.prebuilt import create_react_agent
 from app.core.llm_factory import create_llm
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import AIMessage
 from app.agents.state import UIProjectState
 from app.core.config import settings
-from app.core.schema import SurgicalPatchOutput
-from app.agents.tools_registry import google_images
-from tenacity import retry, stop_after_attempt, wait_exponential
-
-# ✨ 性能优化：全局复用 LLM 实例
-_llm_instance = None
-
-def get_patch_llm():
-    global _llm_instance
-    if _llm_instance is None:
-        # ✨ 哨兵性能优化：手术刀节点切换为极速小模型
-        _llm_instance = create_llm(
-            model=settings.LLM_SMALL_MODEL, 
-            api_key=settings.LLM_API_KEY, 
-            base_url=settings.LLM_BASE_URL, 
-            temperature=0
-        )
-    return _llm_instance
-
-def log_retry(retry_state):
-    print(f"⚠️ [Patch Agent 重试] 尝试次数: {retry_state.attempt_number}, 错误原因: {retry_state.outcome.exception()}")
-
-@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=5), before_sleep=log_retry)
-async def invoke_patch_retry(chain, inputs):
-    return await chain.ainvoke(inputs)
+from app.agents.tools_registry import PATCH_TOOLS
+from langchain_core.messages import HumanMessage, AIMessage
 
 async def surgical_patch_agent(state: UIProjectState) -> dict:
     """
-    【手术刀节点】：只针对选中的单个组件进行极速数据微调。
-    支持 SerpApi 搜图增强。
+    【手术刀 Agent 7.0】：ReAct 驱动的原子级组件微调专家。
+    流程：诊断 (inspect) -> 搜证 (google_images, 可选) -> 开刀 (apply_diff)。
     """
-    llm = get_patch_llm()
-    # ✨ 恢复为更精准的 function_calling 模式
-    structured_llm = llm.with_structured_output(SurgicalPatchOutput, method="function_calling")
-    
-    # 1. 锁定修改目标
-    selected_id = state.get("selected_element_id")
-    data_dsl = state.get("data_dsl", {})
-    
-    if not selected_id or selected_id not in data_dsl:
-        print(f"⚠️ [Patch Node] 未找到选中的组件 {selected_id}，退回 structure_node")
-        return {"intent_route": "structure_node"}
+    target_id = state.get("selected_element_id")
+    if not target_id:
+        return {"main_messages": [AIMessage(content="⚠️ 未选中任何组件，无法执行手术。")]}
 
-    target_component = data_dsl[selected_id]
-    
-    # 2. 提取用户指令
     main_msgs = state.get("main_messages", [])
-    user_query = main_msgs[-1].content if main_msgs else ""
-    if isinstance(user_query, list):
-        user_query = " ".join([item["text"] for item in user_query if item.get("type") == "text"])
+    user_instruction = str(main_msgs[-1].content) if main_msgs else "优化内容"
 
-    # --- ⚔️ 视觉狙击逻辑：如果意图涉及“换图/配图” ---
-    # 我们简单的通过关键词嗅探意图，如果包含“图片”、“换图”、“配图”等
-    if any(kw in user_query for kw in ["图片", "换图", "配图", "图", "照"]):
-        print(f"📸 [视觉狙击] 检测到换图指令，正在启动 SerpApi...")
-        # 让 AI 帮我们总结一个搜图关键词
-        # 🌟 优化：强制搜索“真实产品”素材，严禁 UI 设计稿
-        search_prompt = (
-            f"针对组件 {selected_id} ({target_component.get('type')})，根据用户指令「{user_query}」，"
-            f"生成一个精准的 Google 图片搜索关键词（英文）。"
-            f"要求：必须针对“真实产品”或“真实场景照片”（如 Sony A7C2 real photo），严禁包含 'UI', 'design', 'layout' 等设计稿相关的关键词。"
-        )
-        search_kw_msg = await llm.ainvoke(search_prompt)
-        search_kw = search_kw_msg.content.strip().strip('"')
-        
-        # 调用 SerpApi
-        image_links_str = await google_image_search_tool.ainvoke(search_kw)
-        image_links = image_links_str.split("\n")
-        
-        if image_links and image_links[0].startswith("http"):
-            target_url = image_links[0]
-            print(f"🎯 [视觉狙击] 捕获到真实直链: {target_url}")
-        else:
-            # 兜底：使用 Picsum 随机图
-            random_id = random.randint(1, 1000)
-            target_url = f"https://picsum.photos/seed/{random_id}/800/600"
-            print(f"🩹 [视觉兜底] SerpApi 未果，使用 Picsum 占位图: {target_url}")
-        
-        # 强制将新图注入用户指令，辅助 AI 完成最终 JSON 构建
-        user_query += f" | 请务必将该组件的图片 URL 设为: {target_url}"
+    print(f"🔪 [手术刀] 正在对组件 {target_id} 进行微创修复...")
 
-    # 3. 加载提示词
-    prompt_path = Path(__file__).parents[2] / "prompts" / "patch_system.xml"
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        system_template = f.read()
+    llm = create_llm(
+        model=settings.LLM_LOGIC_MODEL,
+        api_key=settings.LLM_API_KEY,
+        base_url=settings.LLM_BASE_URL,
+        temperature=0.2 # 微调需要高确定性
+    )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_template),
-        ("human", "用户的最新修改指令：\n<user_input>\n{{ query }}\n</user_input>\n(请通过调用工具输出 JSON 格式结果)")
-    ], template_format="jinja2")
+    # 构建微创医生
+    patch_doctor = create_react_agent(
+        model=llm,
+        tools=PATCH_TOOLS,
+        prompt=f"""你是一个资深的前端微调专家。
+当前目标组件 ID: {target_id}。
+用户修改指令: {user_instruction}。
+
+【你的手术流程】：
+1. 诊断：调用 inspect_component_state 查看组件当前的 JSON 数据。
+2. 决策：根据用户指令判断需要修改哪些字段（如 title, paragraphs, image_url）。
+   - 如果用户想换图但没给图，你可以调用 google_images 搜一张，然后填入 image_url。
+3. 开刀：调用 apply_diff_update 传入 JSON 补丁。
+   - 补丁格式示例: '{{"title": "新标题", "style": {{"css_classes": "bg-red-500"}}}}'
+4. 结束：修改完成后停止调用工具。
+"""
+    )
 
     try:
-        chain = prompt | structured_llm
-        # 🌟 修复：补回 target_id 变量，并确保与 prompt 模板一致
+        # 为了让工具能访问到 state，我们需要把 state 传进去
+        # create_react_agent 会自动处理 messages，我们只需要把 state 作为上下文注入
+        # 注意：langgraph 0.2 的 create_react_agent 默认 behavior 是将输入作为初始 state
+        # 我们这里构造一个临时的 input state
+        
         inputs = {
-            "selected_element": selected_id,
-            "target_id": selected_id,
-            "target_component_json": json.dumps(target_component, ensure_ascii=False),
-            "query": user_query
+            "messages": [("user", f"请对组件 {target_id} 执行修改：{user_instruction}")],
+            # 注入全局状态以供工具读取 (InjectedState)
+            "data_dsl": state.get("data_dsl"),
+            "style_dsl": state.get("style_dsl")
         }
         
-        # 记录快照
-        rendered_messages = prompt.format_messages(**inputs)
-        prompt_snapshot = [{"role": m.type, "content": m.content} for m in rendered_messages]
-
-        result: SurgicalPatchOutput = await invoke_patch_retry(chain, inputs)
+        # 执行循环
+        result = await patch_doctor.ainvoke(inputs)
         
-        # 🛡️ 鲁棒性硬核检查
-        if result is None:
-            raise ValueError("大模型未返回有效的结构化修改建议 (SurgicalPatchOutput is None)")
-
-        print(f"💉 [手术刀修改成功] 目标: {selected_id} | 理由: {result.reason}")
+        # 提取工具产生的副作用 (data_dsl/style_dsl 的更新已经通过 Command 在工具里完成了)
+        # 我们只需要提取最后一条回复反馈给用户
+        last_msg = result["messages"][-1]
+        content = getattr(last_msg, "content", "修改已完成")
         
-        # 4. 构建补丁包（保留 None 作为“墓碑标志”，配合 merge_dsl 进行删除）
-        updated_data = result.updated_component.model_dump(exclude_unset=True)
-        dsl_patch = {
-            selected_id: updated_data
-        }
-        
-        # ✨ 核心新增：记录组件级生长档案
-        from datetime import datetime
-        track_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "prompt": user_query,
-            "data_snapshot": updated_data,
-            "agent_thought": result.thought_process
-        }
-
-        # ✨ 补齐局部记忆：将本次成功修改写入内容通道，便于后续上下文理解
-        ai_memory_msg = AIMessage(
-            content=f"已成功对组件 {selected_id} 进行局部修改。理由：{result.reason}。思考过程：{result.thought_process}"
-        )
-        
-        # ✨ 拟人化回音：向主对话流追加一条拟人化的回复
-        humanized_reply = AIMessage(content=f"✅ 报告长官：局部手术成功！组件 `{selected_id}` 已按您的指令调整完毕，请查看右侧画布。")
-
         return {
-            "data_dsl": dsl_patch,
-            "patch_tracks": {selected_id: [track_entry]},
-            "node_prompts": {"patch_node": prompt_snapshot},
-            "content_messages": [ai_memory_msg],
-            "main_messages": [humanized_reply] # ✨ 让用户看到反馈
+            "main_messages": [AIMessage(content=f"✨ {content}")]
         }
-        
+
     except Exception as e:
-        print(f"❌ Patch Agent 最终失败: {e}")
-        return {}
+        print(f"❌ [手术失败]: {e}")
+        return {"main_messages": [AIMessage(content="🔧 手术遭遇未知错误，请重试。")]}

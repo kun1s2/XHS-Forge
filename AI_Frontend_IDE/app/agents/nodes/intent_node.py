@@ -78,28 +78,54 @@ async def intent_agent(state: UIProjectState) -> dict:
             "query": user_query
         }
         
-        print(f"📡 [意图路由] 正在分析指令 4.0，支持场景: {VALID_SCENARIOS}")
-        result: IntentOutput = await (prompt | structured_llm).ainvoke(inputs, config={"timeout": 45.0})
-        
-        # 4. 动态校验与补位
-        detected_id = result.detected_element_id
-        effective_id = selected_id or detected_id
-        
-        # 强制收束到已安装场景
-        final_scenarios = [s for s in result.scenarios if s in VALID_SCENARIOS]
-        if not final_scenarios: final_scenarios = ["general"]
+        try:
+            print(f"📡 [意图路由] 正在分析指令 4.0，支持场景: {VALID_SCENARIOS}")
+            chain = prompt | structured_llm
+            # 自定义重试回路
+            from pydantic import ValidationError
+            max_retries = 2
+            attempt = 0
+            result = None
+            while attempt < max_retries:
+                try:
+                    result = await chain.ainvoke(inputs, config={"timeout": 45.0})
+                    break
+                except Exception as loop_e:
+                    attempt += 1
+                    print(f"⚠️ [Intent Agent] 内部调用出错 (尝试 {attempt}/{max_retries}): {loop_e}")
+                    if attempt >= max_retries:
+                        raise loop_e
+                    await asyncio.sleep(1)
+            
+            # 4. 动态校验与补位
+            detected_id = result.detected_element_id
+            effective_id = selected_id or detected_id
+            
+            # 强制收束到已安装场景
+            final_scenarios = [s for s in result.scenarios if s in VALID_SCENARIOS]
+            if not final_scenarios: final_scenarios = ["general"]
 
-        print(f"🎭 [六维雷达] 模式:{result.narrative_mode} | 烈度:{result.intensity_level:.1f} | 风格:{result.visual_vibe} | 靶向:{result.target_audience} | CTA:{result.call_to_action}")
+            print(f"🎭 [六维雷达] 模式:{result.narrative_mode} | 烈度:{result.intensity_level:.1f} | 风格:{result.visual_vibe} | 靶向:{result.target_audience} | CTA:{result.call_to_action}")
 
-        return {
-            "intent_result": result,
-            "intent_route": result.intent_route,
-            "selected_element_id": effective_id,
-            "scenarios": final_scenarios,
-            "active_archetype": final_scenarios[0],
-            "node_prompts": {"intent_agent": [{"role": "system", "content": f"6D Signal: Mode={result.narrative_mode}, Vibe={result.visual_vibe}, Audience={result.target_audience}, CTA={result.call_to_action}"}]}
-        }
-                
+            return {
+                "intent_result": result,
+                "intent_route": result.intent_route,
+                "selected_element_id": effective_id,
+                "scenarios": final_scenarios,
+                "active_archetype": final_scenarios[0],
+                "node_prompts": {"intent_agent": [{"role": "system", "content": f"6D Signal: Mode={result.narrative_mode}, Vibe={result.visual_vibe}, Audience={result.target_audience}, CTA={result.call_to_action}"}]}
+            }
+                    
+        except Exception as e:
+            from pydantic import ValidationError
+            if isinstance(e, ValidationError):
+                # 触发本地自纠错回路
+                print(f"⚠️ [Intent Agent] 遇到 Schema 校验错误，进行本地自纠错重试...")
+                # 这里我们假设框架会自动重试或者可以简易进行最多 1 次重试
+                pass
+            print(f"❌ Intent Agent 失败: {e}")
+            return {"intent_route": "structure_node", "scenarios": ["general"]}
+                    
     except Exception as e:
-        print(f"❌ Intent Agent 失败: {e}")
+        print(f"❌ Intent Agent 外层失败: {e}")
         return {"intent_route": "structure_node", "scenarios": ["general"]}

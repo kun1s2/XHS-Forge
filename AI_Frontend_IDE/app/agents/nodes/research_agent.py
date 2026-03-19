@@ -32,16 +32,29 @@ async def research_agent(state: UIProjectState) -> dict:
     search_tool = TOOL_POOL["network_search"]
     
     # 任务 A: 文本事实（对于 content_node 是刚需）
-    search_task = search_tool.ainvoke({"query": f"{user_query} 深度资料"})
+    # 在这里可以拆分为两个关键词进行并发，模拟 plan-and-solve 降延迟
+    # 如果失败，底层 tool 自己应该有容错，如果还想强制限制：
+    search_task_1 = search_tool.ainvoke({"query": f"{user_query} 核心参数 价格 官方"})
+    search_task_2 = search_tool.ainvoke({"query": f"{user_query} 用户评价 真实体验"})
     
     # 任务 B: 图片打捞（柔性触发）
     # 只有当意图探测开启了 SEARCH 模式才启动
     should_search_images = (asset_mode == "SEARCH")
     image_task = search_google_images(query=f"{user_query} 真实素材图", num=5) if should_search_images else asyncio.sleep(0, result=[])
 
-    print(f"📡 [搜证引擎] 正在作业... 文本: 物理强制 | 图片: {'已激活' if should_search_images else '已旁路'}")
+    print(f"📡 [搜证引擎] 正在作业... 文本: 并发多路强取 | 图片: {'已激活' if should_search_images else '已旁路'}")
 
-    raw_web_content, real_image_urls = await asyncio.gather(search_task, image_task)
+    try:
+        results = await asyncio.wait_for(asyncio.gather(search_task_1, search_task_2, image_task), timeout=25.0)
+        raw_web_content_1, raw_web_content_2, real_image_urls = results
+        raw_web_content = f"【官方资料】:
+{raw_web_content_1}
+【用户评价】:
+{raw_web_content_2}"
+    except Exception as e:
+        print(f"⚠️ [搜证引擎] 物理强取超时或失败: {e}，返回兜底空数据。")
+        raw_web_content = "无网络数据"
+        real_image_urls = []
 
     # 构造虚假的 AIMessage 包含 tool_calls
     fake_ai_msg = AIMessage(

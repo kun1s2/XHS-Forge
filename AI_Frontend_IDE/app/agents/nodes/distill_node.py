@@ -58,7 +58,21 @@ async def distill_node(state: UIProjectState) -> dict:
     """
 
     try:
-        knowledge: FocusedKnowledge = await runnable.ainvoke(prompt)
+        # 重试回路
+        max_retries = 2
+        attempt = 0
+        knowledge = None
+        while attempt < max_retries:
+            try:
+                knowledge: FocusedKnowledge = await runnable.ainvoke(prompt)
+                break
+            except Exception as loop_e:
+                attempt += 1
+                print(f"⚠️ [Distill Node] 内部调用出错 (尝试 {attempt}/{max_retries}): {loop_e}")
+                if attempt >= max_retries:
+                    raise loop_e
+                await asyncio.sleep(1)
+
         k_dict = knowledge.model_dump()
         k_dict["is_fact_ready"] = True
         
