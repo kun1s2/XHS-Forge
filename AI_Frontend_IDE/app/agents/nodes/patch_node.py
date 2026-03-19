@@ -66,7 +66,10 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
         last_msg = result["messages"][-1]
         content = getattr(last_msg, "content", "修改已完成")
         
+        # ✨ 必须把子图里被工具修改过的 dsl 状态“捞”出来，还给全局总线！
         return {
+            "data_dsl": result.get("data_dsl", {}),
+            "style_dsl": result.get("style_dsl", {}),
             "main_messages": [AIMessage(content=f"✨ {content}")]
         }
 

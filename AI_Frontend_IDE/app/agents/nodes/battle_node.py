@@ -27,7 +27,7 @@ async def battle_node(state: UIProjectState) -> dict:
         base_url=settings.LLM_BASE_URL,
         temperature=0.7
     )
-    structured_llm = llm.with_structured_output(SideOpinion, method="function_calling")
+    structured_llm = llm.with_structured_output(SideOpinion)
 
     async def generate_side(role: str, focus: str):
         """内部闭包：单个极性的 Agent 工兵"""

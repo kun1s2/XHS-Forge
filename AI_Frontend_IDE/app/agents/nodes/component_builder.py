@@ -63,7 +63,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
         print(f"👷 [并发工兵] 构建中: {comp_id} ({comp_type})")
         
         llm = get_builder_llm()
-        structured_llm = llm.with_structured_output(ComponentBuilderOutput, method="function_calling")
+        structured_llm = llm.with_structured_output(ComponentBuilderOutput)
         
         # 3. 构造指令 (使用 jinja2 变量注入)
         system_prompt = f"""你是一个顶级组件设计师。当前构建 ID: [{comp_id}], 类型: "{comp_type}"。

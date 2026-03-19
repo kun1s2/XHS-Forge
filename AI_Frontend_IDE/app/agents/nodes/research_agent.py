@@ -65,10 +65,24 @@ async def research_agent(state: UIProjectState) -> dict:
         ]
     )
 
-    # 构造 ToolMessage 容器
-    text_tool_msg = ToolMessage(content=str(raw_web_content), tool_call_id="manual_search", name="network_search")
-    img_tool_msg = ToolMessage(content="\n".join(real_image_urls) if real_image_urls else "无图片", tool_call_id="manual_images", name="google_images")
+    # 构造 ToolMessage 容器 (已废弃，直接注入知识库)
+    # text_tool_msg = ToolMessage(...)
+
+    print(f"✅ [搜证完毕] 已获取真实文本与 {len(real_image_urls) if real_image_urls else 0} 条图片直链。")
+
+    # 构造 image_assets 结构
+    final_assets = [{"url": u, "desc": f"{user_query} 实拍图"} for u in real_image_urls]
 
     return {
-        "messages": [fake_ai_msg, text_tool_msg, img_tool_msg]
+        # 直接将战术情报返回给全局状态，而不是去污染聊天记录！
+        "retrieved_knowledge": {
+            "entity_name": user_query,
+            "is_fact_ready": True,
+            "battle_report": None, # 暂时置空，交由 downstream 处理
+            "text_facts": str(raw_web_content) # 保留原始文本供提纯
+        },
+        "image_assets": final_assets,
+        # 仅返回一条简短的系统通知
+        "messages": [AIMessage(content=f"已完成对「{user_query}」的物理搜证。")]
     }
+

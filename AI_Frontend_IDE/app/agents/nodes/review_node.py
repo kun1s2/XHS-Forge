@@ -24,7 +24,7 @@ async def controversy_sniffer_node(state: UIProjectState) -> dict:
         base_url=settings.LLM_BASE_URL,
         temperature=0
     )
-    structured_llm = llm.with_structured_output(ClashPoints, method="function_calling")
+    structured_llm = llm.with_structured_output(ClashPoints)
 
     # ✨ 核心加固：识别极性冲突
     prompt = f"""你是一个顶级的社交媒体舆情官。
