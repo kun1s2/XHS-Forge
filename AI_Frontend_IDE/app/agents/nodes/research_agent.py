@@ -47,10 +47,10 @@ async def research_agent(state: UIProjectState) -> dict:
     try:
         results = await asyncio.wait_for(asyncio.gather(search_task_1, search_task_2, image_task), timeout=25.0)
         raw_web_content_1, raw_web_content_2, real_image_urls = results
-        raw_web_content = f"【官方资料】:
+        raw_web_content = f"""【官方资料】:
 {raw_web_content_1}
 【用户评价】:
-{raw_web_content_2}"
+{raw_web_content_2}"""
     except Exception as e:
         print(f"⚠️ [搜证引擎] 物理强取超时或失败: {e}，返回兜底空数据。")
         raw_web_content = "无网络数据"

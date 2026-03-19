@@ -1,3 +1,4 @@
+
 [DEBUG] 收到前端消息: {"content":"帮我针对「华为 Mate 60」做一个深度种草笔记","panel":"main","parent_checkpoint_id":null,"selected_element_id":null,"creator_persona":"硬核数码博主","current_assets":[],"image_urls":[]}...
 🔄 [任务挂载] 未命中缓存，已将「帮我针对「华为 Mate 60...」加入后台热点收录队列
 🔄 [任务分发] 针对新用户话题「帮我针对「华为 Mate 60...」启动后台热点收录任务
@@ -7,84 +8,163 @@
 ▶️  [NODE START]: intent_agent
 📡 [意图路由] 正在分析指令 4.0，支持场景: ['travel', 'seeding', 'pet']
 ▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: thought_process='用户请求针对华为 Mate 60 进行深度种草，涉及对比和分析，因此判定为深度种草笔记，属于内容节点。同时，考虑到用户可能需要相关图片，设置为搜索图像。' reason='深度种草华为 Mate 60' intent_route='content_node' narrative_mode='contrast' intensity_level=0.8 visual_vibe='minimalist' target_audience='数码极客' call_to_action='engagement' temporal_context='周末' asset_req...
-🎭 [六维雷达] 模式:contrast | 烈度:0.8 | 风格:minimalist | 靶向:数码极客 | CTA:engagement
-⏱️ [性能监控] 节点 intent_agent 完毕, 耗时: 4.75s
+✅ [NODE END]: RunnableSequence -> Output: thought_process='用户请求针对华为Mate 60进行深度种草，涉及对比和分析，符合深度种草笔记的特征，因此判定为内容节点，叙事模式为对比，目标受众为数码极客，互动目标为种草带货。' reason='深度种草华为Mate 60' intent_route='content_node' narrative_mode='contrast' intensity_level=0.8 visual_vibe='general' target_audience='数码极客' call_to_action='conversion' temporal_context=None asset_req...
+🎭 [六维雷达] 模式:contrast | 烈度:0.8 | 风格:general | 靶向:数码极客 | CTA:conversion
+⏱️ [性能监控] 节点 intent_agent 完毕, 耗时: 3.02s
 ▶️  [NODE START]: route_intent
-🧭 [路由守卫] 截获的原始意图: content_node
 ✅ [NODE END]: route_intent -> Output: research_agent
-✅ [NODE END]: intent_agent -> Output: {'intent_result': IntentOutput(thought_process='用户请求针对华为 Mate 60 进行深度种草，涉及对比和分析，因此判定为深度种草笔记，属于内容节点。同时，考虑到用户可能需要相关图片，设置为搜索图像。', reason='深度种草华为 Mate 60', intent_route='content_node', narrative_mode='contrast', intensity_level=0.8, visual_vibe='minimalist', target_audience='数码极客', call_to_action='engag...
+✅ [NODE END]: intent_agent -> Output: {'intent_result': IntentOutput(thought_process='用户请求针对华为Mate 60进行深度种草，涉及对比和分析，符合深度种草笔记的特征，因此判定为内容节点，叙事模式为对比，目标受众为数码极客，互动目标为种草带货。', reason='深度种草华为Mate 60', intent_route='content_node', narrative_mode='contrast', intensity_level=0.8, visual_vibe='general', target_audience='数码极客', call_to_action='conve...
 ▶️  [NODE START]: research_agent
-🔎 [深度搜证] 正在抓取「帮我针对「华为 Ma」的真实事实与直链图片...
-▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: domain_category='智能手机' entity_name='华为Mate 60' core_attributes={} key_selling_points=['搭载HarmonyOS 4.0', '7nm制程芯片，性能接近骁龙8 Gen2', '第二代昆仑玻璃，抗跌性能提升100%', 'IP68级防尘防水', '灵犀天线系统，弱信号环境下通信速率提升23%'] known_issues=['性能落后于同类产品两年以上'] image_urls=['http://example.com/image1.jpg', 'http://example.com/image2.png', '...
-✅ [提纯完毕] 主体: 华为Mate 60 | 捕获图片: 3
-⏱️ [性能监控] 节点 research_agent 完毕, 耗时: 5.01s
-📦 [Redis Set] 已缓存热点知识包: 华为Mate 60 | TTL: 3600s
-✅ [NODE END]: research_agent -> Output: {'retrieved_knowledge': {'domain_category': '智能手机', 'entity_name': '华为Mate 60', 'core_attributes': {}, 'key_selling_points': ['搭载HarmonyOS 4.0', '7nm制程芯片，性能接近骁龙8 Gen2', '第二代昆仑玻璃，抗跌性能提升100%', 'IP68级防尘防水', '灵犀天线系统，弱信号环境下通信速率提升23%'], 'known_issues': ['性能落后于同类产品两年以上'], 'image_urls': [], 'summary': '华为Ma...
+📡 [搜证引擎] 正在作业... 文本: 并发多路强取 | 图片: 已旁路
+✅ [搜证完毕] 已获取真实文本与 0 条图片直链。
+⏱️ [性能监控] 节点 research_agent 完毕, 耗时: 1.05s
+✅ [NODE END]: research_agent -> Output: {'retrieved_knowledge': {'entity_name': '帮我针对「华为 Mate 60」做一个深度种草笔记', 'is_fact_ready': True, 'battle_report': None, 'text_facts': '【官方资料】:\n- 华为Mate 60、华为Mate 60 Pro参数与价格汇总: 官方没有任何的宣传，但它的热度一直在持续。它就是华为Mate 60系列，继华为Mate 60 Pro正式开售之后，华为也公布了标准版的参数与售价。华为Mate 60华为Mate 60采用的是6.69英寸的直屏，这个档次除了iPhone手机之外，直屏真的不...
+▶️  [NODE START]: distill_node
+⏱️ [性能监控] 节点 distill_node 完毕, 耗时: 0.00s
+✅ [NODE END]: distill_node -> Output: {'retrieved_knowledge': {'is_fact_ready': False}}
 ▶️  [NODE START]: controversy_sniffer
 ▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: is_controversial=True clash_title='华为Mate 60 vs 竞品智能手机' pros_focus='搭载HarmonyOS 4.0，7nm制程芯片，抗跌性能提升100%' cons_focus='性能落后于同类产品两年以上' reason='存在多个竞争品牌，且用户情感烈度较高，形成明显的对峙点。'
-🧐 [舆情对撞探测] 结果: True | 对峙标题: 华为Mate 60 vs 竞品智能手机
-⏱️ [性能监控] 节点 controversy_sniffer 完毕, 耗时: 2.88s
-✅ [NODE END]: controversy_sniffer -> Output: {'has_controversy': True, 'retrieved_knowledge': {'domain_category': '智能手机', 'entity_name': '华为Mate 60', 'core_attributes': {}, 'key_selling_points': ['搭载HarmonyOS 4.0', '7nm制程芯片，性能接近骁龙8 Gen2', '第二代昆仑玻璃，抗跌性能提升100%', 'IP68级防尘防水', '灵犀天线系统，弱信号环境下通信速率提升23%'], 'known_issues': ['性能落后于同类产品两年以上'], 'image_ur...
+▶️  [NODE START]: RunnableLambda
+✅ [NODE END]: RunnableLambda -> Output: is_controversial=False clash_title='真香 vs 下头' pros_focus='用户对产品的性能和设计表示高度满意，认为其超出预期，使用体验极佳。' cons_focus='部分用户对产品的价格和售后服务表示不满，认为性价比不高，存在隐性问题。' reason='虽然存在用户对价格和服务的负面反馈，但整体情感烈度较低，且没有明显的竞品对比，因此不符合强制判定准则。'
+✅ [NODE END]: RunnableSequence -> Output: is_controversial=False clash_title='真香 vs 下头' pros_focus='用户对产品的性能和设计表示高度满意，认为其超出预期，使用体验极佳。' cons_focus='部分用户对产品的价格和售后服务表示不满，认为性价比不高，存在隐性问题。' reason='虽然存在用户对价格和服务的负面反馈，但整体情感烈度较低，且没有明显的竞品对比，因此不符合强制判定准则。'
+🧐 [舆情对撞探测] 结果: False | 对峙标题: 真香 vs 下头
+⏱️ [性能监控] 节点 controversy_sniffer 完毕, 耗时: 6.17s
+✅ [NODE END]: controversy_sniffer -> Output: {'has_controversy': False, 'retrieved_knowledge': {'is_fact_ready': False, 'clash_report': None}}
 ▶️  [NODE START]: battle_node
-⚔️ [对冲引擎] 启动并发线程，正在合成对峙观点...
-▶️  [NODE START]: RunnableSequence
-▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: summary='某些品牌的性能已落后华为Mate 60两年，影响用户体验。' details='在当前的手机市场上，性能的提升是消费者最为关注的焦点之一。然而某些品牌却在技术创新上显得滞后，特别是与华为Mate 60相比，后者凭借HarmonyOS 4.0的加持，展现出无与伦比的性能优势。与之相比，某些同类产品的处理器、图形处理能力甚至系统优化，都已经落后了两年以上。这种性能差距不仅影响日常使用的流畅度，更在游戏、专业应用等方面显露无遗。消费者在选择时，当然会倾向于那些能提供更强性能的产品，而非那些已经被市场淘汰的选择。'
-[WS] Client thread_5n64207pk6o disconnected (code=1001, reason=(none)).
-INFO:     connection closed
-✅ [NODE END]: RunnableSequence -> Output: summary='华为Mate 60搭载HarmonyOS 4.0和7nm芯片，抗跌性能提升100%， redefining high-end phone standards.' details='华为Mate 60搭载的HarmonyOS 4.0，代表了手机操作系统的未来趋势，提供了更流畅、更智能的用户体验。7nm制程芯片不仅提升了处理速度，更大幅度降低了功耗，意味着用户可以享受到更持久的电池续航。同时，抗跌性能提升100%，让用户在日常生活中更加无忧，摔落也不再是手机的‘致命一击’。这款手机的设计不仅美观，更是科技与艺术的完美结合，重新定义了高端手机的技术标准。'
-🏁 [对冲引擎] 合成完毕：华为Mate 60 vs 竞品智能手机
-⏱️ [性能监控] 节点 battle_node 完毕, 耗时: 4.74s
-✅ [NODE END]: battle_node -> Output: {'retrieved_knowledge': {'domain_category': '智能手机', 'entity_name': '华为Mate 60', 'core_attributes': {}, 'key_selling_points': ['搭载HarmonyOS 4.0', '7nm制程芯片，性能接近骁龙8 Gen2', '第二代昆仑玻璃，抗跌性能提升100%', 'IP68级防尘防水', '灵犀天线系统，弱信号环境下通信速率提升23%'], 'known_issues': ['性能落后于同类产品两年以上'], 'image_urls': [], 'summary': '华为Ma...
-▶️  [NODE START]: content_node
-🧠 [上下文工程] 已拦截总线废料，为 content_agent 提供纯净视界。
-▶️  [NODE START]: RunnableSequence
-❌ Content Agent 失败: 'Input to ChatPromptTemplate is missing variables {\'"domain_category"\'}.  Expected: [\'"domain_category"\', \'audience\', \'query\'] Received: [\'audience\', \'query\']\nNote: if you intended {"domain_category"} to be part of the string and not a variable, please escape it with double curly braces like: \'{{"domain_category"}}\'.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langchain/errors/INVALID_PROMPT_INPUT '
-⏱️ [性能监控] 节点 content_node 完毕, 耗时: 0.01s
-✅ [NODE END]: content_node -> Output: {}
+🛑 [对冲引擎停火] 缺乏真实论据支撑，严禁脑补对撞文案。
+⏱️ [性能监控] 节点 battle_node 完毕, 耗时: 0.00s
+✅ [NODE END]: battle_node -> Output: {}
 ▶️  [NODE START]: outline_node
-🧠 [上下文工程] 已拦截总线废料，为 outline_agent 提供纯净视界。
-▶️  [NODE START]: RunnableSequence
-[WS] Client thread_q7y1vt4p3y9 disconnected (code=1001, reason=(none)).
-INFO:     connection closed
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据当前资产状况，选择生成配图并排版。使用 CoverSwiper 作为头部轮播图，吸引用户注意；TitleBlock 突出产品特色；VersusCard 进行产品对比；StoryText 分享个人真实体验；BentoGrid 展示产品细节；最后用 TagList 提炼关键词。' page_title='最新款智能手机种草' page_theme={} blocks=[UIBlock(id='cover_swiper_1', component_type='CoverSwiper', content_brief='生成一组极简桌面上的最新款智能手机的摄影级配图...
-🧹 [排版纠偏] 物理移除 2 个无图可用的组件
-⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 5.42s
+🧠 [ReAct 导演] 正在思考下一步行动...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 5.93s
+▶️  [NODE START]: should_continue_outlining
+✅ [NODE END]: should_continue_outlining -> Output: outline_tools
+✅ [NODE END]: outline_node -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'model_provider': 'openai'}, id='lc_run--019d04d4-a3b1-7653-8dab-99fb8e69580d', tool_calls=[{'name': 'append_block', 'args': {'component_type': 'TitleBl...
+▶️  [NODE START]: outline_tools
+✅ [NODE END]: outline_tools -> Output: [Command(update={'data_dsl': {'_block_append': {'id': 'titleblock_8b9b82', 'component_type': 'TitleBlock', 'content_brief': '华为 Mate 60 深度种草笔记'}}, 'messages': [ToolMessage(content='成功追加积木: titleblock_8b9b82', name='append_block', tool_call_id='call_or3sw8qLN1LYCK7SjzkpNYOk')]}), Command(update={'dat...
+▶️  [NODE START]: outline_node
+🧠 [ReAct 导演] 正在思考下一步行动...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 3.11s
+▶️  [NODE START]: should_continue_outlining
+✅ [NODE END]: should_continue_outlining -> Output: outline_tools
+✅ [NODE END]: outline_node -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-badd-7972-9147-d99964bae5fe', tool_c...
+▶️  [NODE START]: outline_tools
+✅ [NODE END]: outline_tools -> Output: [Command(update={'data_dsl': {'_block_append': {'id': 'productspeccard_5f9c03', 'component_type': 'ProductSpecCard', 'content_brief': '详细列出华为 Mate 60 的核心参数，如处理器、内存、摄像头等。'}}, 'messages': [ToolMessage(content='成功追加积木: productspeccard_5f9c03', name='append_block', tool_call_id='call_X0SW3ukysaCM6CV3bSu...
+▶️  [NODE START]: outline_node
+🧠 [ReAct 导演] 正在思考下一步行动...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 2.18s
+▶️  [NODE START]: should_continue_outlining
+✅ [NODE END]: should_continue_outlining -> Output: outline_tools
+✅ [NODE END]: outline_node -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-c732-7fe1-bd1d-0dd43c1a4e92', tool_c...
+▶️  [NODE START]: outline_tools
+✅ [NODE END]: outline_tools -> Output: [Command(update={'data_dsl': {'_block_append': {'id': 'radarchartblock_e22d0a', 'component_type': 'RadarChartBlock', 'content_brief': '展示华为 Mate 60 在性能、拍照、续航、设计和用户体验等多维度的表现，帮助用户全面了解其综合实力。'}}, 'messages': [ToolMessage(content='成功追加积木: radarchartblock_e22d0a', name='append_block', tool_call_id='call_y...
+▶️  [NODE START]: outline_node
+🧠 [ReAct 导演] 正在思考下一步行动...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 1.79s
+▶️  [NODE START]: should_continue_outlining
+✅ [NODE END]: should_continue_outlining -> Output: outline_tools
+✅ [NODE END]: outline_node -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-cfc4-7d20-99cc-2c7a3721b1af', tool_c...
+▶️  [NODE START]: outline_tools
+✅ [NODE END]: outline_tools -> Output: [Command(update={'data_dsl': {'_block_append': {'id': 'pollblock_2229cd', 'component_type': 'PollBlock', 'content_brief': '设置一个互动投票，询问用户对华为 Mate 60 的看法，比如最吸引人的功能是什么。'}}, 'messages': [ToolMessage(content='成功追加积木: pollblock_2229cd', name='append_block', tool_call_id='call_0YDFDna0LJsZUCBagth8Sq9M')]})...
+▶️  [NODE START]: outline_node
+🧠 [ReAct 导演] 正在思考下一步行动...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 1.89s
+▶️  [NODE START]: should_continue_outlining
+✅ [NODE END]: should_continue_outlining -> Output: outline_tools
+✅ [NODE END]: outline_node -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-d6d2-7fa2-9686-b684eb0bdb23', tool_c...
+▶️  [NODE START]: outline_tools
+✅ [NODE END]: outline_tools -> Output: [Command(update={'messages': [ToolMessage(content='排版总编已完成画布定稿。', name='finish_layout', tool_call_id='call_lzvZT2f55pu9UbTwRyds0eI4')]})]
+▶️  [NODE START]: outline_node
+🧠 [ReAct 导演] 正在思考下一步行动...
+⏱️ [性能监控] 节点 outline_node 完毕, 耗时: 3.36s
+▶️  [NODE START]: should_continue_outlining
+✅ [NODE END]: should_continue_outlining -> Output: outline_synthesizer
+✅ [NODE END]: outline_node -> Output: {'messages': [AIMessage(content='您的深度种草笔记关于「华为 Mate 60」已经完成，内容包括：\n\n1. **标题**：华为 Mate 60 深度种草笔记\n2. **叙事文本**：介绍华为 Mate 60 的吸引力及分析。\n3. **核心参数**：详细列出华为 Mate 60 的技术规格。\n4. **多维性能雷达图**：展示其在多个方面的表现。\n5. **互动投票**：询问用户对华为 Mate 60 的看法。\n\n如果您需要进一步的调整或添加内容，请告诉我！', additional_kwargs={}, response_metadata={'...
+▶️  [NODE START]: outline_synthesizer
+✅ [大纲合成] 画布定稿，共 5 个区块。
 ▶️  [NODE START]: map_components
-🚀 [并发调度] 发现 4 个区块，发射特种兵...
-✅ [NODE END]: map_components -> Output: [Send(node='component_builder', arg={'component_id': 'title_1', 'component_type': 'TitleBlock', 'content_brief': '抓住用户的眼球，突出产品的独特性和吸引力。', 'user_query': '帮我针对「华为 Mate 60」做一个深度种草笔记', 'active_archetype': 'general', 'retrieved_knowledge': {'domain_category': '智能手机', 'entity_name': '华为Mate 60', 'core_att...
-✅ [NODE END]: outline_node -> Output: {'data_dsl': {'page_title': '最新款智能手机种草', 'page_theme': {}, 'blocks': [{'id': 'title_1', 'component_type': 'TitleBlock', 'content_brief': '抓住用户的眼球，突出产品的独特性和吸引力。'}, {'id': 'vs_card_1', 'component_type': 'VersusCard', 'content_brief': '对比两款智能手机的核心参数，突出各自的优势和不足。'}, {'id': 'story_text_1', 'component_type...
+✅ [NODE END]: map_components -> Output: [Send(node='component_builder', arg={'component_id': 'titleblock_8b9b82', 'component_type': 'TitleBlock', 'content_brief': '华为 Mate 60 深度种草笔记', 'user_query': '帮我针对「华为 Mate 60」做一个深度种草笔记', 'active_archetype': 'seeding', 'retrieved_knowledge': {'is_fact_ready': False, 'clash_report': None}, 'creator_pe...
+✅ [NODE END]: outline_synthesizer -> Output: {'data_dsl': {'page_title': 'XHS-Forge Note', 'page_theme': {}, 'blocks': [{'id': 'titleblock_8b9b82', 'component_type': 'TitleBlock', 'content_brief': '华为 Mate 60 深度种草笔记'}, {'id': 'storytext_403104', 'component_type': 'StoryText', 'content_brief': '华为 Mate 60 是华为最新推出的一款旗舰手机，凭借其强大的性能和出色的拍照功能吸引了众多消费者...
+▶️  [NODE START]: component_builder
 ▶️  [NODE START]: component_builder
 ▶️  [NODE START]: component_builder
 ▶️  [NODE START]: component_builder
 ▶️  [NODE START]: component_builder
 ▶️  [NODE START]: style_node
-🎨 [六维风格引擎] 激活风格: minimalist | 情绪烈度: 0.8
-⏱️ [性能监控] 节点 style_node 完毕, 耗时: 0.00s
-✅ [NODE END]: style_node -> Output: {'style_dsl': {'global_vars': {'--bg-color': '#ffffff', '--primary-vibe': '#333333', '--radius': '8px', '--spacing': '12px', '--shadow-vibe': '0 10px 40px rgba(0, 0, 0, 0.05)'}, 'title_1': {'css_classes': 'transition-all duration-500 border-b border-gray-100 pb-4 mb-4', 'inline_styles': {}}, 'vs_car...
-👷 [并发工兵] 正在生产: tag_list_1 (TagList)
-👷 [并发工兵] 正在生产: vs_card_1 (VersusCard)
-👷 [并发工兵] 正在生产: story_text_1 (StoryText)
+🎨 [美术指导 Agent] 开始审视画布，准备精准涂装...
+▶️  [NODE START]: agent
+▶️  [NODE START]: call_model
 ▶️  [NODE START]: RunnableSequence
-👷 [并发工兵] 正在生产: title_1 (TitleBlock)
+▶️  [NODE START]: Prompt
+✅ [NODE END]: Prompt -> Output: [SystemMessage(content='你是一个顶级的小红书/抖音风格网页美术指导。\n当前全局氛围设定：视觉风向 [general], 情绪烈度 [0.8]。\n\n【职责说明】：\n1. 你需要根据当前的 vibe 和积木列表，决定哪些组件需要特殊的视觉增强。\n2. 调用 apply_component_variant 工具为特定组件注入灵魂（如赛博风发光、胶片滤镜等）。\n3. 如果你认为配色需要参考头图，调用 analyze_hero_image_colors 获取建议。\n4. 【铁律】：绝对不能给纯文字积木加上胶片滤镜！\n5. 涂装完成后，直接停止调用工具并退出。', ...
+👷 [并发工兵] 构建中: radarchartblock_e22d0a (RadarChartBlock)
+👷 [并发工兵] 构建中: productspeccard_5f9c03 (ProductSpecCard)
+👷 [并发工兵] 构建中: pollblock_2229cd (PollBlock)
+👷 [并发工兵] 构建中: storytext_403104 (StoryText)
 ▶️  [NODE START]: RunnableSequence
 ▶️  [NODE START]: RunnableSequence
 ▶️  [NODE START]: RunnableSequence
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据简报内容，强调了用户在选择智能手机时的真实痛点，并通过对比引出华为Mate 60的优点，增强了情感共鸣。' data=ComponentData(type=None, title='我的智能手机选择之路', subtitle='痛点与发现的对比', paragraphs=['在选择智能手机的过程中，我经历了许多痛点。', '无论是性能不足，还是拍照效果不佳，都是我曾经的烦恼。', '但当我发现华为Mate 60时，这些问题似乎都迎刃而解。', '它的强大性能和出色的拍照功能让我感受到前所未有的满足。'], align=None, killer_tags=[...
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'story_text_1': {'title': '我的智能手机选择之路', 'subtitle': '痛点与发现的对比', 'paragraphs': ['在选择智能手机的过程中，我经历了许多痛点。', '无论是性能不足，还是拍照效果不佳，都是我曾经的烦恼。', '但当我发现华为Mate 60时，这些问题似乎都迎刃而解。', '它的强大性能和出色的拍照功能让我感受到前所未有的满足。'], 'killer_tags': ['性能强大', '拍照出色', '用户体验佳'], 'mood': '积极', 'tags': ['智能手机', '华为Mate 60', '科...
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据简报内容，构建了华为Mate 60的组件数据，强调其创新科技和核心特性，同时添加了相关标签和描述，以吸引用户的关注。' data=ComponentData(type=None, title='华为Mate 60', subtitle='创新科技，尽在掌握', paragraphs=None, align=None, killer_tags=['旗舰手机', '超强性能', '摄影大师'], mood=None, image_url=None, image_urls=None, price=None, desc='华为Mate 60，融合尖端技术与优雅设计...
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'tag_list_1': {'title': '华为Mate 60', 'subtitle': '创新科技，尽在掌握', 'killer_tags': ['旗舰手机', '超强性能', '摄影大师'], 'desc': '华为Mate 60，融合尖端技术与优雅设计，带来无与伦比的使用体验。', 'tags': ['华为', 'Mate 60', '手机', '科技'], 'core_features': ['超高清摄像头', '强劲处理器', '长效电池续航', '5G网络支持'], 'type': 'TagList'}}, 'style_dsl': {'tag_...
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据简报内容，构建了华为Mate 60的标题、描述和核心特性，强调其创新和高性能，同时确保符合组件设计要求。' data=ComponentData(type=None, title='华为Mate 60', subtitle='突破性的科技体验', paragraphs=None, align='center', killer_tags=['创新', '高性能', '智能科技'], mood=None, image_url=None, image_urls=None, price=None, desc='华为Mate 60，集成先进技术与卓越设计，带来无与伦...
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'title_1': {'title': '华为Mate 60', 'subtitle': '突破性的科技体验', 'align': 'center', 'killer_tags': ['创新', '高性能', '智能科技'], 'desc': '华为Mate 60，集成先进技术与卓越设计，带来无与伦比的使用体验。', 'tags': ['华为', '手机', '科技'], 'rating': 5.0, 'core_features': ['超高清摄像头', '强劲处理器', '长效电池', '5G网络支持'], 'likes': '1.2w', 'collects...
-✅ [NODE END]: RunnableSequence -> Output: thought_process='根据提供的对冲报告，构建了一个VersusCard，强调了华为Mate 60的优势与竞品的劣势，确保内容符合简报要求，未使用全局文案。' data=ComponentData(type=None, title='华为Mate 60 vs 竞品智能手机', subtitle=None, paragraphs=['华为Mate 60搭载的HarmonyOS 4.0，代表了手机操作系统的未来趋势，提供了更流畅、更智能的用户体验。', '7nm制程芯片不仅提升了处理速度，更大幅度降低了功耗，意味着用户可以享受到更持久的电池续航。', '同时，抗跌性能提升100%，让用...
-✅ [NODE END]: component_builder -> Output: {'data_dsl': {'vs_card_1': {'title': '华为Mate 60 vs 竞品智能手机', 'paragraphs': ['华为Mate 60搭载的HarmonyOS 4.0，代表了手机操作系统的未来趋势，提供了更流畅、更智能的用户体验。', '7nm制程芯片不仅提升了处理速度，更大幅度降低了功耗，意味着用户可以享受到更持久的电池续航。', '同时，抗跌性能提升100%，让用户在日常生活中更加无忧，摔落也不再是手机的‘致命一击’。', '这款手机的设计不仅美观，更是科技与艺术的完美结合，重新定义了高端手机的技术标准。', '在当前的手机市场上，某些品牌在技术创新上显...
+▶️  [NODE START]: RunnableSequence
+👷 [并发工兵] 构建中: titleblock_8b9b82 (TitleBlock)
+▶️  [NODE START]: RunnableSequence
+✅ [NODE END]: RunnableSequence -> Output: content='' additional_kwargs={} response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'} id='lc_run--019d04d4-eb8d-7d51-8ce9-c6b15d2ad606' tool_calls=[{'name': 'apply_compon...
+✅ [NODE END]: call_model -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-eb8d-7d51-8ce9-c6b15d2ad606', tool_c...
+▶️  [NODE START]: should_continue
+✅ [NODE END]: should_continue -> Output: [Send(node='tools', arg={'__type': 'tool_call_with_context', 'tool_call': {'name': 'apply_component_variant', 'args': {'block_id': 'productspeccard_5f9c03', 'variant_name': 'elegant_reading'}, 'id': 'call_BM8Z71VlF1GQcRafPkxRX9j0', 'type': 'tool_call'}, 'state': {'messages': [AIMessage(content='已完成对...
+✅ [NODE END]: agent -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-eb8d-7d51-8ce9-c6b15d2ad606', tool_c...
+▶️  [NODE START]: tools
+✅ [NODE END]: tools -> Output: [Command(update={'style_dsl': {}, 'messages': [ToolMessage(content='❌ 组件 productspeccard_5f9c03 不在样式表中。', name='apply_component_variant', tool_call_id='call_BM8Z71VlF1GQcRafPkxRX9j0')]})]
+▶️  [NODE START]: agent
+▶️  [NODE START]: call_model
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: Prompt
+✅ [NODE END]: Prompt -> Output: [SystemMessage(content='你是一个顶级的小红书/抖音风格网页美术指导。\n当前全局氛围设定：视觉风向 [general], 情绪烈度 [0.8]。\n\n【职责说明】：\n1. 你需要根据当前的 vibe 和积木列表，决定哪些组件需要特殊的视觉增强。\n2. 调用 apply_component_variant 工具为特定组件注入灵魂（如赛博风发光、胶片滤镜等）。\n3. 如果你认为配色需要参考头图，调用 analyze_hero_image_colors 获取建议。\n4. 【铁律】：绝对不能给纯文字积木加上胶片滤镜！\n5. 涂装完成后，直接停止调用工具并退出。', ...
+✅ [NODE END]: RunnableSequence -> Output: content='' additional_kwargs={} response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'} id='lc_run--019d04d4-f2de-7780-8ac9-45457699c8d8' tool_calls=[{'name': 'apply_compon...
+✅ [NODE END]: call_model -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-f2de-7780-8ac9-45457699c8d8', tool_c...
+▶️  [NODE START]: should_continue
+✅ [NODE END]: should_continue -> Output: [Send(node='tools', arg={'__type': 'tool_call_with_context', 'tool_call': {'name': 'apply_component_variant', 'args': {'block_id': 'radarchartblock_e22d0a', 'variant_name': 'danger_alert'}, 'id': 'call_TmrUc68HU4LyPDNAiF9SlU8V', 'type': 'tool_call'}, 'state': {'messages': [AIMessage(content='已完成对「帮我...
+✅ [NODE END]: agent -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d4-f2de-7780-8ac9-45457699c8d8', tool_c...
+▶️  [NODE START]: tools
+✅ [NODE END]: tools -> Output: [Command(update={'style_dsl': {}, 'messages': [ToolMessage(content='❌ 组件 radarchartblock_e22d0a 不在样式表中。', name='apply_component_variant', tool_call_id='call_TmrUc68HU4LyPDNAiF9SlU8V')]})]
+▶️  [NODE START]: agent
+▶️  [NODE START]: call_model
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: Prompt
+✅ [NODE END]: Prompt -> Output: [SystemMessage(content='你是一个顶级的小红书/抖音风格网页美术指导。\n当前全局氛围设定：视觉风向 [general], 情绪烈度 [0.8]。\n\n【职责说明】：\n1. 你需要根据当前的 vibe 和积木列表，决定哪些组件需要特殊的视觉增强。\n2. 调用 apply_component_variant 工具为特定组件注入灵魂（如赛博风发光、胶片滤镜等）。\n3. 如果你认为配色需要参考头图，调用 analyze_hero_image_colors 获取建议。\n4. 【铁律】：绝对不能给纯文字积木加上胶片滤镜！\n5. 涂装完成后，直接停止调用工具并退出。', ...
+🩹 [工兵自愈] titleblock_8b9b82 失败: Error code: 429 - {'error': {'message': "Invalid schema for response_format 'ComponentBuilderOutput': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Extra required key 'inline_styles' supplied. (request id: 20260319144241371447872h8aRz2ZR)", 'type': 'invalid_request_error', 'param': 'response_format', 'code': None}}
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'titleblock_8b9b82': {'type': 'TitleBlock', 'title': '内容填充中...'}}}
+🩹 [工兵自愈] radarchartblock_e22d0a 失败: Error code: 429 - {'error': {'message': "Invalid schema for response_format 'ComponentBuilderOutput': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Extra required key 'inline_styles' supplied. (request id: 20260319144241630293138gAsy1e4a)", 'type': 'invalid_request_error', 'param': 'response_format', 'code': None}}
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'radarchartblock_e22d0a': {'type': 'RadarChartBlock', 'title': '内容填充中...'}}}
+🩹 [工兵自愈] storytext_403104 失败: Error code: 429 - {'error': {'message': "Invalid schema for response_format 'ComponentBuilderOutput': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Extra required key 'inline_styles' supplied. (request id: 20260319144241796470240SOsLhMHM)", 'type': 'invalid_request_error', 'param': 'response_format', 'code': None}}
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'storytext_403104': {'type': 'StoryText', 'title': '内容填充中...'}}}
+🩹 [工兵自愈] pollblock_2229cd 失败: Error code: 429 - {'error': {'message': "Invalid schema for response_format 'ComponentBuilderOutput': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Extra required key 'inline_styles' supplied. (request id: 20260319144242378826439sl9Krtqx)", 'type': 'invalid_request_error', 'param': 'response_format', 'code': None}}
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'pollblock_2229cd': {'type': 'PollBlock', 'title': '内容填充中...'}}}
+✅ [NODE END]: RunnableSequence -> Output: content='' additional_kwargs={} response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'} id='lc_run--019d04d5-00e4-7903-9c72-c9acac647abb' tool_calls=[{'name': 'apply_compon...
+✅ [NODE END]: call_model -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d5-00e4-7903-9c72-c9acac647abb', tool_c...
+▶️  [NODE START]: should_continue
+✅ [NODE END]: should_continue -> Output: [Send(node='tools', arg={'__type': 'tool_call_with_context', 'tool_call': {'name': 'apply_component_variant', 'args': {'block_id': 'pollblock_2229cd', 'variant_name': 'danger_alert'}, 'id': 'call_RbDOHAabnQwvfBvCynqqxwSK', 'type': 'tool_call'}, 'state': {'messages': [AIMessage(content='已完成对「帮我针对「华为 ...
+✅ [NODE END]: agent -> Output: {'messages': [AIMessage(content='', additional_kwargs={}, response_metadata={'finish_reason': 'tool_calls', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'}, id='lc_run--019d04d5-00e4-7903-9c72-c9acac647abb', tool_c...
+▶️  [NODE START]: tools
+✅ [NODE END]: tools -> Output: [Command(update={'style_dsl': {}, 'messages': [ToolMessage(content='❌ 组件 pollblock_2229cd 不在样式表中。', name='apply_component_variant', tool_call_id='call_RbDOHAabnQwvfBvCynqqxwSK')]})]
+▶️  [NODE START]: agent
+▶️  [NODE START]: call_model
+▶️  [NODE START]: RunnableSequence
+▶️  [NODE START]: Prompt
+✅ [NODE END]: Prompt -> Output: [SystemMessage(content='你是一个顶级的小红书/抖音风格网页美术指导。\n当前全局氛围设定：视觉风向 [general], 情绪烈度 [0.8]。\n\n【职责说明】：\n1. 你需要根据当前的 vibe 和积木列表，决定哪些组件需要特殊的视觉增强。\n2. 调用 apply_component_variant 工具为特定组件注入灵魂（如赛博风发光、胶片滤镜等）。\n3. 如果你认为配色需要参考头图，调用 analyze_hero_image_colors 获取建议。\n4. 【铁律】：绝对不能给纯文字积木加上胶片滤镜！\n5. 涂装完成后，直接停止调用工具并退出。', ...
+🩹 [工兵自愈] productspeccard_5f9c03 失败: Error code: 429 - {'error': {'message': "Invalid schema for response_format 'ComponentBuilderOutput': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Extra required key 'inline_styles' supplied. (request id: 20260319144243715940130w7lvgTT8)", 'type': 'invalid_request_error', 'param': 'response_format', 'code': None}}
+✅ [NODE END]: component_builder -> Output: {'data_dsl': {'productspeccard_5f9c03': {'type': 'ProductSpecCard', 'title': '内容填充中...'}}}
+✅ [NODE END]: RunnableSequence -> Output: content='在尝试为某些组件添加视觉增强时，发现它们不在可用的样式表中，因此无法应用特效。如果您有其他组件需要增强或想要进行不同的调整，请告诉我！' additional_kwargs={} response_metadata={'finish_reason': 'stop', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai'} id='lc_run--019d04d5-08...
+✅ [NODE END]: call_model -> Output: {'messages': [AIMessage(content='在尝试为某些组件添加视觉增强时，发现它们不在可用的样式表中，因此无法应用特效。如果您有其他组件需要增强或想要进行不同的调整，请告诉我！', additional_kwargs={}, response_metadata={'finish_reason': 'stop', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai...
+▶️  [NODE START]: should_continue
+✅ [NODE END]: should_continue -> Output: __end__
+✅ [NODE END]: agent -> Output: {'messages': [AIMessage(content='在尝试为某些组件添加视觉增强时，发现它们不在可用的样式表中，因此无法应用特效。如果您有其他组件需要增强或想要进行不同的调整，请告诉我！', additional_kwargs={}, response_metadata={'finish_reason': 'stop', 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_eb37e061ec', 'service_tier': 'default', 'model_provider': 'openai...
+✅ [美术指导] 涂装完毕，共处理 5 个区块。
+⏱️ [性能监控] 节点 style_node 完毕, 耗时: 8.68s
+✅ [NODE END]: style_node -> Output: {'style_dsl': {'titleblock_8b9b82': {'css_classes': 'transition-all duration-700', 'inline_styles': {}}, 'storytext_403104': {'css_classes': 'transition-all duration-700', 'inline_styles': {}}, 'productspeccard_5f9c03': {'css_classes': 'transition-all duration-700', 'inline_styles': {}}, 'radarchart...
 ▶️  [NODE START]: render
-⏱️ [性能监控] 节点 render 完毕, 耗时: 0.17s
+⏱️ [性能监控] 节点 render 完毕, 耗时: 0.58s
 📺 [渲染监控] 成功捕获最终 OSS 链接: data:text/html;base64,PCFET0NUWVBFIGh0bWw+CjxodG1s...
-✅ [NODE END]: render -> Output: {'final_html': '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n    <title>最新款智能手机种草</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n    <style...
+✅ [NODE END]: render -> Output: {'final_html': '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n    <title>XHS-Forge Note</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n    <...
 Deserializing unregistered type app.core.schema.IntentOutput from checkpoint. This will be blocked in a future version. Add to allowed_msgpack_modules to silence: [('app.core.schema', 'IntentOutput')]
 Deserializing unregistered type app.core.schema.IntentOutput from checkpoint. This will be blocked in a future version. Add to allowed_msgpack_modules to silence: [('app.core.schema', 'IntentOutput')]
-INFO:     127.0.0.1:42340 - "GET /workspace/thread_cf6v6qc3na6/inspect HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46844 - "GET /workspace/thread_js31auqfwmr/inspect HTTP/1.1" 200 OK

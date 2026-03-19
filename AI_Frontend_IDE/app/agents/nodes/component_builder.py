@@ -26,7 +26,7 @@ def get_builder_llm():
 
 async def component_builder_node(state: ComponentTaskState) -> dict:
     """
-    【单体工兵节点 5.7】：变量加固与职责隔离版。
+    【单体工兵节点 5.8】：纯文本注入版 (杜绝 jinja2 错误)。
     """
     comp_id = state["component_id"]
     comp_type = state["component_type"]
@@ -37,17 +37,16 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
     retrieved_knowledge = state.get("retrieved_knowledge", {})
     battle_report = None
     
-    # 构造结构化事实上下文 (作为变量传递，避免大括号冲突)
-    fact_context = "无外部参考资料"
+    fact_str = "无外部参考资料"
     if isinstance(retrieved_knowledge, dict):
         battle_report = retrieved_knowledge.get("battle_report")
         if retrieved_knowledge.get("entity_name"):
             fact_context = {
                 "entity": retrieved_knowledge.get('entity_name'),
                 "attributes": retrieved_knowledge.get('core_attributes', {}),
-                # ✨ 核心重构：使用从父图传下来的物理打捞资产
                 "images": state.get("image_assets", []) 
             }
+            fact_str = json.dumps(fact_context, ensure_ascii=False, indent=2)
 
     # 2. 提取导引文案
     content_msgs = state.get("content_messages", [])
@@ -65,16 +64,16 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
         llm = get_builder_llm()
         structured_llm = llm.with_structured_output(ComponentBuilderOutput)
         
-        # 3. 构造指令 (使用 jinja2 变量注入)
+        # 3. 构造指令 (纯 f-string 拼接，最安全)
         system_prompt = f"""你是一个顶级组件设计师。当前构建 ID: [{comp_id}], 类型: "{comp_type}"。
 
 【⚠️ 本组件专项简报】: >> {content_brief} <<
 
 【📖 全局定调背景】:
-{{{{ global_guide }}}}
+{global_guide}
 
 【📊 结构化事实库】:
-{{{{ fact_json }}}}
+{fact_str}
 
 【通用铁律】：
 1. 职责锁定：仅针对简报指派的细节创作。
@@ -82,38 +81,21 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
 3. 📸 零幻觉图像：若事实库无图，image_url 设为 null。
 """
 
-        # ✨ [核心纠偏] VersusCard 的“柔性对冲”
-        if comp_type == "VersusCard":
-            if battle_report:
-                system_prompt += f"""
-【🎭 重点：舆情对冲模式】：这是一个 VersusCard！
-请务必使用下述已合成的对冲观点进行填充：
-- 标题: {battle_report.get('title')}
-- 填入 proText 字段 (正方): {battle_report.get('pros', {}).get('details')}
-- 填入 conText 字段 (反方): {battle_report.get('cons', {}).get('details')}
-"""
-            else:
-                system_prompt += f"""
-【🎭 重点：双向分析模式】：这是一个 VersusCard！
-当前没有激烈的舆情对冲，请你根据【结构化事实库】客观提炼该产品的核心优势（填入 proText 字段）和客观存在的局限/注意事项（填入 conText 字段）。
-- 语气需客观、中立。
-- 严禁将数据塞进 paragraphs！
-"""
+        if comp_type == "VersusCard" and battle_report:
+            system_prompt += f"\n【🚨 强制对冲数据】:\n{json.dumps(battle_report, ensure_ascii=False)}"
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("human", "请根据指令完成组件数据构建。")
-        ], template_format="jinja2")
+            ("human", "请根据指令完成组件数据构建。用户指令：{query}")
+        ])
         
         try:
             chain = prompt | structured_llm
-            result: ComponentBuilderOutput = await chain.ainvoke({
-                "global_guide": global_guide,
-                "fact_json": json.dumps(fact_context, ensure_ascii=False),
-                "query": user_query
-            })
+            result: ComponentBuilderOutput = await chain.ainvoke({"query": user_query})
             
-            res_data = result.data.model_dump(exclude_none=True)
+            res_data = {}
+            if result.data:
+                res_data = result.data.model_dump(exclude_none=True)
             res_data["type"] = comp_type 
             
             # VersusCard 深度纠偏
@@ -122,7 +104,9 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                 res_data["proText"] = battle_report.get('pros', {}).get('details')
                 res_data["conText"] = battle_report.get('cons', {}).get('details')
             
-            style_data = result.style.model_dump(exclude_none=True) if result.style else {"css_classes": "", "inline_styles": {}}
+            style_data = {"css_classes": "", "inline_styles": {}}
+            if result.style:
+                style_data = result.style.model_dump(exclude_none=True)
 
             return {
                 "data_dsl": {comp_id: res_data},
@@ -130,4 +114,17 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
             }
         except Exception as e:
             print(f"🩹 [工兵自愈] {comp_id} 失败: {e}")
-            return {"data_dsl": {comp_id: {"type": comp_type, "title": "内容填充中..."}}}
+            
+            # 最后的挣扎：如果是 VersusCard 且有报告，直接硬填
+            if comp_type == "VersusCard" and battle_report:
+                 return {
+                    "data_dsl": {comp_id: {
+                        "type": "VersusCard",
+                        "title": battle_report.get('title'),
+                        "proText": battle_report.get('pros', {}).get('details'),
+                        "conText": battle_report.get('cons', {}).get('details')
+                    }},
+                    "style_dsl": {comp_id: {"css_classes": "opacity-90"}}
+                }
+            
+            return {"data_dsl": {comp_id: {"type": comp_type, "title": "内容生成异常"}}}
