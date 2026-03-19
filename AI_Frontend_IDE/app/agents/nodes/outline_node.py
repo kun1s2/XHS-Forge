@@ -36,22 +36,47 @@ async def outline_agent(state: UIProjectState) -> dict:
     intent_res = state.get("intent_result")
     mode = getattr(intent_res, "narrative_mode", "spatial") if not isinstance(intent_res, dict) else intent_res.get("narrative_mode", "spatial")
     
+    # 获取用户真实指令，这是大纲排版的最核心依据！
+    main_msgs = state.get("main_messages", [])
+    user_query = str(main_msgs[-1].content) if main_msgs else "自由排版"
+
     # 3. 构造 ReAct 提示词
     # 强制告知大模型：必须使用工具来操作画布
     system_prompt = f"""你是一个具备 ReAct 思考能力的顶级排版导演。
 你的终极任务是使用【画布工具】将内容转化为高交互的一维区块流。
 
+【🎯 用户原始要求 (最高优先级)】:
+>> {user_query} <<
+你必须仔细阅读用户的要求。如果用户指定了某个积木（如雷达图、投票），你必须选用对应的积木。
+
 {dashboard}
 
+【⚙️ 可用物理组件库 (字典级白名单)】:
+你【只能】使用以下这些被系统支持的积木，绝对严禁捏造任何其他名称（如 ImageBlock, AdvantageBlock 等）！
+- TitleBlock: 页面标题
+- StoryText: 叙事文本
+- VersusCard: 深度对比（红黑对撞）
+- ProductSpecCard: 核心参数网格
+- RadarChartBlock: 多维性能雷达图
+- CoverSwiper: 大图轮播 (仅限图片数>0使用)
+- WeatherPolaroid: 时态氛围拍立得 (仅限图片数>0使用)
+- PollBlock: 互动投票卡
+- LocationBlock: 地理位置打卡
+
 【🛠️ 你的行动指南】：
-1. 观察：阅读上述仪表盘，了解当前页面进度和资产余量。
+1. 观察：阅读上述仪表盘，了解当前页面进度、资产余量以及【RAG 知识库存】。
 2. 思考 (Thought)：分析当前叙事阶段需要什么积木。如果你不知道怎么用某个积木，调用 search_block_manual 查询。
-3. 行动 (Action)：你【必须】调用 append_block 工具将积木逐个添加到画布上。如果你发现加错了，可以调用 remove_block 或 update_block_brief 修改。
-4. 收尾：当你认为画布积木数（4-6个）已经足够且排版完美时，你【必须】调用 finish_layout 工具来结束工作。
+3. 行动 (Action)：你【每轮只能调用一个】工具！
+   - 如果你想加积木，调用 append_block。
+   - 如果你发现加错了，可以调用 remove_block 修改。
+
+【🚨 排版审计铁律 (禁止过早完工)】:
+- 知识转化：你必须审视仪表盘中的‘事实库存’。如果还有未转化的【优势点】或【槽点】，你【严禁】结束排版！你必须继续添加积木（如 RadarChartBlock 或 ProductSpecCard）来消耗这些知识。
+- 积木限额：全篇积木数（不含标题）必须达到 5-7 个，以确保页面内容的极致丰满度和专业感。
+- 只有满足上述两点，你才能调用 finish_layout 工具来结束工作。
 
 【⚠️ 绝对铁律】：
-- 严禁直接输出 JSON 结构！你所有的排版动作都必须通过调用 append_block 等工具来完成。
-- 无图时严禁追加 CoverSwiper, WeatherPolaroid 等图片积木。
+- 严禁直接输出 JSON 结构！所有动作必须通过工具完成。
 """
 
     llm = get_outline_agent_llm()

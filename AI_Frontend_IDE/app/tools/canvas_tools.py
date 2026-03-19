@@ -19,13 +19,12 @@ SAFE_VARIANTS = {
 def append_block(
     component_type: str, 
     content_brief: str, 
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    state: Annotated[dict, InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
     """
     【追加积木】：当你需要在页面末尾新增一个组件时，调用此工具。
     - component_type: 组件的类型名称 (如 'CoverSwiper', 'PollBlock', 'VersusCard')。
-    - content_brief: 给下游撰稿工兵的指令简报 (如 '提取核心参数，语气要激动')。
+    - content_brief: 给下游撰稿工兵的指令简报。
     """
     new_id = f"{component_type.lower()}_{uuid.uuid4().hex[:6]}"
     new_block = {
@@ -34,13 +33,9 @@ def append_block(
         "content_brief": content_brief
     }
     
-    current_blocks = state.get("data_dsl", {}).get("blocks", [])
-    updated_blocks = list(current_blocks)
-    updated_blocks.append(new_block)
-    
     return Command(
         update={
-            "data_dsl": {"blocks": updated_blocks, "_blocks_override": True},
+            "data_dsl": {"_block_append": new_block},
             "messages": [ToolMessage(content=f"成功追加积木: {new_id}", tool_call_id=tool_call_id)]
         }
     )
@@ -50,47 +45,36 @@ def insert_block(
     component_type: str, 
     content_brief: str, 
     insert_index: int,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    state: Annotated[dict, InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
     """
     【插入积木】：当你需要将新组件精确插入到页面的特定位置时，调用此工具。
     - component_type: 组件的类型名称。
     - content_brief: 撰稿指令简报。
-    - insert_index: 插入的数组索引 (0 表示插在最前面)。请先通过观测仪表盘确认当前 blocks 的长度！
+    - insert_index: 插入的数组索引 (0 表示插在最前面)。
     """
     new_id = f"{component_type.lower()}_{uuid.uuid4().hex[:6]}"
     new_block = {"id": new_id, "component_type": component_type, "content_brief": content_brief}
     
-    current_blocks = state.get("data_dsl", {}).get("blocks", [])
-    updated_blocks = list(current_blocks)
-    
-    safe_index = min(max(0, insert_index), len(updated_blocks))
-    updated_blocks.insert(safe_index, new_block)
-    
     return Command(
         update={
-            "data_dsl": {"blocks": updated_blocks, "_blocks_override": True},
-            "messages": [ToolMessage(content=f"成功在索引 {safe_index} 插入积木: {new_id}", tool_call_id=tool_call_id)]
+            "data_dsl": {"_block_insert": {"index": insert_index, "block": new_block}},
+            "messages": [ToolMessage(content=f"成功在索引 {insert_index} 插入积木: {new_id}", tool_call_id=tool_call_id)]
         }
     )
 
 @tool
 def remove_block(
     block_id: str, 
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    state: Annotated[dict, InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
     """
     【删除积木】：当你发现某个组件排版多余，或用户明确要求删除时，调用此工具。
     - block_id: 必须提供你想要删除的积木的精确 ID。
     """
-    current_blocks = state.get("data_dsl", {}).get("blocks", [])
-    updated_blocks = [b for b in current_blocks if b.get("id") != block_id]
-    
     return Command(
         update={
-            "data_dsl": {"blocks": updated_blocks, "_blocks_override": True},
+            "data_dsl": {"_block_remove": block_id},
             "messages": [ToolMessage(content=f"成功删除积木: {block_id}", tool_call_id=tool_call_id)]
         }
     )
@@ -99,31 +83,17 @@ def remove_block(
 def update_block_brief(
     block_id: str, 
     new_brief: str, 
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    state: Annotated[dict, InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
     """
     【更新积木简报】：当你不需要更换组件，只需要调整工兵的撰写要求时，调用此工具。
     - block_id: 要修改的积木 ID。
     - new_brief: 全新的撰写指令。
     """
-    current_blocks = state.get("data_dsl", {}).get("blocks", [])
-    updated_blocks = []
-    
-    found = False
-    for b in current_blocks:
-        new_b = dict(b)
-        if new_b.get("id") == block_id:
-            new_b["content_brief"] = new_brief
-            new_b["needs_rebuild"] = True 
-            found = True
-        updated_blocks.append(new_b)
-            
-    msg = f"成功更新积木简报: {block_id}" if found else f"未找到积木: {block_id}"
     return Command(
         update={
-            "data_dsl": {"blocks": updated_blocks, "_blocks_override": True},
-            "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)]
+            "data_dsl": {"_block_update": {"id": block_id, "data": {"content_brief": new_brief, "needs_rebuild": True}}},
+            "messages": [ToolMessage(content=f"成功更新积木简报: {block_id}", tool_call_id=tool_call_id)]
         }
     )
 

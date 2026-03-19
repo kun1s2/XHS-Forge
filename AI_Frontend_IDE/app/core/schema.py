@@ -70,9 +70,13 @@ class ComponentData(BaseModel):
     option_a: Optional[str] = Field(None, description="正方选项，极具煽动性")
     option_b: Optional[str] = Field(None, description="反方选项，极具煽动性")
     
-    # 3. 🎁 盲盒刮刮乐 (BlindBox)
-    hint: Optional[str] = Field(None, description="盲盒外部的诱饵提示语")
-    hidden_content: Optional[str] = Field(None, description="刮开后显示的震撼事实或反转结论")
+    # 3. 🎁 惊喜礼盒 (GiftBox) 专属
+    box_cover_text: Optional[str] = Field(None, description="礼盒外部的引导文案，如'点击拆开粉丝福利'")
+    box_inside_content: Optional[str] = Field(None, description="礼盒拆开后的惊喜内容")
+
+    # 🃏 翻转真相卡 (FlipCard) 专属
+    front_text: Optional[str] = Field(None, description="卡片正面的悬念文案")
+    back_text: Optional[str] = Field(None, description="卡片背面的真相/反转文案")
     
     # 4. ⏱️ 编年史/时间轴 (TimelineBlock)
     events: Optional[List[Dict[str, str]]] = Field(None, description="时间轴事件数组，含 timestamp, title, description")
@@ -115,9 +119,9 @@ class ComponentStyle(BaseModel):
 
 class ComponentBuilderOutput(BaseModel):
     """单组件构建输出模型"""
-    thought_process: str = Field(description="组件数据与全局文案/知识库对齐的思考过程")
+    thought_process: Optional[str] = Field(None, description="组件数据与全局文案/知识库对齐的思考过程")
     data: ComponentData = Field(..., description="组件的具体数据负载")
-    style: ComponentStyle = Field(..., description="组件的样式数据")
+    style: Optional[ComponentStyle] = Field(None, description="组件的样式数据")
 
     @field_validator('style', mode='before')
     @classmethod

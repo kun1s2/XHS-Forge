@@ -51,7 +51,7 @@ async def style_agent(state: UIProjectState) -> dict:
     art_director = create_react_agent(
         model=llm,
         tools=STYLE_TOOLS,
-        state_modifier=f"""你是一个顶级的小红书/抖音风格网页美术指导。
+        prompt=f"""你是一个顶级的小红书/抖音风格网页美术指导。
 当前全局氛围设定：视觉风向 [{vibe}], 情绪烈度 [{intensity:.1f}]。
 
 【职责说明】：

@@ -116,9 +116,17 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
             res_data = result.data.model_dump(exclude_none=True)
             res_data["type"] = comp_type 
             
+            # VersusCard 深度纠偏
+            if comp_type == "VersusCard" and battle_report:
+                res_data["title"] = battle_report.get('title')
+                res_data["proText"] = battle_report.get('pros', {}).get('details')
+                res_data["conText"] = battle_report.get('cons', {}).get('details')
+            
+            style_data = result.style.model_dump(exclude_none=True) if result.style else {"css_classes": "", "inline_styles": {}}
+
             return {
                 "data_dsl": {comp_id: res_data},
-                "style_dsl": {comp_id: result.style.model_dump(exclude_none=True)}
+                "style_dsl": {comp_id: style_data}
             }
         except Exception as e:
             print(f"🩹 [工兵自愈] {comp_id} 失败: {e}")

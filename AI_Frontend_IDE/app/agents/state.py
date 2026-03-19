@@ -16,11 +16,37 @@ def merge_dsl(left: dict, right: dict) -> dict:
         print(f"⚠️ [状态机警告] 丢弃非字典类型的更新包: {type(right)}")
         return merged
     
-    # ✨ 核心加固：处理画布手术刀发来的覆盖指令
+    # ✨ 核心加固：处理画布手术刀发来的【原子级】并发修改指令
+    if "_block_append" in right:
+        if "blocks" not in merged: merged["blocks"] = []
+        merged["blocks"].append(right["_block_append"])
+        right.pop("_block_append", None)
+
+    if "_block_insert" in right:
+        if "blocks" not in merged: merged["blocks"] = []
+        idx = right["_block_insert"].get("index", 0)
+        block = right["_block_insert"].get("block", {})
+        idx = min(max(0, idx), len(merged["blocks"]))
+        merged["blocks"].insert(idx, block)
+        right.pop("_block_insert", None)
+
+    if "_block_remove" in right:
+        if "blocks" in merged:
+            merged["blocks"] = [b for b in merged["blocks"] if b.get("id") != right["_block_remove"]]
+        right.pop("_block_remove", None)
+
+    if "_block_update" in right:
+        if "blocks" in merged:
+            target_id = right["_block_update"].get("id")
+            for b in merged["blocks"]:
+                if b.get("id") == target_id:
+                    b.update(right["_block_update"].get("data", {}))
+        right.pop("_block_update", None)
+
+    # 兼容旧版的覆盖指令
     if right.get("_blocks_override"):
         if "blocks" in right:
             merged["blocks"] = right["blocks"]
-        # 消费掉这个 flag，不污染持久化状态
         right.pop("_blocks_override", None)
         right.pop("blocks", None)
     
