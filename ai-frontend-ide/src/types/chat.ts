@@ -134,8 +134,76 @@ export interface InspectorSummary {
   execution?: Record<string, unknown>
   builder?: BuilderSummary
   facts?: Record<string, unknown>
+  retrieval?: Record<string, unknown>
   assets?: Record<string, unknown>
   suggestions?: string[]
+  [key: string]: unknown
+}
+
+export interface BenchmarkOverview {
+  generated_at?: string
+  session_count?: number
+  active_document_count?: number
+  summary?: {
+    avg_block_count?: number
+    avg_asset_count?: number
+    avg_changed_block_count?: number
+    generated_session_rate?: number
+    [key: string]: unknown
+  }
+  rag?: {
+    session_count?: number
+    grounded_session_count?: number
+    avg_citation_count?: number
+    avg_citation_coverage?: number
+    avg_grounding_score?: number
+    avg_record_count?: number
+    avg_fresh_record_count?: number
+    avg_stale_record_count?: number
+    grounded_session_rate?: number
+    [key: string]: unknown
+  }
+  cache?: {
+    cache_hit_rate?: number
+    live_search_rate?: number
+    rerank_rate?: number
+    fresh_cache_rate?: number
+    expired_cache_rate?: number
+    avg_cache_age_seconds?: number
+    avg_remaining_ttl_seconds?: number
+    [key: string]: unknown
+  }
+  execution?: {
+    builder_component_total?: number
+    builder_fallback_total?: number
+    builder_fallback_rate?: number
+    warning_session_count?: number
+    warning_rate?: number
+    [key: string]: unknown
+  }
+  distributions?: {
+    scenarios?: Array<{ scenario: string; count: number }>
+    components?: Array<{ component_type: string; count: number }>
+    themes?: Array<{ theme_preset: string; count: number }>
+    entities?: Array<{ entity_name: string; count: number }>
+    [key: string]: unknown
+  }
+  sessions?: Array<{
+    thread_id?: string
+    title?: string
+    updated_at?: string
+    block_count?: number
+    asset_count?: number
+    scenario?: string
+    theme_preset?: string
+    entity_name?: string
+    grounding_status?: string
+    citation_count?: number
+    cache_freshness?: string
+    warning_count?: number
+    [key: string]: unknown
+  }>
+  recommendations?: string[]
   [key: string]: unknown
 }
 
@@ -154,6 +222,75 @@ export interface TurnTrace {
 export type AgentBackends = Record<string, string>
 
 export interface RetrievedKnowledge {
+  retrieval_eval?: {
+    hit_count?: number
+    scope_count?: number
+    citation_count?: number
+    citation_coverage?: number
+    grounding_score?: number
+    freshness?: string
+    fresh_record_count?: number
+    stale_record_count?: number
+    source_quality?: string
+    recommendation?: string
+    [key: string]: unknown
+  }
+  knowledge_records?: Array<{
+    record_id?: string
+    doc_type?: string
+    entity_name?: string
+    scenario?: string
+    category?: string
+    source?: string
+    source_scope?: string
+    source_title?: string
+    query?: string
+    title?: string
+    snippet?: string
+    trust_level?: string
+    ingest_mode?: string
+    updated_at?: string
+    expires_at?: string
+    ttl_seconds?: number
+    [key: string]: unknown
+  }>
+  retrieval_summary?: {
+    strategy?: string
+    policy_name?: string
+    policy_path?: string
+    ingest_mode?: string
+    cache_hit?: boolean
+    cache_freshness?: string
+    cache_key?: string
+    cache_age_seconds?: number
+    cache_ttl_seconds?: number
+    cache_remaining_ttl_seconds?: number
+    live_search_used?: boolean
+    query?: string
+    entity_name?: string
+    query_variants?: string[]
+    asset_mode?: string
+    image_query?: string
+    source_count?: number
+    citation_count?: number
+    image_count?: number
+    hit_scopes?: string[]
+    freshness?: string
+    record_count?: number
+    fresh_record_count?: number
+    stale_record_count?: number
+    grounding_status?: string
+    no_hit_reason?: string
+    rerank_applied?: boolean
+    [key: string]: unknown
+  }
+  retrieval_hits?: Array<{
+    scope?: string
+    query?: string
+    count?: number
+    titles?: string[]
+    [key: string]: unknown
+  }>
   entity_name?: string
   fact_conflicts?: Array<{
     field?: string
@@ -163,6 +300,10 @@ export interface RetrievedKnowledge {
   fact_sources?: Array<{
     title?: string
     url?: string
+    snippet?: string
+    source_type?: string
+    source_scope?: string
+    query?: string
     [key: string]: unknown
   }>
   confirmed_facts?: Record<string, {
@@ -247,6 +388,7 @@ export interface ChatMessage {
   agentBackends?: AgentBackends
   turnTrace?: TurnTrace
   inspectorSummary?: InspectorSummary
+  benchmarkOverview?: BenchmarkOverview
   /** ✨ 思维链实时透传记录 */
   thoughts?: { node: string; text: string; streaming?: boolean }[]
 }
@@ -284,6 +426,8 @@ export interface WSEvent {
   agentBackends?: AgentBackends
   inspector_summary?: InspectorSummary
   inspectorSummary?: InspectorSummary
+  benchmark_overview?: BenchmarkOverview
+  benchmarkOverview?: BenchmarkOverview
 }
 
 export interface WSPayload {

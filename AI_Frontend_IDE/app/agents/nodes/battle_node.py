@@ -22,7 +22,7 @@ async def battle_node(state: UIProjectState) -> dict:
         return {}
 
     llm = create_llm(
-        model=settings.LLM_WORKER_MODEL, 
+        model=settings.LLM_MODEL, 
         api_key=settings.LLM_API_KEY, 
         base_url=settings.LLM_BASE_URL,
         temperature=0.7

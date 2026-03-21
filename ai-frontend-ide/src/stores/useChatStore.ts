@@ -7,6 +7,7 @@ import { computed, ref } from 'vue'
 import type {
   AgentBackends,
   AgentMeta,
+  BenchmarkOverview,
   ChatMessage,
   ImageAsset,
   InspectorSummary,
@@ -170,6 +171,7 @@ export const useChatStore = defineStore('chat', () => {
   const turnTrace = ref<TurnTrace>({})
   const agentBackends = ref<AgentBackends>({})
   const inspectorSummary = ref<InspectorSummary>({})
+  const benchmarkOverview = ref<BenchmarkOverview>({})
   const pendingUploadUrls = ref<string[]>([])
   const showcaseProfiles = ref<ShowcaseProfile[]>([])
   const searchedAssets = ref<ImageAsset[]>([])
@@ -384,6 +386,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  const fetchBenchmarkOverview = async () => {
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/benchmark/overview`)
+      const data = await res.json()
+      benchmarkOverview.value = (data?.data || data || {}) as BenchmarkOverview
+    } catch (e) {
+      console.error('获取 benchmark 概览失败:', e)
+    }
+  }
+
   // ✨ 哨兵新增：主动追踪话题
   const trackTrend = async (keyword: string) => {
     try {
@@ -460,6 +473,7 @@ export const useChatStore = defineStore('chat', () => {
       } else {
         createNewSession()
       }
+      void fetchBenchmarkOverview()
     } catch (e) {
       console.error('获取会话列表失败:', e)
       if (!threadId.value) createNewSession()
@@ -512,12 +526,14 @@ export const useChatStore = defineStore('chat', () => {
       applyWorkspaceSnapshot(data, { preserveLocalAssistant: false })
       
       fetchAgentMeta()
+      void fetchBenchmarkOverview()
       if (!force || !ws || ws.readyState !== WebSocket.OPEN) {
         connectWebSocket()
       }
     } catch (e) {
       console.error('切换会话失败:', e)
       fetchAgentMeta()
+      void fetchBenchmarkOverview()
       if (!force || !ws || ws.readyState !== WebSocket.OPEN) {
         connectWebSocket()
       }
@@ -972,6 +988,7 @@ export const useChatStore = defineStore('chat', () => {
         
         // ✨ 哨兵自动化：生成结束后，立即拉取 Agent 脑电图
         fetchAgentMeta()
+        void fetchBenchmarkOverview()
         window.setTimeout(() => {
           void syncWorkspaceAfterTurnEnd()
         }, 120)
@@ -1079,6 +1096,7 @@ export const useChatStore = defineStore('chat', () => {
     turnTrace,
     agentBackends,
     inspectorSummary,
+    benchmarkOverview,
     documentBlocks,
     documentAssets,
     renderPageData,
@@ -1135,6 +1153,7 @@ export const useChatStore = defineStore('chat', () => {
     setAssetAsCover,
     confirmFactValue,
     fetchAgentMeta,
+    fetchBenchmarkOverview,
     fetchTrends,
     trackTrend,
     rollbackComponent

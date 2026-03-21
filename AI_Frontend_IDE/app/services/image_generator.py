@@ -35,7 +35,7 @@ async def auto_generate_images(note_document: dict, archetype: str) -> tuple[dic
     subject = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9 ]", " ", subject).strip()
 
     # 初始化一个轻量级模型来生成生图 Prompt
-    llm = create_llm(model=settings.LLM_SMALL_MODEL, api_key=settings.LLM_API_KEY, base_url=settings.LLM_BASE_URL)
+    llm = create_llm(model=settings.LLM_MODEL, api_key=settings.LLM_API_KEY, base_url=settings.LLM_BASE_URL)
 
     # ✨ 审美多元化：根据场景分配最合适的摄影风格
     AESTHETIC_MAP = {

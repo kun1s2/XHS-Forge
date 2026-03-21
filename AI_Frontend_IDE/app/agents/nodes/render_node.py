@@ -3,7 +3,7 @@ from typing import Dict, Any
 from app.agents.state import UIProjectState
 from app.services.oss_client import upload_html_to_oss
 from app.core.component_manifest import is_component_supported_for_html
-from app.core.note_document import build_document_view_from_note_document, build_note_document_from_state
+from app.core.note_document import build_note_document_layout, build_note_document_from_state
 from app.core.runtime_log import write_latest_html
 
 # --- 🚀 全量物理组件库 5.6 (Precision Edition) ---
@@ -175,7 +175,7 @@ async def render_node(state: UIProjectState) -> dict:
     【后端物理渲染器 5.6】：物理级数据校验，严禁占位符。
     """
     note_document = build_note_document_from_state(state)
-    execution_view = build_document_view_from_note_document(note_document)
+    execution_view = build_note_document_layout(note_document)
     blocks = execution_view.get("blocks", [])
     
     # 聚合变量

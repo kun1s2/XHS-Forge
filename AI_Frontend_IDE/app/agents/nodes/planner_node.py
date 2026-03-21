@@ -3,6 +3,7 @@ from typing import Any
 from app.agents.state import UIProjectState
 from app.core.component_manifest import resolve_component_for_block_intent
 from app.core.note_document import build_note_document_from_state
+from app.core.prompt_engineering import build_prompt_snapshot
 from app.services.scenario_manager import scenario_manager
 
 
@@ -170,32 +171,22 @@ def _build_planner_prompt_snapshot(
     block_intents: list[dict[str, Any]],
 ) -> dict[str, Any]:
     user_query = _latest_user_text(state) or "请规划当前页面策略"
-    return {
-        "planner_agent": [
-            {
-                "role": "system",
-                "content": "Planner V2: 根据混合场景、事实状态、资产状态和组件 manifest 输出页面策略，不直接自由生成页面。",
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"user_query={user_query}\n"
-                    f"scenario_scores={scenario_scores}\n"
-                    f"has_images={bool(state.get('image_assets'))}\n"
-                    f"has_controversy={bool(state.get('has_controversy'))}\n"
-                    f"knowledge_ready={bool(state.get('retrieved_knowledge'))}"
-                ),
-            },
-            {
-                "role": "assistant",
-                "content": str({
-                    "theme_policy": planner_policy.get("theme_policy", {}),
-                    "layout_policy": planner_policy.get("layout_policy", {}),
-                    "block_intents": [item.get("intent_type") for item in block_intents],
-                }),
-            },
-        ]
-    }
+    return build_prompt_snapshot(
+        "planner_agent",
+        system_prompt="Planner V2: 根据混合场景、事实状态、资产状态和组件 manifest 输出页面策略，不直接自由生成页面。",
+        user_prompt=(
+            f"user_query={user_query}\n"
+            f"scenario_scores={scenario_scores}\n"
+            f"has_images={bool(state.get('image_assets'))}\n"
+            f"has_controversy={bool(state.get('has_controversy'))}\n"
+            f"knowledge_ready={bool(state.get('retrieved_knowledge'))}"
+        ),
+        assistant_payload={
+            "theme_policy": planner_policy.get("theme_policy", {}),
+            "layout_policy": planner_policy.get("layout_policy", {}),
+            "block_intents": [item.get("intent_type") for item in block_intents],
+        },
+    )
 
 
 async def planner_node(state: UIProjectState) -> dict[str, Any]:

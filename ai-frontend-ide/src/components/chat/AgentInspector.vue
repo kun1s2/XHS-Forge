@@ -1,404 +1,162 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { storeToRefs } from 'pinia';
-import { useChatStore } from '../../stores/useChatStore';
-import type {
-  AgentMeta,
-  ExecutionTrace,
-  FactBinding,
-  InspectorSummary,
-  NoteDocument,
-  NoteDocumentAsset,
-  NoteDocumentBlock,
-  PlannerOutput,
-  PlannerPolicy,
-  RetrievedKnowledge,
-  TurnTrace,
-} from '../../types/chat';
+import { computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useChatStore } from '../../stores/useChatStore'
+import AgentInspectorJsonTree from './AgentInspectorJsonTree.vue'
+import { useAgentInspectorDiagnostics } from './useAgentInspectorDiagnostics'
 
-const chatStore = useChatStore();
-const { renderPageData, renderStyleData, plannerOutput, plannerPolicy, noteDocument, scenarioTags, patchTracks, agentBackends, turnTrace, inspectorSummary, agentMeta } = storeToRefs(chatStore)
-const activeTab = ref<'meta' | 'dsl' | 'plan' | 'rag' | 'patch' | 'trace'>('meta');
-const agentMetaState = computed<AgentMeta>(() => agentMeta.value || {})
+const chatStore = useChatStore()
+const {
+  renderPageData,
+  renderStyleData,
+  plannerOutput,
+  plannerPolicy,
+  noteDocument,
+  scenarioTags,
+  patchTracks,
+  agentBackends,
+  turnTrace,
+  inspectorSummary,
+  agentMeta,
+  benchmarkOverview,
+} = storeToRefs(chatStore)
 
-// 递归 JSON 树组件 (内部局部定义)
-const JsonTree = {
-  name: 'JsonTree',
-  props: ['data', 'label'],
-  template: `
-    <div class="pl-3 border-l border-[#333] my-1">
-      <details class="group" open>
-        <summary class="cursor-pointer text-[11px] hover:text-blue-400 transition-colors list-none flex items-center gap-1">
-          <span class="w-3 h-3 text-[8px] opacity-40 transition-transform group-open:rotate-90">▶</span>
-          <span class="font-bold text-gray-500">{{ label }}:</span>
-          <span v-if="!isObject(data)" class="text-blue-300 font-mono">{{ formatValue(data) }}</span>
-          <span v-else class="text-[9px] opacity-30 italic">{ Object }</span>
-        </summary>
-        <div v-if="isObject(data)" class="pl-2 space-y-0.5 mt-1">
-          <JsonTree v-for="(val, key) in data" :key="key" :data="val" :label="key" />
-        </div>
-      </details>
-    </div>
-  `,
-  methods: {
-    isObject: (val: any) => val !== null && typeof val === 'object',
-    formatValue: (val: any) => typeof val === 'string' ? `"${val}"` : val
-  }
-};
+const activeTab = ref<'meta' | 'dsl' | 'plan' | 'rag' | 'benchmark' | 'patch' | 'trace'>('meta')
+const JsonTree = AgentInspectorJsonTree
 
 const tabs = [
   { id: 'meta', name: '总览', icon: '⚡' },
   { id: 'trace', name: '本轮追踪', icon: '📍' },
   { id: 'plan', name: '策略规划', icon: '🧭' },
   { id: 'rag', name: '事实与检索', icon: '🔍' },
+  { id: 'benchmark', name: 'Benchmark', icon: '📊' },
   { id: 'patch', name: '补丁历史', icon: '💉' },
-  { id: 'dsl', name: '原始协议', icon: '🛠️' }
-];
+  { id: 'dsl', name: '原始协议', icon: '🛠️' },
+]
 
 const metaInfo = computed(() => [
   { label: '创作者人设', value: chatStore.creatorPersona || '默认博主', color: 'text-yellow-400' },
   { label: '意图路由', value: chatStore.currentNode || 'IDLE', color: 'text-pink-400' },
-  { label: 'Checkpoint', value: chatStore.activeCheckpointId?.slice(0, 8) || 'NONE', color: 'text-gray-500' }
-]);
-
-const inspectorSummaryState = computed<InspectorSummary>(() => inspectorSummary.value || agentMetaState.value.inspector_summary || {})
-const inspectorFocus = computed(() => (inspectorSummaryState.value?.focus || {}) as Record<string, unknown>)
-const inspectorDocument = computed(() => (inspectorSummaryState.value?.document || {}) as Record<string, unknown>)
-const inspectorExecution = computed(() => (inspectorSummaryState.value?.execution || {}) as Record<string, unknown>)
-const inspectorBuilder = computed(() => (inspectorSummaryState.value?.builder || {}))
-const inspectorFacts = computed(() => (inspectorSummaryState.value?.facts || {}) as Record<string, unknown>)
-const inspectorAssets = computed(() => (inspectorSummaryState.value?.assets || {}) as Record<string, unknown>)
-const inspectorSuggestions = computed(() => Array.isArray(inspectorSummaryState.value?.suggestions) ? inspectorSummaryState.value.suggestions : [])
-const inspectorHeadline = computed(() => String(inspectorSummaryState.value?.headline || '当前还没有可展示的诊断摘要'))
-const inspectorStatus = computed(() => String(inspectorSummaryState.value?.status || 'idle'))
-const builderPromptModeLabel = computed(() => {
-  const modes = Array.isArray(inspectorBuilder.value?.prompt_modes) ? inspectorBuilder.value.prompt_modes : []
-  return modes.length ? modes.join(' / ') : '未记录'
-})
-const getInspectorStatusClasses = (status: string) => {
-  if (status === 'attention') return 'border-amber-700/30 bg-amber-950/20 text-amber-300'
-  if (status === 'active') return 'border-emerald-700/30 bg-emerald-950/20 text-emerald-300'
-  return 'border-slate-700/30 bg-slate-950/20 text-slate-300'
-}
-const getInspectorStatusLabel = (status: string) => {
-  if (status === 'attention') return '需关注'
-  if (status === 'active') return '运行中'
-  return '待启动'
-}
-const overviewCards = computed(() => [
-  {
-    title: '当前焦点',
-    value: inspectorFocus.value.entity_name || '未识别主体',
-    helper: `${(inspectorFocus.value.scenarios || []).join(' / ') || 'general'} · ${inspectorFocus.value.intent_route || '等待指令'}`,
-    tone: 'cyan',
-  },
-  {
-    title: '页面状态',
-    value: `${inspectorDocument.value.block_count || 0} 个区块`,
-    helper: `${inspectorDocument.value.asset_count || 0} 个资产 · 主题 ${inspectorDocument.value.theme_preset || 'default'}`,
-    tone: 'emerald',
-  },
-  {
-    title: '最近执行',
-    value: inspectorExecution.value.last_action || '暂无动作',
-    helper: `命中 ${inspectorExecution.value.target_block_id || 'global'} · ${inspectorExecution.value.changed_block_count || 0} 处变更`,
-    tone: 'violet',
-  },
-  {
-    title: '积木构建',
-    value: `${inspectorBuilder.value.component_count || 0} 个组件`,
-    helper: inspectorBuilder.value.component_count
-      ? `${inspectorBuilder.value.fallback_count || 0} 次 fallback · ${inspectorBuilder.value.fact_summary_count || 0} 条事实摘要 · ${builderPromptModeLabel.value}`
-      : '当前这轮没有新的组件构建',
-    tone: 'rose',
-  },
-  {
-    title: '可信状态',
-    value: `${inspectorFacts.value.conflict_count || 0} 个冲突`,
-    helper: `${inspectorFacts.value.confirmed_count || 0} 个已确认 · ${inspectorFacts.value.source_count || 0} 个来源`,
-    tone: 'amber',
-  },
+  { label: 'Checkpoint', value: chatStore.activeCheckpointId?.slice(0, 8) || 'NONE', color: 'text-gray-500' },
 ])
-const getOverviewCardClasses = (tone: string) => {
-  if (tone === 'rose') return 'border-rose-800/25 bg-rose-950/10'
-  if (tone === 'amber') return 'border-amber-800/25 bg-amber-950/10'
-  if (tone === 'violet') return 'border-violet-800/25 bg-violet-950/10'
-  if (tone === 'emerald') return 'border-emerald-800/25 bg-emerald-950/10'
-  return 'border-cyan-800/25 bg-cyan-950/10'
-}
-const getAssetSupportBadgeClasses = (support: string) => {
-  if (support === 'required') return 'border-rose-700/30 bg-rose-900/10 text-rose-300'
-  if (support === 'optional') return 'border-amber-700/30 bg-amber-900/10 text-amber-300'
-  return 'border-slate-700/30 bg-slate-900/10 text-slate-400'
-}
-const humanizeAssetSupport = (support: string) => {
-  if (support === 'required') return '素材必需'
-  if (support === 'optional') return '素材可选'
-  return '无需素材'
-}
 
-const knowledge = computed<RetrievedKnowledge>(() => (agentMetaState.value.retrieved_knowledge || {}) as RetrievedKnowledge)
-const factSources = computed(() => Array.isArray(knowledge.value?.fact_sources) ? knowledge.value.fact_sources : [])
-const factConflicts = computed(() => Array.isArray(knowledge.value?.fact_conflicts) ? knowledge.value.fact_conflicts : [])
-const factConfidence = computed(() => String(knowledge.value?.fact_confidence || 'unknown'))
-const confirmedFacts = computed(() => {
-  const raw = knowledge.value?.confirmed_facts
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
-  return Object.entries(raw).map(([field, payload]) => ({
-    field,
-    fieldLabel: payload?.field_label || field,
-    value: payload?.value || '',
-    sources: Array.isArray(payload?.sources) ? payload.sources : [],
-  }))
+const {
+  knowledge,
+  factSources,
+  factConflicts,
+  factConfidence,
+  retrievalHits,
+  retrievalQueryVariants,
+  retrievalHitScopes,
+  retrievalStrategy,
+  retrievalGroundingStatus,
+  retrievalFreshness,
+  retrievalNoHitReason,
+  retrievalPrimaryQuery,
+  retrievalPolicyName,
+  retrievalPolicyPath,
+  retrievalCitationCount,
+  retrievalImageCount,
+  retrievalCacheHit,
+  retrievalCacheFreshness,
+  retrievalCacheKey,
+  retrievalCacheAgeSeconds,
+  retrievalCacheTtlSeconds,
+  retrievalCacheRemainingTtlSeconds,
+  retrievalLiveSearchUsed,
+  retrievalHitCount,
+  retrievalIngestMode,
+  retrievalRecordCount,
+  retrievalFreshRecordCount,
+  retrievalStaleRecordCount,
+  retrievalCitationCoverage,
+  retrievalGroundingScore,
+  retrievalSourceQuality,
+  retrievalRecommendation,
+  retrievalRerankApplied,
+  getGroundingToneClasses,
+  humanizeGroundingStatus,
+  humanizeRetrievalStrategy,
+  humanizeRetrievalScope,
+  humanizeRetrievalIngestMode,
+  humanizeCacheFreshness,
+  humanizeSourceQuality,
+  getSourceQualityClasses,
+  confirmedFacts,
+  plannerOutputState,
+  plannerPolicyState,
+  noteDocumentState,
+  plannerIntents,
+  plannerScenarioScores,
+  noteBlocks,
+  noteAssets,
+  noteScenarios,
+  documentThemeLabel,
+  noteBlockCapabilityRows,
+  patchTrackMap,
+  runtimeBackends,
+  turnTraceState,
+  traceTimeline,
+  traceWarnings,
+  traceChangedBlocks,
+  noteEditorTrace,
+  inspectorFocus,
+  inspectorDocument,
+  inspectorExecution,
+  inspectorBuilder,
+  inspectorSuggestions,
+  inspectorHeadline,
+  inspectorStatus,
+  builderPromptModeLabel,
+  getInspectorStatusClasses,
+  getInspectorStatusLabel,
+  overviewCards,
+  getOverviewCardClasses,
+  getAssetSupportBadgeClasses,
+  humanizeAssetSupport,
+  benchmarkSummary,
+  benchmarkRag,
+  benchmarkCache,
+  benchmarkExecution,
+  benchmarkSessions,
+  benchmarkRecommendations,
+  benchmarkScenarioRows,
+  benchmarkComponentRows,
+  benchmarkThemeRows,
+  benchmarkEntityRows,
+  benchmarkCards,
+  benchmarkGeneratedAt,
+  getTraceEventToneClasses,
+  getTraceMarkerClasses,
+  getDiagnosticToneClasses,
+  getTraceWarningBadgeClasses,
+  getTraceWarningBadgeLabel,
+  humanizeTraceAction,
+  humanizeTraceWarning,
+  tracePrimaryTarget,
+  copiedDebugSummary,
+  traceStructuredStatus,
+  tracePrimarySignal,
+  traceDiagnostics,
+  getStructuredStatusClasses,
+  structuredStatusLabel,
+  copyTraceDebugSummary,
+  noteFactBindings,
+  formatFactFieldLabels,
+  confirmFact,
+} = useAgentInspectorDiagnostics({
+  chatStore,
+  plannerOutput,
+  plannerPolicy,
+  noteDocument,
+  scenarioTags,
+  patchTracks,
+  agentBackends,
+  turnTrace,
+  inspectorSummary,
+  agentMeta,
+  benchmarkOverview,
 })
-
-const plannerOutputState = computed<PlannerOutput>(() => plannerOutput.value || {})
-const plannerPolicyState = computed<PlannerPolicy>(() => plannerPolicy.value || {})
-const noteDocumentState = computed<NoteDocument>(() => noteDocument.value || {})
-const plannerIntents = computed(() => Array.isArray(plannerOutputState.value?.block_intents) ? plannerOutputState.value.block_intents : [])
-const plannerScenarioScores = computed(() => (plannerOutputState.value?.scenario_scores || plannerPolicyState.value?.scenario_scores || {}) as Record<string, number>)
-const noteBlocks = computed<NoteDocumentBlock[]>(() => Array.isArray(noteDocumentState.value?.blocks) ? noteDocumentState.value.blocks : [])
-const noteAssets = computed<NoteDocumentAsset[]>(() => Array.isArray(noteDocumentState.value?.assets) ? noteDocumentState.value.assets : [])
-const noteScenarios = computed(() => (scenarioTags.value as string[]) || ['general'])
-const documentThemeLabel = computed(() => {
-  const inspectorPreset = String(inspectorDocument.value?.theme_preset || '').trim()
-  if (inspectorPreset) return inspectorPreset
-  const plannerPreset = String(plannerPolicyState.value?.theme_policy?.preset || '').trim()
-  if (plannerPreset) return plannerPreset
-  const pageTheme = (noteDocumentState.value?.theme?.page_theme || {}) as Record<string, unknown>
-  const pageThemeKeys = Object.keys(pageTheme)
-  if (pageThemeKeys.length) return `${pageThemeKeys.length} 个主题变量`
-  return 'default'
-})
-const noteBlockCapabilityRows = computed(() =>
-  noteBlocks.value.slice(0, 4).map((block: NoteDocumentBlock) => {
-    const editableTargets = Array.isArray(block?.editable_targets) ? block.editable_targets : []
-    return {
-      id: String(block?.id || ''),
-      label: String(block?.label || block?.type || '未命名块'),
-      semanticRole: String(block?.semantic_role || 'content'),
-      assetSupport: String(block?.asset_support || 'none'),
-      factBindingSupport: Boolean(block?.fact_binding_support),
-      editableSummary: editableTargets.length ? editableTargets.slice(0, 2).join(' / ') : '无显式目标',
-    }
-  })
-)
-const patchTrackMap = computed<Record<string, unknown[]>>(() => (patchTracks.value as Record<string, unknown[]>) || {})
-const runtimeBackends = computed(() => {
-  const fromStore = agentBackends.value || {}
-  if (Object.keys(fromStore).length) return fromStore
-  return agentMetaState.value.agent_backends || {}
-})
-const turnTraceState = computed<TurnTrace>(() => turnTrace.value || agentMetaState.value.turn_trace || {})
-const traceTimeline = computed(() => Array.isArray(turnTraceState.value?.timeline) ? turnTraceState.value.timeline : [])
-const traceWarnings = computed(() => Array.isArray(turnTraceState.value?.warnings) ? turnTraceState.value.warnings : [])
-const traceChangedBlocks = computed(() => Array.isArray(turnTraceState.value?.changed_blocks) ? turnTraceState.value.changed_blocks : [])
-const noteEditorTrace = computed<ExecutionTrace>(() => (turnTraceState.value?.note_editor || {}) as ExecutionTrace)
-const workspaceActionTrace = computed<ExecutionTrace>(() => (turnTraceState.value?.workspace_action || {}) as ExecutionTrace)
-const activeExecutionTrace = computed(() => Object.keys(noteEditorTrace.value).length ? noteEditorTrace.value : workspaceActionTrace.value)
-
-const TRACE_WARNING_LABELS: Record<string, string> = {
-  noop: '本轮没有实际内容改动',
-  fallback_used: '本轮触发了兜底路径',
-  style_changed_without_content: '样式变化了，但内容没有变',
-  auto_resume_guard: '命中过度续火保护',
-  max_auto_resume_exceeded: '超过最大自动续火次数',
-}
-
-const TRACE_EVENT_LABELS: Record<string, string> = {
-  node_start: '节点开始',
-  node_end: '节点完成',
-  tool_start: '工具调用',
-}
-
-const TRACE_ACTION_LABELS: Record<string, string> = {
-  create_canvas: '首版创建',
-  update_block: '更新区块',
-  replace_block: '替换区块',
-  move_block: '移动区块',
-  remove_block: '删除区块',
-  append_block: '新增区块',
-  rewrite_paragraph: '重写段落',
-  update_page_theme: '修改主题',
-  update_page_title: '修改标题',
-  noop: '无实际改动',
-  error: '执行失败',
-  workspace_import_asset: '素材入池',
-  workspace_set_cover: '设为封面',
-  workspace_confirm_fact: '确认事实',
-  workspace_rollback_component: '组件回滚',
-  workspace_select_region: '锁定区块',
-  workspace_fork: '创建分支',
-}
-
-const humanizeTraceWarning = (warning: string) => TRACE_WARNING_LABELS[warning] || warning
-const humanizeTraceEvent = (event: string) => TRACE_EVENT_LABELS[event] || event
-const humanizeTraceAction = (action: string) => TRACE_ACTION_LABELS[action] || action || '未识别动作'
-const traceSummaryTone = computed(() => traceWarnings.value.length ? 'warn' : 'ok')
-const tracePrimaryTarget = computed(() => activeExecutionTrace.value.target_block_id || noteEditorTrace.value.block_id || turnTraceState.value.selected_element_id || 'global')
-const copiedDebugSummary = ref(false)
-const traceStructuredStatus = computed(() => {
-  if (activeExecutionTrace.value.fallback_used) return 'fallback'
-  if (activeExecutionTrace.value.structured === false) return 'loose'
-  return 'structured'
-})
-const tracePrimarySignal = computed(() => {
-  if (traceWarnings.value.includes('style_changed_without_content')) {
-    return {
-      label: '样式变了，但内容没变',
-      tone: 'warn',
-      description: '这通常说明本轮命中了样式层或空转路径，建议先确认命中区块和结构化动作。',
-    }
-  }
-  if (traceWarnings.value.includes('noop')) {
-    return {
-      label: '本轮没有实际内容改动',
-      tone: 'warn',
-      description: '系统顺利执行了流程，但没有找到可落地的内容差异，建议看结构化计划是否命中了正确区块。',
-    }
-  }
-  if (activeExecutionTrace.value.fallback_used) {
-    return {
-      label: '本轮使用了兜底路径',
-      tone: 'warn',
-      description: '说明结构化动作没有完全覆盖这次请求，建议优先检查命中目标和动作推断。',
-    }
-  }
-  return {
-    label: '本轮结构化执行正常',
-    tone: 'ok',
-    description: '系统已经产出了结构化计划，并记录了命中区块与变更摘要，可以直接用来排查是否改中了地方。',
-  }
-})
-const traceDiagnostics = computed(() => {
-  const cards = [
-    {
-      title: '动作判定',
-      tone: 'cyan',
-      description: humanizeTraceAction(String(activeExecutionTrace.value.action || '')),
-      helper: activeExecutionTrace.value.structured === false ? '这次更像开放式输出' : '这次是结构化动作',
-    },
-    {
-      title: '命中对象',
-      tone: 'emerald',
-      description: String(tracePrimaryTarget.value),
-      helper: activeExecutionTrace.value.reason || '根据 query、文档语义和 planner policy 推断目标。',
-    },
-    {
-      title: '实际变更',
-      tone: 'violet',
-      description: traceChangedBlocks.value.length ? `${traceChangedBlocks.value.length} 个区块发生变化` : '没有记录到块级变化',
-      helper: traceChangedBlocks.value.length ? '可以展开下面的“实际变更”继续看字段差异。' : '如果预期有改动，优先检查 warnings 和结构化计划。',
-    },
-  ]
-
-  if (traceWarnings.value.length) {
-    cards.push({
-      title: '风险提示',
-      tone: 'amber',
-      description: traceWarnings.value.map((item) => humanizeTraceWarning(String(item))).join('；'),
-      helper: '这类信号通常是排障优先入口。',
-    })
-  }
-
-  return cards
-})
-const getTraceEventTone = (event: string) => {
-  if (event === 'node_start') return 'cyan'
-  if (event === 'node_end') return 'emerald'
-  if (event === 'tool_start') return 'violet'
-  return 'slate'
-}
-const getTraceEventToneClasses = (event: string) => {
-  const tone = getTraceEventTone(event)
-  if (tone === 'emerald') return 'border-emerald-800/25 bg-emerald-950/10 text-emerald-300'
-  if (tone === 'violet') return 'border-violet-800/25 bg-violet-950/10 text-violet-300'
-  if (tone === 'cyan') return 'border-cyan-800/25 bg-cyan-950/10 text-cyan-300'
-  return 'border-slate-800/25 bg-slate-950/10 text-slate-300'
-}
-const getTraceMarkerClasses = (event: string) => {
-  const tone = getTraceEventTone(event)
-  if (tone === 'emerald') return 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.28)]'
-  if (tone === 'violet') return 'bg-violet-500 shadow-[0_0_12px_rgba(139,92,246,0.28)]'
-  if (tone === 'cyan') return 'bg-cyan-500 shadow-[0_0_12px_rgba(34,211,238,0.28)]'
-  return 'bg-slate-500 shadow-[0_0_12px_rgba(148,163,184,0.2)]'
-}
-const getDiagnosticToneClasses = (tone: string) => {
-  if (tone === 'amber') return 'border-amber-800/25 bg-amber-950/10'
-  if (tone === 'violet') return 'border-violet-800/25 bg-violet-950/10'
-  if (tone === 'emerald') return 'border-emerald-800/25 bg-emerald-950/10'
-  return 'border-cyan-800/25 bg-cyan-950/10'
-}
-const getTraceWarningBadgeClasses = (warning: string) => {
-  if (warning === 'style_changed_without_content') return 'border-rose-700/30 bg-rose-950/20 text-rose-300'
-  if (warning === 'fallback_used' || warning === 'auto_resume_guard' || warning === 'max_auto_resume_exceeded') return 'border-amber-700/30 bg-amber-950/20 text-amber-300'
-  return 'border-slate-700/30 bg-slate-950/20 text-slate-300'
-}
-const getTraceWarningBadgeLabel = (warning: string) => {
-  if (warning === 'style_changed_without_content') return '红色告警'
-  if (warning === 'fallback_used' || warning === 'auto_resume_guard' || warning === 'max_auto_resume_exceeded') return '黄色提醒'
-  return '一般提醒'
-}
-const getStructuredStatusClasses = (status: string) => {
-  if (status === 'fallback') return 'border-amber-700/30 text-amber-300 bg-amber-900/10'
-  if (status === 'loose') return 'border-slate-700/30 text-slate-300 bg-slate-900/10'
-  return 'border-emerald-700/30 text-emerald-300 bg-emerald-900/10'
-}
-const structuredStatusLabel = computed(() => {
-  if (traceStructuredStatus.value === 'fallback') return '兜底执行'
-  if (traceStructuredStatus.value === 'loose') return '非结构化'
-  return '结构化执行'
-})
-const traceDebugSummary = computed(() => {
-  const lines = [
-    `query: ${turnTraceState.value.query || 'N/A'}`,
-    `action: ${humanizeTraceAction(String(noteEditorTrace.value.action || ''))}`,
-    `target: ${tracePrimaryTarget.value}`,
-    `status: ${structuredStatusLabel.value}`,
-    `changed_blocks: ${traceChangedBlocks.value.map((item) => `${item.id}(${item.type})`).join(', ') || 'none'}`,
-    `warnings: ${traceWarnings.value.map((item) => humanizeTraceWarning(String(item))).join('；') || 'none'}`,
-    `timeline: ${traceTimeline.value.map((item) => `${item.node}:${item.event}`).join(' -> ') || 'none'}`,
-  ]
-  if (noteEditorTrace.value.reason) {
-    lines.push(`reason: ${noteEditorTrace.value.reason}`)
-  }
-  return lines.join('\n')
-})
-const copyTraceDebugSummary = async () => {
-  try {
-    await navigator.clipboard.writeText(traceDebugSummary.value)
-    copiedDebugSummary.value = true
-    window.setTimeout(() => {
-      copiedDebugSummary.value = false
-    }, 1800)
-  } catch (error) {
-    console.error('复制 trace 摘要失败', error)
-  }
-}
-
-
-const FACT_FIELD_LABELS: Record<string, string> = {
-  battery_capacity: '电池容量',
-  price: '价格',
-}
-
-const noteFactBindings = computed<Array<{ block_id: string; bindings: FactBinding[] }>>(() =>
-  Array.isArray(noteDocumentState.value?.fact_bindings) ? noteDocumentState.value.fact_bindings : []
-)
-const formatFactFieldLabels = (fields: unknown, labels?: unknown) => {
-  if (Array.isArray(labels) && labels.length) {
-    return labels.map((label) => String(label || '')).filter(Boolean)
-  }
-  if (!Array.isArray(fields)) return []
-  return fields.map((field) => {
-    const key = String(field || '')
-    return FACT_FIELD_LABELS[key] || key
-  }).filter(Boolean)
-}
-
-const confirmFact = async (field: string, value: string, sources: string[] = []) => {
-  await chatStore.confirmFactValue(field, value, sources)
-}
 </script>
 
 <template>
@@ -634,6 +392,185 @@ const confirmFact = async (field: string, value: string, sources: string[] = [])
 
       <!-- Tab 3: 检索记忆 (RAG) -->
       <div v-if="activeTab === 'rag'" class="space-y-3 animate-in fade-in duration-300">
+        <div class="rounded-2xl border border-cyan-800/20 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_38%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 space-y-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center rounded-full border px-2 py-1 text-[9px] font-bold" :class="getGroundingToneClasses(retrievalGroundingStatus)">
+                  {{ humanizeGroundingStatus(retrievalGroundingStatus) }}
+                </span>
+                <span class="inline-flex items-center rounded-full border border-cyan-700/30 bg-cyan-950/10 px-2 py-1 text-[9px] font-bold text-cyan-300">
+                  {{ humanizeRetrievalStrategy(retrievalStrategy) }}
+                </span>
+                <span v-if="retrievalCacheHit" class="inline-flex items-center rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 text-[9px] font-bold text-violet-300">
+                  cache hit
+                </span>
+                <span v-if="retrievalLiveSearchUsed" class="inline-flex items-center rounded-full border border-emerald-700/30 bg-emerald-950/10 px-2 py-1 text-[9px] font-bold text-emerald-300">
+                  live search
+                </span>
+              </div>
+              <div class="text-[12px] font-bold text-gray-100">这轮 RAG 怎么搜、搜到了什么、最后引用了哪些证据</div>
+              <div class="text-[10px] leading-relaxed text-gray-400">
+                {{ retrievalPrimaryQuery || '当前这轮还没有正式检索 query。' }}
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-[9px]">
+                <span v-if="retrievalPolicyName" class="inline-flex items-center rounded-full border border-cyan-700/30 bg-cyan-950/10 px-2 py-1 font-bold text-cyan-300">
+                  {{ retrievalPolicyName }}
+                </span>
+                <span class="inline-flex items-center rounded-full border border-slate-700/30 bg-slate-950/20 px-2 py-1 font-bold text-slate-200">
+                  {{ humanizeRetrievalIngestMode(retrievalIngestMode) }}
+                </span>
+                <span class="inline-flex items-center rounded-full border px-2 py-1 font-bold" :class="getSourceQualityClasses(retrievalSourceQuality)">
+                  {{ humanizeSourceQuality(retrievalSourceQuality) }}
+                </span>
+                <span v-if="retrievalRerankApplied" class="inline-flex items-center rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 font-bold text-violet-300">
+                  rerank applied
+                </span>
+                <span v-if="retrievalRecommendation" class="text-[9px] leading-relaxed text-gray-500">
+                  {{ retrievalRecommendation }}
+                </span>
+              </div>
+              <div v-if="retrievalPolicyPath" class="text-[9px] leading-relaxed text-gray-500">
+                policy path: {{ retrievalPolicyPath }}
+              </div>
+              <div v-if="retrievalNoHitReason" class="text-[10px] leading-relaxed text-amber-300">
+                {{ retrievalNoHitReason }}
+              </div>
+            </div>
+            <div class="grid min-w-[220px] grid-cols-2 gap-2">
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">引用数</div>
+                <div class="mt-1 text-[13px] font-bold text-emerald-300">{{ retrievalCitationCount }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">命中分组</div>
+                <div class="mt-1 text-[13px] font-bold text-cyan-300">{{ retrievalHitScopes.length || retrievalHitCount }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">图片证据</div>
+                <div class="mt-1 text-[13px] font-bold text-violet-300">{{ retrievalImageCount }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">新鲜度</div>
+                <div class="mt-1 text-[13px] font-bold text-amber-300">{{ retrievalFreshness }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">缓存状态</div>
+                <div class="mt-1 text-[13px] font-bold text-violet-300">{{ humanizeCacheFreshness(retrievalCacheFreshness) }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">沉淀记录</div>
+                <div class="mt-1 text-[13px] font-bold text-slate-200">{{ retrievalRecordCount }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">新鲜/过期</div>
+                <div class="mt-1 text-[13px] font-bold text-slate-200">{{ retrievalFreshRecordCount }}/{{ retrievalStaleRecordCount }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">引用覆盖率</div>
+                <div class="mt-1 text-[13px] font-bold text-emerald-300">{{ Math.round(retrievalCitationCoverage * 100) }}%</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Grounding 分</div>
+                <div class="mt-1 text-[13px] font-bold text-cyan-300">{{ retrievalGroundingScore.toFixed(2) }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="retrievalCacheHit || retrievalCacheKey" class="space-y-2">
+          <div class="flex items-center gap-2 bg-violet-900/10 text-violet-400 p-2 rounded-lg border border-violet-800/20">
+            <span>🧊</span>
+            <span class="font-bold">缓存诊断</span>
+          </div>
+          <div class="grid gap-2 md:grid-cols-2">
+            <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-2">
+              <div class="text-[10px] font-bold text-gray-200">缓存键</div>
+              <div class="text-[10px] text-gray-400 break-all">{{ retrievalCacheKey || '本轮未写入缓存键' }}</div>
+            </div>
+            <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 grid grid-cols-3 gap-2 text-center">
+              <div>
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Age</div>
+                <div class="mt-1 text-[12px] font-bold text-slate-200">{{ retrievalCacheAgeSeconds }}s</div>
+              </div>
+              <div>
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">TTL</div>
+                <div class="mt-1 text-[12px] font-bold text-cyan-300">{{ retrievalCacheTtlSeconds }}s</div>
+              </div>
+              <div>
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Remaining</div>
+                <div class="mt-1 text-[12px] font-bold text-emerald-300">{{ retrievalCacheRemainingTtlSeconds }}s</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="knowledgeRecords.length" class="space-y-2">
+          <div class="flex items-center gap-2 bg-slate-900/30 text-slate-200 p-2 rounded-lg border border-slate-700/20">
+            <span>🗃️</span>
+            <span class="font-bold">知识沉淀快照</span>
+          </div>
+          <div class="grid gap-2 md:grid-cols-2">
+            <div v-for="record in knowledgeRecords.slice(0, 4)" :key="record.record_id || `${record.source}-${record.title}`" class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-2">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-[10px] font-bold text-gray-200 leading-tight">{{ record.title || record.source_title || '未命名知识' }}</div>
+                  <div class="mt-1 text-[9px] text-gray-500">{{ record.doc_type || 'fact' }} · {{ record.source_scope || 'general' }}</div>
+                </div>
+                <span class="rounded-full border px-2 py-0.5 text-[8px] font-bold" :class="getSourceQualityClasses(String(record.trust_level || 'unknown'))">
+                  {{ String(record.trust_level || 'unknown') }}
+                </span>
+              </div>
+              <div class="text-[10px] leading-relaxed text-gray-400">{{ record.snippet || record.content || '暂无摘要' }}</div>
+              <div class="grid grid-cols-2 gap-2 text-[9px] text-gray-500">
+                <div>updated: {{ record.updated_at || 'N/A' }}</div>
+                <div>expires: {{ record.expires_at || 'N/A' }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="retrievalQueryVariants.length" class="space-y-2">
+          <div class="flex items-center gap-2 bg-cyan-900/10 text-cyan-400 p-2 rounded-lg border border-cyan-800/20">
+            <span>🧭</span>
+            <span class="font-bold">检索策略与 Query 变体</span>
+          </div>
+          <div class="grid gap-2">
+            <div v-for="(query, idx) in retrievalQueryVariants" :key="`${query}-${idx}`" class="rounded-2xl border border-[#333] bg-[#252526] p-3">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-[10px] font-bold text-gray-200">{{ humanizeRetrievalScope(retrievalHits[idx]?.scope || retrievalHitScopes[idx] || '') }}</div>
+                <span class="rounded-full border border-cyan-800/25 bg-cyan-950/10 px-2 py-0.5 text-[8px] font-bold text-cyan-300">
+                  {{ retrievalHits[idx]?.count || 0 }} hits
+                </span>
+              </div>
+              <div class="mt-2 text-[10px] leading-relaxed text-gray-400">{{ query }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="retrievalHits.length" class="space-y-2">
+          <div class="flex items-center gap-2 bg-violet-900/10 text-violet-400 p-2 rounded-lg border border-violet-800/20">
+            <span>📚</span>
+            <span class="font-bold">命中概览</span>
+          </div>
+          <div class="grid gap-2 md:grid-cols-2">
+            <div v-for="hit in retrievalHits" :key="`${hit.scope}-${hit.query}`" class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-[10px] font-bold text-gray-200">{{ humanizeRetrievalScope(String(hit.scope || '')) }}</div>
+                <span class="rounded-full border border-violet-800/25 bg-violet-950/10 px-2 py-0.5 text-[8px] font-bold text-violet-300">
+                  {{ hit.count || 0 }} 命中
+                </span>
+              </div>
+              <div class="text-[10px] text-gray-400 leading-relaxed">{{ hit.query }}</div>
+              <div v-if="Array.isArray(hit.titles) && hit.titles.length" class="flex flex-wrap gap-1.5">
+                <span v-for="title in hit.titles" :key="title" class="rounded-full border border-[#3a3a3a] bg-black/10 px-2 py-1 text-[8px] text-gray-300">
+                  {{ title }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="grid grid-cols-3 gap-2">
           <div class="bg-[#252526] p-2 rounded-lg border border-[#333]">
             <div class="text-[9px] text-gray-500 uppercase tracking-wider">置信度</div>
@@ -723,7 +660,7 @@ const confirmFact = async (field: string, value: string, sources: string[] = [])
         <div v-if="factSources.length > 0" class="space-y-2">
           <div class="flex items-center gap-2 bg-emerald-900/10 text-emerald-400 p-2 rounded-lg border border-emerald-800/20">
             <span>📎</span>
-            <span class="font-bold">本轮事实来源</span>
+            <span class="font-bold">本轮引用来源</span>
           </div>
           <div
             v-for="source in factSources"
@@ -734,9 +671,9 @@ const confirmFact = async (field: string, value: string, sources: string[] = [])
               <div class="text-[10px] font-bold text-gray-200 leading-tight">{{ source.title || '未命名来源' }}</div>
               <span
                 class="text-[8px] px-1.5 py-0.5 rounded-full border"
-                :class="source.source_type === 'official' ? 'text-emerald-300 border-emerald-700/40 bg-emerald-900/10' : 'text-slate-400 border-slate-700/40 bg-slate-900/10'"
+                :class="source.source_scope === 'official' || source.source_type === 'official' ? 'text-emerald-300 border-emerald-700/40 bg-emerald-900/10' : 'text-slate-400 border-slate-700/40 bg-slate-900/10'"
               >
-                {{ source.source_type === 'official' ? 'official' : 'web' }}
+                {{ source.source_scope === 'official' || source.source_type === 'official' ? 'official' : source.source_scope || 'web' }}
               </span>
             </div>
             <div class="text-[9px] text-gray-500 break-all">{{ source.url }}</div>
@@ -773,6 +710,233 @@ const confirmFact = async (field: string, value: string, sources: string[] = [])
           </div>
           <div class="bg-[#000]/30 p-3 rounded-lg border border-[#333] font-mono text-[10px] leading-relaxed text-gray-400">
              {{ chatStore.thoughtText || chatStore.nodeStreamOutput }}
+          </div>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'benchmark'" class="space-y-3 animate-in fade-in duration-300">
+        <div class="rounded-2xl border border-violet-800/20 bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,0.14),_transparent_38%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 space-y-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 text-[9px] font-bold text-violet-300">
+                  system evaluation
+                </span>
+                <span v-if="benchmarkGeneratedAt" class="inline-flex items-center rounded-full border border-slate-700/30 bg-slate-950/20 px-2 py-1 text-[9px] font-bold text-slate-200">
+                  {{ benchmarkGeneratedAt }}
+                </span>
+              </div>
+              <div class="text-[12px] font-bold text-gray-100">跨会话 benchmark 面板：直接展示这套系统的 RAG、缓存和执行质量</div>
+              <div class="text-[10px] leading-relaxed text-gray-400">
+                这里不是看单轮 trace，而是看最近整批会话的平均表现，方便面试时证明系统稳定性和工程质量。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-2 md:grid-cols-3">
+          <div v-for="card in benchmarkCards" :key="card.title" class="rounded-2xl border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" :class="getOverviewCardClasses(card.tone)">
+            <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ card.title }}</div>
+            <div class="mt-2 text-[13px] font-bold text-gray-100">{{ card.value }}</div>
+            <div class="mt-1 text-[9px] leading-relaxed text-gray-500">{{ card.helper }}</div>
+          </div>
+        </div>
+
+        <div v-if="benchmarkRecommendations.length" class="space-y-2">
+          <div class="flex items-center gap-2 bg-amber-900/10 text-amber-300 p-2 rounded-lg border border-amber-800/20">
+            <span>🧠</span>
+            <span class="font-bold">系统建议</span>
+          </div>
+          <div class="grid gap-2">
+            <div v-for="(item, idx) in benchmarkRecommendations" :key="idx" class="rounded-2xl border border-[#333] bg-[#252526] p-3 text-[10px] leading-relaxed text-gray-300">
+              {{ item }}
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-3 xl:grid-cols-2">
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 bg-cyan-900/10 text-cyan-300 p-2 rounded-lg border border-cyan-800/20">
+              <span>🧭</span>
+              <span class="font-bold">场景 / 主题分布</span>
+            </div>
+            <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-3">
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-gray-500">Scenarios</div>
+                <div class="mt-2 grid gap-2">
+                  <div v-for="item in benchmarkScenarioRows" :key="item.scenario" class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                    <div class="flex items-center justify-between gap-3 text-[10px]">
+                      <span class="font-bold text-gray-200">{{ item.scenario }}</span>
+                      <span class="font-mono text-cyan-300">{{ item.count }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-gray-500">Themes</div>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <span v-for="item in benchmarkThemeRows" :key="item.theme_preset" class="rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 text-[9px] font-bold text-violet-300">
+                    {{ item.theme_preset }} · {{ item.count }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 bg-violet-900/10 text-violet-300 p-2 rounded-lg border border-violet-800/20">
+              <span>🧱</span>
+              <span class="font-bold">组件 / 主体分布</span>
+            </div>
+            <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-3">
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-gray-500">Top Components</div>
+                <div class="mt-2 grid gap-2">
+                  <div v-for="item in benchmarkComponentRows" :key="item.component_type" class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                    <div class="flex items-center justify-between gap-3 text-[10px]">
+                      <span class="font-bold text-gray-200">{{ item.component_type }}</span>
+                      <span class="font-mono text-violet-300">{{ item.count }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-gray-500">Top Entities</div>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <span v-for="item in benchmarkEntityRows" :key="item.entity_name" class="rounded-full border border-emerald-700/30 bg-emerald-950/10 px-2 py-1 text-[9px] font-bold text-emerald-300">
+                    {{ item.entity_name }} · {{ item.count }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-3 xl:grid-cols-2">
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 bg-emerald-900/10 text-emerald-300 p-2 rounded-lg border border-emerald-800/20">
+              <span>🔍</span>
+              <span class="font-bold">RAG / Cache 指标</span>
+            </div>
+            <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 grid grid-cols-2 gap-2 text-center">
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">RAG 会话</div>
+                <div class="mt-1 text-[12px] font-bold text-cyan-300">{{ Number(benchmarkRag.session_count || 0) }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Grounded 会话</div>
+                <div class="mt-1 text-[12px] font-bold text-emerald-300">{{ Number(benchmarkRag.grounded_session_count || 0) }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">平均引用数</div>
+                <div class="mt-1 text-[12px] font-bold text-violet-300">{{ Number(benchmarkRag.avg_citation_count || 0).toFixed(2) }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Fresh / Stale</div>
+                <div class="mt-1 text-[12px] font-bold text-slate-200">{{ Number(benchmarkRag.avg_fresh_record_count || 0).toFixed(1) }}/{{ Number(benchmarkRag.avg_stale_record_count || 0).toFixed(1) }}</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Cache Hit</div>
+                <div class="mt-1 text-[12px] font-bold text-violet-300">{{ Math.round(Number(benchmarkCache.cache_hit_rate || 0) * 100) }}%</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">Rerank</div>
+                <div class="mt-1 text-[12px] font-bold text-cyan-300">{{ Math.round(Number(benchmarkCache.rerank_rate || 0) * 100) }}%</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">平均 Cache Age</div>
+                <div class="mt-1 text-[12px] font-bold text-amber-300">{{ Number(benchmarkCache.avg_cache_age_seconds || 0).toFixed(1) }}s</div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-wider text-gray-500">平均剩余 TTL</div>
+                <div class="mt-1 text-[12px] font-bold text-emerald-300">{{ Number(benchmarkCache.avg_remaining_ttl_seconds || 0).toFixed(1) }}s</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 bg-rose-900/10 text-rose-300 p-2 rounded-lg border border-rose-800/20">
+              <span>🛠️</span>
+              <span class="font-bold">执行与稳定性</span>
+            </div>
+            <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-2">
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 text-[10px]">
+                  <span class="text-gray-500">Builder 组件总数</span>
+                  <span class="font-mono text-rose-300">{{ Number(benchmarkExecution.builder_component_total || 0) }}</span>
+                </div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 text-[10px]">
+                  <span class="text-gray-500">Builder fallback 次数</span>
+                  <span class="font-mono text-amber-300">{{ Number(benchmarkExecution.builder_fallback_total || 0) }}</span>
+                </div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 text-[10px]">
+                  <span class="text-gray-500">Builder fallback rate</span>
+                  <span class="font-mono text-amber-300">{{ Math.round(Number(benchmarkExecution.builder_fallback_rate || 0) * 100) }}%</span>
+                </div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 text-[10px]">
+                  <span class="text-gray-500">Warning session rate</span>
+                  <span class="font-mono text-rose-300">{{ Math.round(Number(benchmarkExecution.warning_rate || 0) * 100) }}%</span>
+                </div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 text-[10px]">
+                  <span class="text-gray-500">平均变更区块数</span>
+                  <span class="font-mono text-cyan-300">{{ Number(benchmarkSummary.avg_changed_block_count || 0).toFixed(2) }}</span>
+                </div>
+              </div>
+              <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 text-[10px]">
+                  <span class="text-gray-500">页面生成率</span>
+                  <span class="font-mono text-emerald-300">{{ Math.round(Number(benchmarkSummary.generated_session_rate || 0) * 100) }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="benchmarkSessions.length" class="space-y-2">
+          <div class="flex items-center gap-2 bg-slate-900/30 text-slate-200 p-2 rounded-lg border border-slate-700/20">
+            <span>🗂️</span>
+            <span class="font-bold">最近会话样本</span>
+          </div>
+          <div class="grid gap-2">
+            <div v-for="session in benchmarkSessions" :key="session.thread_id" class="rounded-2xl border border-[#333] bg-[#252526] p-3">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-[10px] font-bold text-gray-200">{{ session.title || session.thread_id }}</div>
+                  <div class="mt-1 text-[9px] text-gray-500">{{ session.thread_id }} · {{ session.updated_at }}</div>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span class="rounded-full border border-cyan-700/30 bg-cyan-950/10 px-2 py-1 text-[8px] font-bold text-cyan-300">{{ session.scenario || 'general' }}</span>
+                  <span class="rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 text-[8px] font-bold text-violet-300">{{ session.theme_preset || 'default' }}</span>
+                  <span class="rounded-full border border-emerald-700/30 bg-emerald-950/10 px-2 py-1 text-[8px] font-bold text-emerald-300">{{ session.grounding_status || 'unknown' }}</span>
+                </div>
+              </div>
+              <div class="mt-3 grid grid-cols-4 gap-2 text-center">
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Blocks</div>
+                  <div class="mt-1 text-[11px] font-bold text-slate-200">{{ session.block_count || 0 }}</div>
+                </div>
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Assets</div>
+                  <div class="mt-1 text-[11px] font-bold text-slate-200">{{ session.asset_count || 0 }}</div>
+                </div>
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Citations</div>
+                  <div class="mt-1 text-[11px] font-bold text-emerald-300">{{ session.citation_count || 0 }}</div>
+                </div>
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Warnings</div>
+                  <div class="mt-1 text-[11px] font-bold text-amber-300">{{ session.warning_count || 0 }}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

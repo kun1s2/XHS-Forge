@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from app.agents.state import UIProjectState
 from app.core.note_document import (
-    build_document_view_from_note_document,
+    build_note_document_layout,
     build_note_document_from_state,
     update_note_document_block,
     update_note_document_theme,
@@ -257,7 +257,7 @@ def _build_block_style(block_type: str, intensity: float, vibe: str) -> dict:
 async def style_agent(state: UIProjectState) -> dict:
     print("🎨 [主题编译器] 开始为画布编译视觉主题...")
     note_document = build_note_document_from_state(state)
-    execution_view = build_document_view_from_note_document(note_document)
+    execution_view = build_note_document_layout(note_document)
     blocks = execution_view.get("blocks", []) or []
     vibe, intensity, theme_name_override = _resolve_theme_signal(state)
     theme_vars = _pick_theme_vars(state, vibe, theme_name_override)

@@ -19,7 +19,7 @@ async def controversy_sniffer_node(state: UIProjectState) -> dict:
         return {"has_controversy": False}
 
     llm = create_llm(
-        model=settings.LLM_SMALL_MODEL, 
+        model=settings.LLM_MODEL, 
         api_key=settings.LLM_API_KEY, 
         base_url=settings.LLM_BASE_URL,
         temperature=0

@@ -29,13 +29,6 @@ class Settings(BaseSettings):
     LLM_API_KEY: str
     LLM_BASE_URL: str 
     LLM_MODEL: str 
-    LLM_SMALL_MODEL: str 
-    
-    # === X-Forge 异构模型编排矩阵 (New) ===
-    LLM_LOGIC_MODEL: str = "gpt-4o-mini"
-    LLM_BRAIN_MODEL: str = "gemini-3.0-flash"
-    LLM_WORKER_MODEL: str = "gemini-2.5-flash-lite-nothinking"
-    LLM_VISION_MODEL: str = "gemini-2.0-flash"
     
     ZHI_PU_API_KEY: str
 

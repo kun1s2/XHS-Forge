@@ -10,7 +10,7 @@ from app.agents.nodes.component_builder import build_component_fallback, enforce
 from app.agents.state import UIProjectState
 from app.core.component_manifest import is_component_supported_for_verifier
 from app.core.note_document import (
-    build_document_view_from_state,
+    build_note_document_layout_from_state,
     build_note_document_from_state,
     replace_note_document_blocks,
     update_note_document_block,
@@ -24,7 +24,7 @@ async def verify_note_node(state: UIProjectState) -> dict:
     在渲染前补齐关键字段、移除不支持的组件，尽量保证页面可渲染。
     """
     note_document = build_note_document_from_state(state)
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     blocks = list(execution_view.get("blocks", []))
     user_query = str(state.get("main_messages", [])[-1].content) if state.get("main_messages") else ""
     retrieved_knowledge = state.get("retrieved_knowledge", {})

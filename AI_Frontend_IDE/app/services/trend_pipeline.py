@@ -3,6 +3,7 @@ import json
 import random
 from typing import List, Dict, Any
 from app.services.cache_service import cache_service
+from app.services.rag_ingestion import ingest_retrieved_knowledge
 from app.agents.nodes.research_agent import research_agent
 from app.agents.state import UIProjectState
 from langchain_core.messages import HumanMessage
@@ -77,7 +78,29 @@ class TrendPipeline:
             knowledge = result.get("retrieved_knowledge")
             if knowledge:
                 # 调研成功，写入 Redis 供所有用户共享
-                await cache_service.set_hot_knowledge(topic, knowledge)
+                ingest_result = await ingest_retrieved_knowledge(
+                    entity_name=topic,
+                    scenario="seeding",
+                    ingest_mode="system_preload",
+                    knowledge=knowledge,
+                )
+                knowledge["retrieval_summary"] = {
+                    **dict(knowledge.get("retrieval_summary") or {}),
+                    "policy_name": (knowledge.get("retrieval_summary") or {}).get("policy_name") or "cache_then_live_grounded",
+                    "policy_path": (knowledge.get("retrieval_summary") or {}).get("policy_path") or "cache_first_then_live_search",
+                    "ingest_mode": "system_preload",
+                    "record_count": ingest_result["kb_snapshot"].get("record_count") or 0,
+                    "fresh_record_count": ingest_result["kb_snapshot"].get("fresh_record_count") or 0,
+                    "stale_record_count": ingest_result["kb_snapshot"].get("stale_record_count") or 0,
+                    "freshness": ingest_result["kb_snapshot"].get("freshness") or "fresh",
+                    "rerank_applied": bool((knowledge.get("retrieval_summary") or {}).get("rerank_applied")),
+                }
+                knowledge["retrieval_eval"] = ingest_result["retrieval_eval"]
+                knowledge["knowledge_records"] = ingest_result["records"]
+                ttl_seconds = max(
+                    [int(record.get("ttl_seconds") or 0) for record in (ingest_result["records"] or [])] or [6 * 3600]
+                )
+                await cache_service.set_hot_knowledge(topic, knowledge, ttl=ttl_seconds)
         except Exception as e:
             print(f"⚠️ [预热工兵] 调研失败 ({topic}): {e}")
 

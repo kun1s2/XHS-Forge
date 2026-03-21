@@ -1,14 +1,13 @@
 import json
-from pathlib import Path
 from app.core.llm_factory import create_llm
-from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.schema import StructurePatchOutput # ✨ 引入宪法模型
+from app.core.prompt_engineering import build_chat_prompt, build_prompt_snapshot, render_prompt_messages
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
 import sys
-from app.core.note_document import build_document_view_from_state, build_note_document_from_state, build_note_document_from_structure_patch
+from app.core.note_document import build_note_document_layout_from_state, build_note_document_from_state, build_note_document_from_structure_patch
 
 # ✨ 性能优化：全局复用 LLM 实例
 _llm_instance = None
@@ -38,7 +37,7 @@ async def structure_agent(state: UIProjectState) -> dict:
     structured_llm = llm.with_structured_output(StructurePatchOutput, method="function_calling")
     
     # 2. 提取当前状态
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     current_canvas_snapshot = {
         "page_title": execution_view.get("page_title"),
         "page_theme": execution_view.get("page_theme"),
@@ -71,19 +70,10 @@ async def structure_agent(state: UIProjectState) -> dict:
     is_update = bool(execution_view.get("blocks"))
 
     # 3. ====== ✨ 现代化：从外部 XML 加载系统提示词 ======
-    prompt_path = Path(__file__).parents[2] / "prompts" / "structure_system.xml"
-    
-    try:
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            system_template = f.read()
-    except FileNotFoundError:
-        raise FileNotFoundError(f"致命错误：未找到排版提示词文件 {prompt_path}")
-
-    # 4. ====== ✨ 现代化：构建 ChatPromptTemplate (Jinja2) ======
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_template),
-        ("human", "用户的最新排版指令：\n<user_input>\n{{ user_query }}\n</user_input>\n(请以 JSON 格式输出)")
-    ], template_format="jinja2")
+    prompt = build_chat_prompt(
+        system_template_name="structure_system.xml",
+        human_template="用户的最新排版指令：\n<user_input>\n{{ user_query }}\n</user_input>\n(请以 JSON 格式输出)",
+    )
 
 
     try:
@@ -101,8 +91,7 @@ async def structure_agent(state: UIProjectState) -> dict:
         }
         
         # ✨ 新增：捕获渲染后的结构化提示词
-        rendered_messages = prompt.format_messages(**inputs)
-        prompt_data = [{"role": m.type, "content": m.content} for m in rendered_messages]
+        prompt_data = render_prompt_messages(prompt, inputs)
         
         # 使用带有重试装饰器的函数
         result: StructurePatchOutput = await invoke_with_retry(chain, inputs)
@@ -138,5 +127,5 @@ async def structure_agent(state: UIProjectState) -> dict:
         "structure_result": result, # ✨ 供 WebSocket 截获思维链
         "note_document": next_note_document,
         "active_archetype": archetype_str, # ✨ 更新当前原型 (字符串)
-        "node_prompts": {"structure_node": prompt_data} # ✨ 保存结构化提示词
+        "node_prompts": build_prompt_snapshot("structure_node", messages=prompt_data) # ✨ 保存结构化提示词
     }

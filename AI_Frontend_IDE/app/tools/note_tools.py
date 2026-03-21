@@ -10,7 +10,7 @@ from langgraph.types import Command
 from app.core.component_manifest import filter_payload_for_component, normalize_component_type
 from app.core.note_document import (
     append_note_document_block,
-    build_document_view_from_state,
+    build_note_document_layout_from_state,
     build_note_document_from_state,
     remove_note_document_block,
     replace_note_document_blocks,
@@ -38,7 +38,7 @@ def inspect_note_state(
     查看当前整张笔记的状态，包括页面标题、区块列表、事实知识与当前选中组件。
     """
     note_document = build_note_document_from_state(state)
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     knowledge = state.get("retrieved_knowledge", {})
     blocks = execution_view.get("blocks", [])
 

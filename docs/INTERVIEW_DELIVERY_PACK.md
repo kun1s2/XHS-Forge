@@ -1,263 +1,109 @@
 # Interview Delivery Pack
 
-最后更新: 2026-03-19
+最后更新: 2026-03-21
 
-这份文档不是技术 handoff，而是给项目 owner 上场面试时直接使用的。
+这是一份最终版交付总入口，供你在面试前快速准备和检查。
 
-目标只有一个：
+## 1. 从哪里开始
 
-让你在 3 到 8 分钟内，把 XHS-Forge 讲成一个有产品感、有工程权衡、有 agent 理解深度的求职项目。
+如果你只看一份文件，先看：
 
-## 1. 一句话版本
+- [`README.md`](/root/XHS-Forge/README.md)
 
-如果面试官只给你 20 秒，你就讲这句：
+它负责：
+- 项目一句话
+- 核心亮点
+- 快速启动
+- 交付文档入口
 
-“我做了一个面向类小红书内容创作的 Agent 工作台，用户可以用自然语言生成和持续编辑笔记，系统会维护长期状态，支持 checkpoint、回滚、分支创作，同时对热点、争议和时效信息做增强。”
+## 2. 架构材料
 
-## 2. 60 秒版本
+- 架构图 / 流程图：
+  - [`ARCHITECTURE_AND_FLOW.md`](/root/XHS-Forge/docs/ARCHITECTURE_AND_FLOW.md)
 
-如果面试官问“你这个项目是做什么的”，你可以这样讲：
+推荐用途：
+- 面试前复盘系统结构
+- 面试中解释 agent/runtime/RAG/cache/benchmark 的关系
+- 代码审阅时对齐整体心智模型
 
-“这个项目本质上不是一个一次性生成页面的聊天机器人，而是一个社交内容创作工作台。用户可以先用一句自然语言生成笔记，后面再持续说‘保留标题，重写第二段’、‘把投票换成雷达图’、‘整体改成灰蓝风格’，系统会在同一份 note state 上继续编辑，而不是每次从零重写。为了更贴近社交平台场景，我还做了热点和争议内容增强、长期线程上下文、checkpoint / rollback / fork，以及缓存和预热机制，来降低 agent 和搜索成本。”  
+## 3. Demo 材料
 
-## 3. 3 分钟 Demo 顺序
+- 演示脚本：
+  - [`DEMO_SCRIPT.md`](/root/XHS-Forge/docs/DEMO_SCRIPT.md)
 
-推荐默认演示 `数码评测 / 热点种草` 这条线。
+推荐用途：
+- 5 到 8 分钟线上 demo
+- 控制顺序，避免一边演示一边临场想
+- 确保能稳定展示：
+  - 生成
+  - 持续编辑
+  - RAG / cache / grounding
+  - Benchmark
 
-原因：
+## 4. 面试讲稿
 
-1. 最容易展示“热点 + 争议 + 编辑”三件事同时成立
-2. 页面变化最直观
-3. 最容易被理解成真实业务需求
+- 最终讲稿：
+  - [`INTERVIEW_TALK_TRACK.md`](/root/XHS-Forge/docs/INTERVIEW_TALK_TRACK.md)
 
-### 演示前准备
+推荐用途：
+- 20 秒自我介绍式项目概括
+- 1 分钟项目介绍
+- 3 分钟深讲
+- 高频追问回答
 
-如果你要显示隐藏的 showcase 入口：
+## 5. 简历材料
 
-```bash
-cd /root/XHS-Forge/ai-frontend-ide
-cp .env.example .env.local
-echo "VITE_ENABLE_SHOWCASE=true" >> .env.local
-```
+- 简历项目描述：
+  - [`RESUME_PROJECT_DESCRIPTION.md`](/root/XHS-Forge/docs/RESUME_PROJECT_DESCRIPTION.md)
 
-不开这个变量时，面试官看不到特殊入口。
+推荐用途：
+- 英文 bullets
+- 中文 bullets
+- 一句话版本
+- 不同岗位强调版本
 
-### Demo Step 1
+## 6. 推荐准备顺序
 
-说辞：
+### 面试前 30 分钟
 
-“我先演示它不是写 prompt 出文案，而是可以直接生成一篇可继续编辑的笔记。”
+1. 看 [`README.md`](/root/XHS-Forge/README.md)
+2. 看 [`ARCHITECTURE_AND_FLOW.md`](/root/XHS-Forge/docs/ARCHITECTURE_AND_FLOW.md)
+3. 看 [`INTERVIEW_TALK_TRACK.md`](/root/XHS-Forge/docs/INTERVIEW_TALK_TRACK.md)
 
-操作：
+### 面试前 10 分钟
 
-使用 `digital_review` 的 starter prompt：
+1. 打开前后端
+2. 按 [`DEMO_SCRIPT.md`](/root/XHS-Forge/docs/DEMO_SCRIPT.md) 走一遍
+3. 确认：
+   - Inspector 正常
+   - Benchmark 正常
+   - 页面渲染正常
 
-```text
-帮我生成一篇关于华为 Mate 60 的对比种草笔记
-```
+### 投简历时
 
-你要强调的点：
+1. 从 [`RESUME_PROJECT_DESCRIPTION.md`](/root/XHS-Forge/docs/RESUME_PROJECT_DESCRIPTION.md) 里挑一版
+2. 按岗位侧重点调整 bullets
 
-1. 这是整页生成，不是只回一段文案
-2. 后端会走 research、distill、争议感知、组件生成和渲染
-3. 最终产物是可编辑的 note state，不是一次性字符串
+## 7. 这套项目当前能讲什么
 
-### Demo Step 2
+现在这套项目已经具备完整交付条件，核心可以讲成：
 
-说辞：
+- Long-lived content editing workbench
+- Unified `NoteDocument` protocol
+- LangGraph runtime + agent decision nodes
+- Structured editing + deterministic execution
+- RAG with preload / ingest / grounding / anti-decay
+- Cache with TTL / freshness / diagnostics
+- Benchmark + Inspector + Prompt Lab
 
-“接下来我演示它不是一次性生成器，而是可以继续在同一篇笔记上做结构化编辑。”
+## 8. 当前封板状态
 
-操作：
+当前正式验收结果：
 
-```text
-把投票换成雷达图，再把第二段改得更尖锐一点
-```
+- 最终验收：`180 passed, 1 skipped`
+- guardrails：`21 passed`
+- 前端 build：通过
 
-你要强调的点：
+所以这份交付包对应的是：
 
-1. 这是对已有页面做增量修改
-2. 系统不会整页重写，而是走 editor runtime
-3. 内容、结构和样式都能被自然语言编辑
-
-### Demo Step 3
-
-说辞：
-
-“我再演示风格并不是写死模板，而是可以继续调主题。”
-
-操作：
-
-```text
-把整体页面改成更克制的灰蓝风格
-```
-
-你要强调的点：
-
-1. 样式层已经从不稳定 agent 探索收敛成了更可控的 theme patch
-2. 这一步体现的是‘产品编辑器’而不是‘单次内容生成’
-
-### Demo Step 4
-
-说辞：
-
-“最后我演示为什么我把它叫工作台而不是聊天工具，因为它支持版本化创作。”
-
-操作：
-
-```text
-基于当前版本分叉一条更像黑红榜吐槽风格的版本
-```
-
-你要强调的点：
-
-1. 有 checkpoint
-2. 有 rollback
-3. 有 fork
-4. 这很接近真实内容创作者的工作流
-
-## 4. 如果时间更长
-
-可以再补两条业务线。
-
-### 旅行探店
-
-这条线重点讲：
-
-1. 地点、天气、路线等外部时效信息融合
-2. 旅行分享到攻略风格的连续演化
-3. 证明架构不是只会做数码评测
-
-### 日常分享
-
-这条线重点讲：
-
-1. 长线程上下文
-2. 创作者人设保持
-3. checkpoint / rollback / fork 的长期创作价值
-
-## 5. 你要主动讲出的技术判断
-
-这是你这项目最重要的“认知亮点”。
-
-### 判断 1
-
-“我后来意识到，问题不是 agent 数量不够，而是节点之间的数据契约太松。”
-
-展开：
-
-1. 早期多 agent 之间靠自然语言摘要传递
-2. 信息在链路里不断损耗
-3. 后来收敛成 canonical note state + 结构化 schema + verifier
-
-### 判断 2
-
-“我没有再把所有职责都继续做成 agent，而是把一部分收回了确定性系统。”
-
-展开：
-
-1. verifier 负责字段补全和组件约束
-2. renderer 负责最后可渲染性
-3. style compiler 负责稳定主题落地
-4. agent 只负责高价值决策，不负责所有细节
-
-### 判断 3
-
-“真正适合求职项目展示的，不是无限自由 AST，而是可编辑、可追踪、可回滚的 Note DSL。”
-
-展开：
-
-1. 自由 HTML AST 很酷，但很难稳定
-2. 社交内容产品更需要持续编辑和状态演化
-3. 所以我选的是受约束但可操作的语义 DSL
-
-## 6. 高频追问回答稿
-
-### Q1: 你为什么一开始要做多 agent，后来又收敛？
-
-答法：
-
-“一开始我是从职责分离出发，把内容、结构、样式都拆成独立 agent，但后来发现真正的问题不是拆得不够细，而是 agent 之间靠自然语言交接，约束太弱。后面我保留了 agent 的决策能力，但把状态、校验、渲染这些收回了确定性系统，最后形成了 workflow + editor runtime 的混合架构。”
-
-### Q2: 你为什么没有完全做成一个自由 AST 生成系统？
-
-答法：
-
-“我一开始确实想做更自由的 AST，但对这个项目阶段来说，那样会把大部分时间花在稳定性上。为了突出求职项目最有价值的点，我把重点放在自然语言持续编辑、长期状态、回滚分支和热点增强上。最后我选择的是更受约束的 Note DSL，这样能平衡灵活性和可控性。”
-
-### Q3: 你为什么还保留旧生成链，没有全部切到 note editor？
-
-答法：
-
-“这是一个很典型的工程权衡。真实压测里我发现 note editor 在整页新建时还会出现 loop 和递归上限问题，所以我没有硬切，而是先让它接管最能体现产品价值的编辑场景，把整页新建继续交给更稳定的主链。这不是没做完，而是分阶段收敛。”
-
-### Q4: 你为什么说这个项目更像工作台，不像聊天机器人？
-
-答法：
-
-“因为它的核心资产不是一轮回复，而是一份持续演化的 note state。用户可以在同一线程里反复编辑、回滚、分支，而且页面状态、主题和组件都是可追踪的，这更接近创作 IDE，而不是一问一答式助手。”
-
-### Q5: 你用国产模型时为什么 JSON / function calling 不稳定？
-
-答法：
-
-“这不完全是调用方式的问题，很多模型虽然表面支持 JSON 或 tool calling，但 schema adherence 并不强。所以我后面没有再逼模型直接吐大 JSON，而是把 schema 拆小、优先走 function calling、再加 deterministic verifier 和 fallback，把最脆弱的部分收回代码层。”
-
-### Q6: 你对 LangChain / LangGraph 的理解是什么？
-
-答法：
-
-“我现在的理解是，LangGraph 更适合作为 workflow 和 runtime，LangChain 的 agent 层适合做受控决策入口。对这个项目最合适的不是纯 workflow，也不是纯 agent，而是 hybrid：整页生成用稳定 workflow，已有页面编辑用 editor runtime + structured plan。”
-
-## 7. 不要这样讲
-
-下面这些说法容易让项目显得虚。
-
-### 不要说
-
-“我做了很多 agent，每个 agent 都很智能。”
-
-建议改成：
-
-“我后来把 agent 的职责收缩到了高价值决策，把状态、校验和渲染做成了更稳定的系统能力。”
-
-### 不要说
-
-“这个项目已经是生产级了。”
-
-建议改成：
-
-“这是一个偏产品感和工程权衡展示的求职项目，重点是核心闭环和架构判断，而不是全量覆盖。”
-
-### 不要说
-
-“它可以做任意内容、任意页面、任意风格。”
-
-建议改成：
-
-“我有意识地把业务收缩到了 3 条最适合展示价值的场景，这样产品故事更清楚，系统也更稳。”
-
-## 8. 面试官如果继续深挖
-
-你可以把回答收束到 3 个层面：
-
-1. 产品层：
-   社交内容不是一次性生成，而是持续编辑和版本演化
-2. 架构层：
-   canonical state + editor runtime + verifier + render
-3. 工程层：
-   热点缓存、结构化输出、fallback、回滚与恢复
-
-## 9. 最后 15 秒收尾
-
-如果面试快结束，你可以这样收尾：
-
-“这个项目对我最大的收获不是把 agent 数量做多，而是学会了什么时候该让 agent 决策，什么时候该把能力收回到状态机、校验器和渲染器里。最后我做出来的不是一个 prompt demo，而是一个更像创作工作台的系统。”
-
-## 当前状态
-- 当前版本已经是可直接演示的交付版。
-- 如果面试前需要最后确认，只需启动前后端并按文档中的 3 分钟 demo 顺序走一遍。
-
-- 如需在面试前快速复查当前仓库状态，可直接运行 `scripts/final_acceptance.sh`。
-
-- 仓库里也已经补了自动化最终验收 workflow：`.github/workflows/final-acceptance.yml`
+**已经封板、可以直接面试使用的最终版本。**

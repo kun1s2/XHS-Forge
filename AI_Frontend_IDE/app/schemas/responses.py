@@ -30,3 +30,7 @@ class WorkspaceDataResponse(BaseResponse):
     oss_url: Optional[str]
     source_code: str = ""
     checkpoints: List[CheckpointInfo]
+
+
+class BenchmarkOverviewResponse(BaseResponse):
+    data: Dict[str, Any] = {}

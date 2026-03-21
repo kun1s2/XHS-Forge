@@ -67,6 +67,115 @@ def _normalize_document_assets(
     return normalized_assets
 
 
+def _pick_grounding_sources(knowledge: dict[str, Any], preferred_scope: str | None = None, limit: int = 3) -> list[str]:
+    sources = [item for item in (knowledge.get("fact_sources") or []) if isinstance(item, dict)]
+    if preferred_scope:
+        scoped = [
+            str(item.get("title") or item.get("url") or "").strip()
+            for item in sources
+            if str(item.get("source_scope") or "").strip() == preferred_scope and str(item.get("title") or item.get("url") or "").strip()
+        ]
+        if scoped:
+            return scoped[:limit]
+    fallback = [
+        str(item.get("title") or item.get("url") or "").strip()
+        for item in sources
+        if str(item.get("title") or item.get("url") or "").strip()
+    ]
+    return fallback[:limit]
+
+
+def _build_retrieval_fact_bindings(
+    *,
+    block_type: str,
+    props: dict[str, Any],
+    knowledge: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not isinstance(knowledge, dict) or not (knowledge.get("fact_sources") or knowledge.get("confirmed_facts")):
+        return []
+
+    bindings: list[dict[str, Any]] = []
+    if block_type == "ProductSpecCard" and props.get("core_features"):
+        bindings.append({
+            "field": "core_features",
+            "fact_fields": [str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()],
+            "fact_field_labels": _label_fact_fields([str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()]),
+            "kind": "retrieval_grounded",
+            "sources": _pick_grounding_sources(knowledge, preferred_scope="official"),
+            "hint": "该参数卡引用了本轮检索到的官方/高可信资料",
+        })
+    elif block_type == "StoryText" and props.get("paragraphs"):
+        bindings.append({
+            "field": "paragraphs[0]",
+            "fact_fields": [str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()],
+            "fact_field_labels": _label_fact_fields([str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()]),
+            "kind": "retrieval_grounded",
+            "sources": _pick_grounding_sources(knowledge, preferred_scope="review"),
+            "hint": "该段正文引用了本轮检索证据或已确认事实",
+        })
+    elif block_type == "LocationBlock":
+        bindings.append({
+            "field": "poi_name",
+            "fact_fields": [],
+            "fact_field_labels": [],
+            "kind": "retrieval_grounded",
+            "sources": _pick_grounding_sources(knowledge, preferred_scope="official"),
+            "hint": "该地点信息引用了本轮检索资料",
+        })
+    elif block_type == "RadarChartBlock" and props.get("scores"):
+        bindings.append({
+            "field": "scores",
+            "fact_fields": [str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()],
+            "fact_field_labels": _label_fact_fields([str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()]),
+            "kind": "retrieval_grounded",
+            "sources": _pick_grounding_sources(knowledge, preferred_scope="official"),
+            "hint": "该评分概览由本轮检索证据支撑",
+        })
+    elif block_type == "VersusCard" and (props.get("proText") or props.get("conText")):
+        bindings.append({
+            "field": "comparison_copy",
+            "fact_fields": [],
+            "fact_field_labels": [],
+            "kind": "retrieval_grounded",
+            "sources": _pick_grounding_sources(knowledge, preferred_scope="review"),
+            "hint": "该对比结论综合了本轮检索到的口碑/评价来源",
+        })
+    return [item for item in bindings if item.get("sources")]
+
+
+def _apply_retrieval_grounding_to_document(note_document: dict[str, Any] | None, knowledge: dict[str, Any] | None) -> dict[str, Any]:
+    document = deepcopy(note_document or {})
+    safe_knowledge = knowledge if isinstance(knowledge, dict) else {}
+    if not safe_knowledge:
+        return document
+
+    blocks = []
+    top_level_fact_bindings = []
+    for block in document.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        next_block = deepcopy(block)
+        existing_bindings = [item for item in (next_block.get("fact_bindings") or []) if isinstance(item, dict)]
+        derived_bindings = _build_retrieval_fact_bindings(
+            block_type=str(next_block.get("type") or ""),
+            props=deepcopy(next_block.get("props") or {}),
+            knowledge=safe_knowledge,
+        )
+        merged_bindings = existing_bindings[:]
+        existing_fields = {str(item.get("field") or "") for item in existing_bindings}
+        for item in derived_bindings:
+            if str(item.get("field") or "") not in existing_fields:
+                merged_bindings.append(item)
+        next_block["fact_bindings"] = merged_bindings
+        blocks.append(next_block)
+        if merged_bindings:
+            top_level_fact_bindings.append({"block_id": str(next_block.get("id") or ""), "bindings": merged_bindings})
+
+    document["blocks"] = blocks
+    document["fact_bindings"] = top_level_fact_bindings
+    return document
+
+
 def build_note_document(
     *,
     document_view: dict[str, Any] | None = None,
@@ -151,7 +260,7 @@ def build_note_document(
 
     normalized_assets = _normalize_document_assets(assets, blocks)
 
-    return {
+    document = {
         "document_meta": {
             "title": data.get("page_title") or "XHS-Forge Note",
             "active_archetype": active_archetype or "general",
@@ -177,6 +286,7 @@ def build_note_document(
         },
         "planner": deepcopy(planner_output or {}),
     }
+    return _apply_retrieval_grounding_to_document(document, knowledge)
 
 
 def note_document_to_document_view(note_document: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
@@ -221,7 +331,7 @@ def note_document_to_document_view(note_document: dict[str, Any] | None) -> tupl
     return document_view, block_style_map, image_assets
 
 
-def build_document_view_from_note_document(note_document: dict[str, Any] | None) -> dict[str, Any]:
+def build_note_document_layout(note_document: dict[str, Any] | None) -> dict[str, Any]:
     note_document = deepcopy(note_document or {})
     blocks: list[dict[str, Any]] = []
     for index, block in enumerate(note_document.get("blocks") or []):
@@ -281,34 +391,66 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
             existing["planner"] = deepcopy(state.get("planner_output") or {})
         if state.get("image_assets") is not None:
             existing["assets"] = _normalize_document_assets(state.get("image_assets") or [], existing.get("blocks") or [])
-        return existing
+        return _apply_retrieval_grounding_to_document(existing, state.get("retrieved_knowledge") or {})
 
-    return build_note_document(
-        document_view=state.get("document_view"),
-        block_style_map=state.get("block_style_map"),
-        image_assets=state.get("image_assets"),
-        patch_tracks=state.get("patch_tracks"),
-        selected_element_id=state.get("selected_element_id"),
-        active_panel=state.get("active_panel"),
-        scenarios=state.get("scenarios"),
-        active_archetype=state.get("active_archetype"),
-        retrieved_knowledge=state.get("retrieved_knowledge"),
-        planner_output=state.get("planner_output"),
-    )
+    document = {
+        "document_meta": {
+            "title": "XHS-Forge Note",
+            "active_archetype": state.get("active_archetype") or "general",
+            "scenarios": list(state.get("scenarios") or [state.get("active_archetype") or "general"]),
+        },
+        "theme": {
+            "page_theme": {},
+            "global_vars": {},
+        },
+        "blocks": [],
+        "assets": _normalize_document_assets(state.get("image_assets") or [], []),
+        "fact_bindings": [],
+        "provenance": {
+            "fact_sources": deepcopy(((state.get("retrieved_knowledge") or {}) if isinstance(state.get("retrieved_knowledge"), dict) else {}).get("fact_sources") or []),
+            "fact_conflicts": deepcopy(((state.get("retrieved_knowledge") or {}) if isinstance(state.get("retrieved_knowledge"), dict) else {}).get("fact_conflicts") or []),
+            "confirmed_facts": deepcopy(((state.get("retrieved_knowledge") or {}) if isinstance(state.get("retrieved_knowledge"), dict) else {}).get("confirmed_facts") or {}),
+            "fact_review_status": (((state.get("retrieved_knowledge") or {}) if isinstance(state.get("retrieved_knowledge"), dict) else {}).get("fact_review_status") or "clear"),
+        },
+        "ui_state": {
+            "selected_element_id": state.get("selected_element_id"),
+            "active_panel": state.get("active_panel") or "main",
+            "patch_tracks": deepcopy(state.get("patch_tracks") or {}),
+        },
+        "planner": deepcopy(state.get("planner_output") or {}),
+    }
+    return _apply_retrieval_grounding_to_document(document, state.get("retrieved_knowledge") or {})
+
+
+def build_note_document_layout_from_state(state: dict[str, Any] | None) -> dict[str, Any]:
+    """Project runtime state into the normalized document layout."""
+    return build_note_document_layout(build_note_document_from_state(state))
+
+
+def build_note_document_editing_context(
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Build the compact editing context derived from the formal NoteDocument."""
+    note_document = build_note_document_from_state(state)
+    document_view, block_style_map, image_assets = note_document_to_document_view(note_document)
+    return note_document, document_view, block_style_map, image_assets
+
+
+def build_document_view_from_note_document(note_document: dict[str, Any] | None) -> dict[str, Any]:
+    """Backward-compatible wrapper for tests; runtime code should use build_note_document_layout."""
+    return build_note_document_layout(note_document)
 
 
 def build_document_view_from_state(state: dict[str, Any] | None) -> dict[str, Any]:
-    """Project runtime state into the normalized document view."""
-    return build_document_view_from_note_document(build_note_document_from_state(state))
+    """Backward-compatible wrapper for tests; runtime code should use build_note_document_layout_from_state."""
+    return build_note_document_layout_from_state(state)
 
 
 def build_document_editing_context_from_state(
     state: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    """Bridge runtime state into a compact document editing context."""
-    note_document = build_note_document_from_state(state)
-    document_view, block_style_map, image_assets = note_document_to_document_view(note_document)
-    return note_document, document_view, block_style_map, image_assets
+    """Backward-compatible wrapper for tests; runtime code should use build_note_document_editing_context."""
+    return build_note_document_editing_context(state)
 
 
 def update_note_document_block(

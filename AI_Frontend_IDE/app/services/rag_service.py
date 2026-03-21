@@ -18,7 +18,7 @@ async def _parse_self_query(query: str) -> QueryFilter:
     【Self-Query 解析器】：利用 LLM 将自然语言解析为结构化过滤条件。
     """
     llm = create_llm(
-        model=settings.LLM_SMALL_MODEL,
+        model=settings.LLM_MODEL,
         api_key=settings.LLM_API_KEY,
         base_url=settings.LLM_BASE_URL,
         temperature=0

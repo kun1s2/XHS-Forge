@@ -71,12 +71,14 @@ def test_frontend_note_document_types_stay_first_class():
     assert "export interface PlannerPolicy " in text
     assert "export interface TurnTrace " in text
     assert "export interface InspectorSummary " in text
+    assert "export interface BenchmarkOverview " in text
     assert "noteDocument?: NoteDocument" in text
     assert "note_document?: NoteDocument" in text
     assert "plannerOutput?: PlannerOutput" in text
     assert "planner_policy?: PlannerPolicy" in text
     assert "turnTrace?: TurnTrace" in text
     assert "inspectorSummary?: InspectorSummary" in text
+    assert "benchmarkOverview?: BenchmarkOverview" in text
     assert "noteDocument?: Record<string, unknown>" not in text
 
 
@@ -98,6 +100,20 @@ def test_agent_inspector_avoids_agent_meta_any_shortcuts():
     text = path.read_text(encoding="utf-8")
     assert "chatStore.agentMeta as any" not in text
     assert "retrieved_knowledge as any" not in text
+
+
+def test_benchmark_panel_is_exposed_in_frontend_and_workspace_api():
+    inspector_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "AgentInspector.vue"
+    store_path = ROOT / "ai-frontend-ide" / "src" / "stores" / "useChatStore.ts"
+    workspace_path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
+
+    inspector_text = inspector_path.read_text(encoding="utf-8")
+    store_text = store_path.read_text(encoding="utf-8")
+    workspace_text = workspace_path.read_text(encoding="utf-8")
+
+    assert "Benchmark" in inspector_text
+    assert "fetchBenchmarkOverview" in store_text
+    assert '"/benchmark/overview"' in workspace_text
 
 
 def test_workspace_title_extraction_no_longer_reads_legacy_page_title():
@@ -184,6 +200,15 @@ def test_app_runtime_no_longer_contains_legacy_dsl_field_names():
             offenders.append(str(path.relative_to(ROOT)))
     assert offenders == [], f"App runtime should no longer contain legacy DSL field names: {offenders}"
 
+
+def test_runtime_note_document_builder_no_longer_reads_legacy_layout_state():
+    path = ROOT / "AI_Frontend_IDE" / "app" / "core" / "note_document.py"
+    text = path.read_text(encoding="utf-8")
+    assert 'state.get("document_view")' not in text
+    assert "state.get('document_view')" not in text
+    assert 'state.get("block_style_map")' not in text
+    assert "state.get('block_style_map')" not in text
+
 def test_outline_node_module_no_longer_contains_react_tool_loop_implementation():
     outline_path = APP_ROOT / "agents" / "nodes" / "outline_node.py"
     text = outline_path.read_text(encoding="utf-8")
@@ -229,3 +254,26 @@ def test_formal_runtime_no_longer_contains_legacy_intent_schema_or_prompt():
         if bad:
             offenders.append(f"{relative_path}: {bad}")
     assert offenders == [], f"Formal runtime regressed to legacy intent compatibility: {offenders}"
+
+
+def test_formal_runtime_uses_single_primary_text_llm_configuration():
+    forbidden_tokens = (
+        "LLM_SMALL_MODEL",
+        "LLM_LOGIC_MODEL",
+        "LLM_BRAIN_MODEL",
+        "LLM_WORKER_MODEL",
+    )
+    offenders: list[str] = []
+    for base in (APP_ROOT, TEST_ROOT):
+        for path in _scan_text_files(base, (".py", ".md", ".xml")):
+            if path.name == Path(__file__).name:
+                continue
+            text = path.read_text(encoding="utf-8")
+            bad = [token for token in forbidden_tokens if token in text]
+            if bad:
+                offenders.append(f"{path.relative_to(ROOT)}: {bad}")
+    config_text = (ROOT / "AI_Frontend_IDE" / ".env.example").read_text(encoding="utf-8")
+    env_bad = [token for token in forbidden_tokens if token in config_text]
+    if env_bad:
+        offenders.append(f"AI_Frontend_IDE/.env.example: {env_bad}")
+    assert offenders == [], f"Formal runtime should use a single primary text model configuration: {offenders}"

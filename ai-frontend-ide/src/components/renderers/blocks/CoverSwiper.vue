@@ -121,22 +121,54 @@
       </div>
 
       <div class="border-t px-5 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg)' }">
-        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div class="max-w-2xl">
-            <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Hero Media</div>
-            <div class="mt-1 text-sm font-bold leading-relaxed" :style="{ color: 'var(--text-color)' }">
-              {{ slideHeadline(currentIdx) }}
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div class="max-w-2xl">
+              <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Hero Media</div>
+              <div class="mt-1 text-sm font-bold leading-relaxed" :style="{ color: 'var(--text-color)' }">
+                {{ slideHeadline(currentIdx) }}
+              </div>
+              <div class="mt-1 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+                {{ deckSummary }}
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)', color: 'var(--text-muted)' }">
+                  {{ imageList.length > 1 ? '多视角封面叙事' : '单张强视觉封面' }}
+                </span>
+                <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--primary-vibe)' }">
+                  {{ imageList.length > 1 ? '自动切换 + 手动切换' : '首屏重心已锁定' }}
+                </span>
+              </div>
             </div>
-            <div class="mt-1 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-              {{ deckSummary }}
+            <div class="rounded-[20px] border px-3 py-3 md:min-w-[240px]" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
+              <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Current Frame</div>
+              <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ imageSourceLabel(currentIdx) }}</div>
+              <div class="mt-1 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+                {{ slideCaption(currentIdx) }}
+              </div>
             </div>
           </div>
-          <div class="rounded-[20px] border px-3 py-3 md:min-w-[220px]" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
-            <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Current Frame</div>
-            <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ imageSourceLabel(currentIdx) }}</div>
-            <div class="mt-1 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-              {{ slideCaption(currentIdx) }}
-            </div>
+
+          <div
+            v-if="imageList.length > 1"
+            class="grid gap-2 sm:grid-cols-3"
+          >
+            <button
+              v-for="(img, idx) in imageList.slice(0, 3)"
+              :key="`thumb-${idx}`"
+              type="button"
+              class="group relative overflow-hidden rounded-[20px] border transition-all duration-300 hover:-translate-y-0.5"
+              :style="{ borderColor: currentIdx === idx ? 'var(--primary-vibe)' : 'var(--card-border)', background: 'var(--card-bg-soft)' }"
+              @click="goTo(idx)"
+            >
+              <div class="aspect-[4/3] overflow-hidden">
+                <img :src="img" :alt="`cover-thumb-${idx}`" class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+              </div>
+              <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent px-3 pb-3 pt-10 text-left">
+                <div class="text-[9px] font-black uppercase tracking-[0.2em] text-white/70">Frame {{ idx + 1 }}</div>
+                <div class="mt-1 text-[11px] font-bold leading-tight text-white">{{ imageSourceLabel(idx) }}</div>
+              </div>
+            </button>
           </div>
         </div>
       </div>

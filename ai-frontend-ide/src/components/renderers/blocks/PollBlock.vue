@@ -82,6 +82,12 @@ const signalTone = computed(() => {
   if (selectedOption.value === null) return '还没站队'
   return leadingOption.value?.idx === selectedOption.value ? '你命中了当前更强的倾向' : '你选择了更少数但也成立的一边'
 })
+
+const supportLabel = computed(() => {
+  if (!leadingOption.value) return '等待互动'
+  if (leadingOption.value.percent >= 50) return '当前呈现出明显主流倾向'
+  return '当前分布更像分流题，而不是压倒性结论'
+})
 </script>
 
 <template>
@@ -169,6 +175,9 @@ const signalTone = computed(() => {
         <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
           {{ selectedOption === null ? '等待你的选择' : `${totalVotes} 份演示态样本` }}
         </div>
+        <div class="mt-1 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+          {{ supportLabel }}
+        </div>
         <div class="mt-3 space-y-2">
           <div v-for="(opt, idx) in options" :key="`mini-${idx}`">
             <div class="flex items-center justify-between gap-3 text-[11px] font-semibold" :style="{ color: 'var(--text-muted)' }">
@@ -182,6 +191,21 @@ const signalTone = computed(() => {
               ></div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
+      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Usage Note</div>
+          <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
+            这块适合承接偏好表达，不该伪装成真实平台投票
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)', color: 'var(--text-muted)' }">适合：站队 / 选择 / 偏好</span>
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--primary-vibe)' }">不适合：假装真实票仓</span>
         </div>
       </div>
     </div>

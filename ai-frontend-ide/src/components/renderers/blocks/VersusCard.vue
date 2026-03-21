@@ -43,6 +43,13 @@ const comparisonTakeaway = computed(() => {
   }
   return '更适合先说风险，再引出为什么仍然有人会选它。'
 })
+
+const balanceSignal = computed(() => {
+  const delta = proBullets.value.length - conBullets.value.length
+  if (delta >= 1) return '当前版面更适合主推荐路径'
+  if (delta <= -1) return '当前版面更适合先讲风险边界'
+  return '正反信息相对均衡，适合做分流判断'
+})
 </script>
 
 <template>
@@ -83,6 +90,15 @@ const comparisonTakeaway = computed(() => {
             </li>
           </ul>
         </section>
+
+        <div class="flex items-center justify-center md:hidden">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-full border-[5px] text-xs font-black italic tracking-tight"
+            :style="{ background: 'rgba(255,255,255,0.96)', color: 'var(--text-color)', borderColor: 'rgba(248,250,252,0.9)', boxShadow: '0 16px 34px rgba(15,23,42,0.14)' }"
+          >
+            VS
+          </div>
+        </div>
 
         <div class="hidden items-center justify-center md:flex">
           <div
@@ -128,8 +144,11 @@ const comparisonTakeaway = computed(() => {
           </div>
         </div>
         <div class="rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
-          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Best Use</div>
-          <div class="mt-2 space-y-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Balance Signal</div>
+          <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
+            {{ balanceSignal }}
+          </div>
+          <div class="mt-3 space-y-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
             <div>适合做：路线对比 / 观点冲突 / 选择分流</div>
             <div>不适合做：大段正文堆砌或参数清单搬运</div>
           </div>

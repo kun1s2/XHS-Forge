@@ -348,7 +348,7 @@ const promptEntries = computed(() =>
     messages: normalizePromptMessages(messages),
   }))
 )
-const promptExpectedNodes = ['planner_agent', 'note_editor', 'intent_agent']
+const promptExpectedNodes = ['planner_agent', 'note_editor', 'intent_agent', 'structure_node', 'component_builder', 'patch_doctor', 'enrichment_agent']
 const promptCoverage = computed(() => {
   const present = new Set(promptEntries.value.map(entry => entry.node))
   return promptExpectedNodes.map((node) => ({

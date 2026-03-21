@@ -13,6 +13,7 @@ from app.core.llm_factory import create_llm
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.note_document import build_note_document_from_state
+from app.core.prompt_engineering import build_prompt_snapshot, render_string_prompt
 from app.services.location_enricher import enrich_location_blocks
 from app.services.search_enricher import enrich_product_document
 from app.services.image_generator import auto_generate_images
@@ -118,18 +119,7 @@ async def enrichment_node_v2(state: UIProjectState) -> dict:
             return f"Error: generate_images_tool 失败 - {str(e)}"
 
     tools = [enrich_product_tool, enrich_location_tool, generate_images_tool]
-    system_prompt = """你是一个高级数据增强管家。
-你的职责是分析当前页面组件大纲，并按需调用工具完成商品事实增强、地理增强或配图增强。
-
-【工具策略】
-- 有商品/参数类组件 -> 调用 enrich_product_tool
-- 有位置地图类组件 -> 调用 enrich_location_tool
-- 需要视觉配图 -> 调用 generate_images_tool
-
-【最高指令】
-1. 工具会自动读取后台数据，你无需传递任何参数。
-2. 只调用必要工具，避免重复增强。
-3. 调用完必要工具后，请直接回复“增强完毕”。绝对不要在回复中输出任何 JSON 数据！"""
+    system_prompt = render_string_prompt("enrichment_system.xml")
     enrichment_react_agent = create_controlled_agent(
         model=_tool_llm,
         tools=tools,
@@ -150,6 +140,11 @@ async def enrichment_node_v2(state: UIProjectState) -> dict:
 {json.dumps(component_outline, ensure_ascii=False)}
 
 请分析以上组件树，并按需调用工具完成增强。"""
+    prompt_snapshot = build_prompt_snapshot(
+        "enrichment_agent",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
 
     print(f"🧠 [Tool Calling 引擎] 启动增强管家，分析大纲: {component_outline}")
     result = await enrichment_react_agent.ainvoke({"messages": [("user", user_prompt)]})
@@ -185,5 +180,6 @@ async def enrichment_node_v2(state: UIProjectState) -> dict:
     return {
         "note_document": final_note_document,
         "image_assets": final_new_assets,
+        "node_prompts": prompt_snapshot,
         "agent_backends": {"enrichment_agent": enrichment_react_agent.backend},
     }

@@ -19,8 +19,9 @@ from langgraph.types import Send
 # 引入我们定义的全局状态
 from app.agents.state import UIProjectState
 from app.core.config import settings
+from app.core.query_heuristics import looks_like_existing_canvas_edit
 from app.core.schema import OutlineOutput
-from app.core.note_document import build_document_view_from_state, build_note_document_from_state, build_note_document_from_structure_patch
+from app.core.note_document import build_note_document_layout_from_state, build_note_document_from_state, build_note_document_from_structure_patch
 from app.core.component_manifest import resolve_component_for_block_intent
 
 # 引入节点
@@ -78,7 +79,7 @@ def _has_local_selection(state: UIProjectState) -> bool:
 
 
 def _has_existing_canvas(state: UIProjectState) -> bool:
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     return bool(execution_view.get("blocks"))
 
 
@@ -94,45 +95,6 @@ def _latest_user_text(state: UIProjectState) -> str:
                 text_parts.append(str(part.get("text")))
         return "".join(text_parts).strip()
     return str(content)
-
-
-def _looks_like_existing_canvas_edit(user_text: str) -> bool:
-    return any(
-        token in (user_text or "")
-        for token in [
-            "保留",
-            "改",
-            "修改",
-            "重写",
-            "优化",
-            "调整",
-            "简短",
-            "简洁",
-            "精简",
-            "丰富",
-            "删除",
-            "删掉",
-            "替换",
-            "换成",
-            "移动",
-            "挪",
-            "加强",
-            "弱化",
-            "润色",
-            "改成",
-            "改一下",
-            "标题",
-            "正文",
-            "文本",
-            "段落",
-            "封面",
-            "主题",
-            "风格",
-            "第二段",
-            "第一段",
-            "第三段",
-        ]
-    )
 
 
 def _materialize_blocks_from_planner(state: UIProjectState) -> list[dict[str, Any]]:
@@ -191,7 +153,7 @@ def route_intent(state: UIProjectState) -> str:
     if task_type == "edit":
         return "note_editor"
 
-    if has_existing_canvas and _looks_like_existing_canvas_edit(latest_user_text):
+    if has_existing_canvas and looks_like_existing_canvas_edit(latest_user_text):
         return "note_editor"
 
     if task_type == "create":
@@ -213,7 +175,7 @@ async def outline_synthesizer(state: UIProjectState) -> dict:
     【大纲合成器】：验证并收束 block skeleton，直接产出 NoteDocument。
     """
     current_note_document = build_note_document_from_state(state)
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     blocks = [
         {
             "id": block.get("id"),
@@ -320,7 +282,7 @@ async def outline_resolver_node(state: UIProjectState) -> dict:
     }
 
 def map_components(state: UIProjectState) -> list:
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     blocks = execution_view.get("blocks", [])
     if not blocks: return ["style_node"]
     

@@ -2,13 +2,17 @@ import json
 import re
 import os
 import asyncio
-from pathlib import Path
 from app.core.llm_factory import create_llm
-from langchain_core.prompts import ChatPromptTemplate
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.schema import IntentGatewayOutput
-from app.core.note_document import build_document_view_from_state
+from app.core.note_document import build_note_document_layout_from_state
+from app.core.query_heuristics import (
+    infer_existing_canvas_edit_route,
+    looks_like_existing_canvas_edit,
+    mentions_paragraph_reference,
+)
+from app.core.prompt_engineering import build_chat_prompt, build_prompt_snapshot, render_prompt_messages
 from app.services.scenario_manager import scenario_manager
 
 # ✨ 性能优化：全局复用 LLM 实例
@@ -19,7 +23,7 @@ def get_intent_llm():
     if _llm_instance is None:
         os.environ["LANGSMITH_TRACING"] = "false"
         _llm_instance = create_llm(
-            model=settings.LLM_LOGIC_MODEL, 
+            model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0,
@@ -43,61 +47,13 @@ def _extract_user_text(raw_content) -> str:
     return str(raw_content or "").strip()
 
 
-def _looks_like_existing_canvas_edit(user_text: str) -> bool:
-    return any(
-        token in (user_text or "")
-        for token in [
-            "保留",
-            "改",
-            "修改",
-            "重写",
-            "优化",
-            "调整",
-            "简短",
-            "简洁",
-            "精简",
-            "丰富",
-            "删除",
-            "删掉",
-            "替换",
-            "换成",
-            "移动",
-            "挪",
-            "加强",
-            "弱化",
-            "润色",
-            "改成",
-            "改一下",
-            "标题",
-            "正文",
-            "文本",
-            "段落",
-            "封面",
-            "主题",
-            "风格",
-            "第二段",
-            "第一段",
-            "第三段",
-        ]
-    )
-
-
-def _infer_existing_canvas_edit_route(user_query: str) -> str:
-    if any(token in (user_query or "") for token in ["主题", "风格", "配色", "灰蓝", "克制", "视觉", "样式"]):
-        return "style_node"
-    if any(token in (user_query or "") for token in ["结构", "顺序", "位置", "前面", "后面", "移动", "删除", "新增", "加一个", "补一个"]):
-        return "structure_node"
-    return "content_node"
-
-
-
 def _build_fast_path_result(*, user_query: str, selected_id: str | None, active_archetype: str, route: str = "patch_node") -> dict:
     scenario = str(active_archetype or "general")
     intent_v2 = IntentGatewayOutput(
         thought_process="",
         reason="局部编辑快速通道",
         task_type="edit",
-        edit_scope="selected_paragraph" if any(token in user_query for token in ["第一段", "第二段", "第三段", "这一段"]) else "selected_block",
+        edit_scope="selected_paragraph" if mentions_paragraph_reference(user_query) else "selected_block",
         needs_research=False,
         needs_assets="none",
         scenario_scores={scenario: 1.0},
@@ -163,7 +119,7 @@ def _build_panel_edit_fast_path(*, user_query: str, active_panel: str, active_ar
 
 def _build_existing_canvas_edit_fast_path(*, user_query: str, active_archetype: str, selected_id: str | None) -> dict:
     scenario = str(active_archetype or "general")
-    route = _infer_existing_canvas_edit_route(user_query)
+    route = infer_existing_canvas_edit_route(user_query)
     intent_v2 = IntentGatewayOutput(
         thought_process="",
         reason="main 面板已有画布编辑快速通道",
@@ -229,7 +185,7 @@ async def intent_agent(state: UIProjectState) -> dict:
     VALID_SCENARIOS = scenario_manager.list_all_scenarios()
     
     # 2. 状态提取
-    execution_view = build_document_view_from_state(state)
+    execution_view = build_note_document_layout_from_state(state)
     selected_id = state.get("selected_element_id")
     active_archetype = state.get("active_archetype", "general")
     has_existing_canvas = bool(execution_view.get("blocks"))
@@ -258,7 +214,7 @@ async def intent_agent(state: UIProjectState) -> dict:
             selected_id=selected_id,
         )
 
-    if active_panel == "main" and has_existing_canvas and user_query and _looks_like_existing_canvas_edit(user_query):
+    if active_panel == "main" and has_existing_canvas and user_query and looks_like_existing_canvas_edit(user_query):
         print("⚡ [意图网关] 命中 main 面板已有画布编辑快速通道")
         return _build_existing_canvas_edit_fast_path(
             user_query=user_query,
@@ -279,14 +235,10 @@ async def intent_agent(state: UIProjectState) -> dict:
     current_time = datetime.now().strftime("%Y-%m-%d %A")
 
     # 3. 加载提示词
-    prompt_path = Path(__file__).parents[2] / "prompts" / "intent_gateway_v2.xml"
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        system_template = f.read()
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_template),
-        ("human", "【当前时间】: {{ current_time }}\n【可用场景池】: {{ valid_scenarios }}\n【用户指令】: {{ query }}")
-    ], template_format="jinja2")
+    prompt = build_chat_prompt(
+        system_template_name="intent_gateway_v2.xml",
+        human_template="【当前时间】: {{ current_time }}\n【可用场景池】: {{ valid_scenarios }}\n【用户指令】: {{ query }}",
+    )
 
     structured_llm = llm.with_structured_output(IntentGatewayOutput, method="function_calling")
     
@@ -299,6 +251,7 @@ async def intent_agent(state: UIProjectState) -> dict:
             "active_archetype": active_archetype, 
             "query": user_query
         }
+        prompt_messages = render_prompt_messages(prompt, inputs)
         
         try:
             print(f"📡 [意图路由] 正在分析指令 4.0，支持场景: {VALID_SCENARIOS}")
@@ -341,7 +294,7 @@ async def intent_agent(state: UIProjectState) -> dict:
                 "scenario_scores": intent_v2.get("scenario_scores", {}),
                 "active_archetype": final_scenarios[0],
                 "thought_process": result.thought_process,
-                "node_prompts": {"intent_agent": [{"role": "system", "content": f"Gateway V2: task={intent_v2.get('task_type')}, scope={intent_v2.get('edit_scope')}, research={intent_v2.get('needs_research')}, assets={intent_v2.get('needs_assets')}, scenarios={intent_v2.get('scenario_scores')}"}]},
+                "node_prompts": build_prompt_snapshot("intent_agent", messages=prompt_messages),
                 "agent_backends": {"intent_agent": "structured_function_calling"}
             }
                     

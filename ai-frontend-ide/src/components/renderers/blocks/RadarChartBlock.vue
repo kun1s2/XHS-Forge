@@ -68,6 +68,12 @@ const interpretation = computed(() => {
   return `${metric.label} 更像提醒项，适合在正文里用更克制的表达解释取舍。`
 })
 
+const scoreBand = computed(() => {
+  if (averageScore.value >= 85) return '高亮优势档'
+  if (averageScore.value >= 70) return '稳定均衡档'
+  return '需要保守表达档'
+})
+
 const polygonPoints = computed(() =>
   normalizedMetrics.value
     .map((metric, idx) => {
@@ -142,6 +148,9 @@ const metricAxis = (idx: number) => {
             <div class="rounded-full px-3 py-1 text-[10px] font-black" :style="{ background: 'color-mix(in srgb, var(--primary-vibe) 12%, white 88%)', color: 'var(--primary-vibe)' }">
               {{ strongestMetric?.label }} 更适合作为主要卖点
             </div>
+          </div>
+          <div class="mt-2 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+            {{ scoreBand }}
           </div>
         </div>
       </div>
@@ -241,6 +250,21 @@ const metricAxis = (idx: number) => {
           <div class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
             {{ interpretation }}
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
+      <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Evidence Reading</div>
+          <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
+            这不是装饰图，而是把维度强弱翻译成结论和边界
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--text-muted)' }">适合：证据总结 / 评分总览</span>
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--primary-vibe)' }">不适合：孤立炫技图形</span>
         </div>
       </div>
     </div>

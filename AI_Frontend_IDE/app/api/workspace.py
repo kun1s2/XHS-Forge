@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from app.schemas.requests import ForkRequest, SelectRegionRequest
-from app.schemas.responses import WorkspaceDataResponse, ForkResponse, BaseResponse
+from app.schemas.responses import WorkspaceDataResponse, ForkResponse, BaseResponse, BenchmarkOverviewResponse
 from app.services.showcase_manager import showcase_manager
 from app.tools.serpapi_search import search_google_images
 from app.agents.utils.fact_utils import (
@@ -17,6 +17,12 @@ from app.agents.utils.fact_utils import (
 )
 from app.core.note_document import build_note_document_from_state, replace_note_document_blocks, update_note_document_block
 from app.core.runtime_log import append_latest_console_log, append_log_divider, reset_latest_console_log, summarize_turn_completion, write_latest_frontend_observation
+from app.api.workspace_presenters import (
+    build_benchmark_overview as _present_benchmark_overview,
+    build_inspector_summary as _present_inspector_summary,
+    dedupe_assets as _present_dedupe_assets,
+    fetch_latest_session_snapshots as _present_fetch_latest_session_snapshots,
+)
 
 router = APIRouter(prefix="/workspace", tags=["Workspace Operations"])
 
@@ -571,133 +577,31 @@ def format_messages(messages_list: list) -> list[dict]:
 
 
 def dedupe_assets(assets: list) -> list[dict]:
-    """
-    基于 url 做轻量去重，尽量保留更完整的描述与来源字段。
-    """
-    deduped: dict[str, dict] = {}
-    for asset in assets or []:
-        if not isinstance(asset, dict):
-            continue
-        url = str(asset.get("url") or "").strip()
-        if not url:
-            continue
-        existing = deduped.get(url, {})
-        merged = {**existing, **asset}
-        if existing.get("desc") and not asset.get("desc"):
-            merged["desc"] = existing["desc"]
-        deduped[url] = merged
-    return list(deduped.values())
+    return _present_dedupe_assets(assets)
 
 
 def _build_inspector_summary(values: dict) -> dict:
-    note_document = values.get("note_document") or build_note_document_from_state(values)
-    blocks = list((note_document or {}).get("blocks") or [])
-    assets = dedupe_assets(list((note_document or {}).get("assets") or []) or values.get("image_assets", []) or [])
-    retrieved_knowledge = values.get("retrieved_knowledge") if isinstance(values.get("retrieved_knowledge"), dict) else {}
-    turn_trace = values.get("turn_trace") if isinstance(values.get("turn_trace"), dict) else {}
-    note_editor_trace = turn_trace.get("note_editor") if isinstance(turn_trace.get("note_editor"), dict) else {}
-    workspace_action_trace = turn_trace.get("workspace_action") if isinstance(turn_trace.get("workspace_action"), dict) else {}
-    component_builder_trace = turn_trace.get("component_builder") if isinstance(turn_trace.get("component_builder"), dict) else {}
-    execution_trace = note_editor_trace or workspace_action_trace
-    warnings = [str(item) for item in (turn_trace.get("warnings") or []) if item]
-    fact_bindings = list((note_document or {}).get("fact_bindings") or [])
-    conflict_count = len(retrieved_knowledge.get("fact_conflicts") or [])
-    confirmed_count = len(retrieved_knowledge.get("confirmed_facts") or {})
-    source_count = len(retrieved_knowledge.get("fact_sources") or [])
-    changed_blocks = list(turn_trace.get("changed_blocks") or [])
-    builder_items = [payload for payload in component_builder_trace.values() if isinstance(payload, dict)]
-    builder_component_types = [str(item.get("component_type") or "") for item in builder_items if item.get("component_type")]
-    builder_fallback_count = len([item for item in builder_items if item.get("fallback_used")])
-    builder_contract_filter_count = sum(int(item.get("contract_filter_count") or 0) for item in builder_items)
-    builder_precheck_warning_count = sum(int(item.get("precheck_warning_count") or 0) for item in builder_items)
-    builder_fact_summary_count = sum(int(item.get("fact_summary_count") or 0) for item in builder_items)
-    builder_asset_count = sum(int(item.get("asset_count") or 0) for item in builder_items)
-    builder_prompt_modes = sorted({str(item.get("prompt_mode") or "") for item in builder_items if item.get("prompt_mode")})
-    scenarios = list((note_document.get("document_meta") or {}).get("scenarios") or values.get("scenarios") or [])
-    entity_name = str(retrieved_knowledge.get("entity_name") or "").strip() or "未识别主体"
-    last_action = str(execution_trace.get("action") or "")
-    status = "attention" if warnings or conflict_count else ("active" if blocks else "idle")
+    return _present_inspector_summary(values)
 
-    suggestions = []
-    if not blocks:
-        suggestions.append("先生成一版页面，再观察结构化编辑是否命中目标。")
-    if "style_changed_without_content" in warnings:
-        suggestions.append("这轮更像改到了样式层，优先检查输入是否包含明确文本指令，以及命中区块是否正确。")
-    if "noop" in warnings:
-        suggestions.append("系统没有找到可落地的内容差异，建议检查结构化计划是否命中了正确区块。")
-    if execution_trace.get("fallback_used"):
-        suggestions.append("本轮进入了兜底路径，说明结构化动作还没有完全覆盖这类表达。")
-    if builder_fallback_count:
-        suggestions.append("这轮有组件落到了 builder fallback，建议优先检查组件 contract、事实摘要和局部业务简报。")
-    if builder_contract_filter_count:
-        suggestions.append("这轮 builder 过滤掉了一些越权字段，优先检查 block contract 是否与语义目标匹配。")
-    if builder_precheck_warning_count:
-        suggestions.append("这轮 builder 在合并前发现了必填字段缺失，建议核对简报和事实摘要是否足够支撑组件生成。")
-    if builder_fact_summary_count:
-        suggestions.append("builder 当前只消费压缩后的事实摘要；如果组件细节不够，优先补结构化 facts，而不是继续堆全局 prompt。")
-    if conflict_count:
-        suggestions.append("当前仍有待确认事实，强结论最好先在右侧确认冲突值。")
-    if not suggestions:
-        suggestions.append("当前链路状态正常，可以直接查看本轮追踪和结构化计划。")
 
-    headline = "当前工作台状态正常"
-    if status == "attention":
-        headline = "这轮执行里有需要关注的信号"
-    elif status == "idle":
-        headline = "当前工作台还没有生成内容"
-    elif last_action:
-        headline = f"最近一次动作：{last_action}"
+def _build_benchmark_overview(session_snapshots: list[dict]) -> dict:
+    return _present_benchmark_overview(session_snapshots, _extract_session_title)
 
-    return {
-        "headline": headline,
-        "status": status,
-        "focus": {
-            "entity_name": entity_name,
-            "scenarios": scenarios,
-            "selected_block_id": values.get("selected_element_id") or execution_trace.get("target_block_id") or None,
-            "intent_route": values.get("intent_route") or "等待指令",
-            "active_panel": values.get("active_panel") or "main",
-        },
-        "document": {
-            "title": (note_document.get("document_meta") or {}).get("title") or "未命名页面",
-            "block_count": len(blocks),
-            "asset_count": len(assets),
-            "fact_binding_count": len(fact_bindings),
-            "theme_preset": (note_document.get("theme") or {}).get("preset") or "default",
-        },
-        "execution": {
-            "last_action": last_action or "暂无动作",
-            "target_block_id": execution_trace.get("target_block_id") or values.get("selected_element_id") or "global",
-            "structured": execution_trace.get("structured", True),
-            "fallback_used": bool(execution_trace.get("fallback_used")),
-            "warning_count": len(warnings),
-            "changed_block_count": len(changed_blocks),
-            "runtime_count": len(values.get("agent_backends") or {}),
-        },
-        "builder": {
-            "component_count": len(builder_items),
-            "fallback_count": builder_fallback_count,
-            "contract_filter_count": builder_contract_filter_count,
-            "precheck_warning_count": builder_precheck_warning_count,
-            "fact_summary_count": builder_fact_summary_count,
-            "asset_count": builder_asset_count,
-            "prompt_modes": builder_prompt_modes,
-            "contract_first": bool(builder_items),
-            "component_types": builder_component_types[:6],
-        },
-        "facts": {
-            "confidence": str(retrieved_knowledge.get("fact_confidence") or "unknown"),
-            "conflict_count": conflict_count,
-            "confirmed_count": confirmed_count,
-            "source_count": source_count,
-            "needs_confirmation": bool(retrieved_knowledge.get("needs_fact_confirmation") or conflict_count),
-        },
-        "assets": {
-            "cover_count": len([asset for asset in assets if str(asset.get("role") or "") == "cover"]),
-            "bound_asset_count": len([asset for asset in assets if asset.get("used_by_blocks")]),
-        },
-        "suggestions": suggestions,
-    }
+
+async def _fetch_latest_session_snapshots(agent) -> list[dict]:
+    return await _present_fetch_latest_session_snapshots(agent, _extract_session_title)
+
+
+@router.get("/benchmark/overview", response_model=BenchmarkOverviewResponse)
+async def get_benchmark_overview(request: Request):
+    """
+    Benchmark dashboard for interview demos:
+    aggregate multi-session RAG/cache/execution metrics into one overview payload.
+    """
+    agent = get_agent(request)
+    snapshots = await _fetch_latest_session_snapshots(agent)
+    overview = _build_benchmark_overview(snapshots)
+    return BenchmarkOverviewResponse(data=overview)
 
 @router.get("/{thread_id}", response_model=WorkspaceDataResponse)
 async def get_workspace_data(thread_id: str, request: Request):

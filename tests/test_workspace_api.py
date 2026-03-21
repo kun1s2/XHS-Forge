@@ -3,7 +3,7 @@ from datetime import datetime
 from app.schemas.responses import WorkspaceDataResponse
 from langchain_core.messages import HumanMessage
 
-from app.api.workspace import _build_inspector_summary, _extract_session_title, _format_checkpoint_timestamp, _pick_row_value, dedupe_assets, format_messages
+from app.api.workspace import _build_benchmark_overview, _build_inspector_summary, _extract_session_title, _format_checkpoint_timestamp, _pick_row_value, dedupe_assets, format_messages
 
 
 def test_format_checkpoint_timestamp_accepts_datetime():
@@ -240,3 +240,197 @@ def test_build_inspector_summary_includes_component_builder_overview():
     assert any("过滤掉了一些越权字段" in tip for tip in summary["suggestions"])
     assert any("必填字段缺失" in tip for tip in summary["suggestions"])
     assert any("压缩后的事实摘要" in tip for tip in summary["suggestions"])
+
+
+def test_build_inspector_summary_includes_retrieval_overview():
+    summary = _build_inspector_summary({
+        "note_document": {
+            "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+            "blocks": [{"id": "spec_1", "type": "ProductSpecCard"}],
+            "assets": [],
+            "fact_bindings": [],
+        },
+        "retrieved_knowledge": {
+            "entity_name": "华为 Mate 60",
+            "fact_sources": [
+                {"title": "华为官网 Mate 60", "url": "https://example.com/official", "snippet": "价格 6999", "source_scope": "official"},
+                {"title": "用户评价合集", "url": "https://example.com/review", "snippet": "影像强", "source_scope": "review"},
+            ],
+            "retrieval_hits": [
+                {"scope": "official", "query": "Mate 60 核心参数 价格 官方", "count": 1, "titles": ["华为官网 Mate 60"]},
+                {"scope": "review", "query": "Mate 60 用户评价 真实体验", "count": 1, "titles": ["用户评价合集"]},
+            ],
+            "retrieval_summary": {
+                "strategy": "live_search_with_citations",
+                "policy_name": "cache_then_live_grounded",
+                "policy_path": "cache_first_then_live_search",
+                "ingest_mode": "task_triggered_ingest",
+            "cache_hit": False,
+            "cache_freshness": "miss",
+            "cache_key": "mate 60",
+            "cache_age_seconds": 0,
+            "cache_ttl_seconds": 21600,
+            "cache_remaining_ttl_seconds": 0,
+            "live_search_used": True,
+            "query": "Mate 60",
+                "query_variants": ["Mate 60 核心参数 价格 官方", "Mate 60 用户评价 真实体验"],
+                "citation_count": 2,
+                "image_count": 1,
+                "grounding_status": "grounded",
+                "freshness": "live",
+                "record_count": 2,
+                "fresh_record_count": 2,
+                "stale_record_count": 0,
+                "hit_scopes": ["official", "review"],
+                "rerank_applied": True,
+            },
+            "retrieval_eval": {
+                "citation_coverage": 1.0,
+                "grounding_score": 1.0,
+                "source_quality": "high",
+                "recommendation": "可直接作为 grounded evidence 展示",
+            },
+        },
+    })
+
+    assert summary["retrieval"]["strategy"] == "live_search_with_citations"
+    assert summary["retrieval"]["policy_name"] == "cache_then_live_grounded"
+    assert summary["retrieval"]["policy_path"] == "cache_first_then_live_search"
+    assert summary["retrieval"]["ingest_mode"] == "task_triggered_ingest"
+    assert summary["retrieval"]["citation_count"] == 2
+    assert summary["retrieval"]["cache_freshness"] == "miss"
+    assert summary["retrieval"]["cache_key"] == "mate 60"
+    assert summary["retrieval"]["cache_ttl_seconds"] == 21600
+    assert summary["retrieval"]["hit_count"] == 2
+    assert summary["retrieval"]["grounding_status"] == "grounded"
+    assert summary["retrieval"]["freshness"] == "live"
+    assert summary["retrieval"]["record_count"] == 2
+    assert summary["retrieval"]["fresh_record_count"] == 2
+    assert summary["retrieval"]["stale_record_count"] == 0
+    assert summary["retrieval"]["rerank_applied"] is True
+    assert summary["retrieval"]["citation_coverage"] == 1.0
+    assert summary["retrieval"]["grounding_score"] == 1.0
+    assert summary["retrieval"]["source_quality"] == "high"
+    assert summary["retrieval"]["recommendation"] == "可直接作为 grounded evidence 展示"
+
+
+def test_build_benchmark_overview_aggregates_sessions():
+    overview = _build_benchmark_overview([
+        {
+            "thread_id": "thread_alpha",
+            "title": "Mate 60 页面",
+            "updated_at": "2026-03-21T10:00:00",
+            "values": {
+                "note_document": {
+                    "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+                    "theme": {"preset": "seeding_hot"},
+                    "blocks": [
+                        {"id": "spec_1", "type": "ProductSpecCard"},
+                        {"id": "poll_1", "type": "PollBlock"},
+                    ],
+                    "assets": [{"url": "https://img.example/1.jpg", "role": "cover"}],
+                    "fact_bindings": [],
+                },
+                "retrieved_knowledge": {
+                    "entity_name": "华为 Mate 60",
+                    "fact_sources": [{"title": "官网"}],
+                    "retrieval_hits": [{"scope": "official", "query": "Mate 60 官方", "count": 1}],
+                    "retrieval_summary": {
+                        "strategy": "cache_hit",
+                        "cache_hit": True,
+                        "cache_freshness": "fresh",
+                        "cache_age_seconds": 120,
+                        "cache_remaining_ttl_seconds": 1800,
+                        "citation_count": 1,
+                        "record_count": 1,
+                        "fresh_record_count": 1,
+                        "stale_record_count": 0,
+                        "grounding_status": "grounded",
+                        "rerank_applied": False,
+                    },
+                    "retrieval_eval": {
+                        "citation_coverage": 1.0,
+                        "grounding_score": 0.95,
+                        "source_quality": "high",
+                    },
+                },
+                "turn_trace": {
+                    "warnings": [],
+                    "changed_blocks": [{"id": "spec_1", "type": "ProductSpecCard", "changed_fields": ["props"]}],
+                    "component_builder": {
+                        "spec_1": {"component_type": "ProductSpecCard", "fallback_used": False}
+                    },
+                    "note_editor": {"action": "update_block", "target_block_id": "spec_1", "structured": True},
+                },
+                "agent_backends": {"note_editor": "create_agent"},
+            },
+        },
+        {
+            "thread_id": "thread_beta",
+            "title": "阿那亚攻略",
+            "updated_at": "2026-03-21T09:00:00",
+            "values": {
+                "note_document": {
+                    "document_meta": {"title": "阿那亚攻略", "scenarios": ["travel"]},
+                    "theme": {"preset": "travel_editorial"},
+                    "blocks": [{"id": "loc_1", "type": "LocationBlock"}],
+                    "assets": [],
+                    "fact_bindings": [],
+                },
+                "retrieved_knowledge": {
+                    "entity_name": "阿那亚",
+                    "fact_sources": [{"title": "景区信息"}],
+                    "retrieval_hits": [{"scope": "official", "query": "阿那亚 门票", "count": 1}],
+                    "retrieval_summary": {
+                        "strategy": "live_search_with_citations",
+                        "cache_hit": False,
+                        "cache_freshness": "miss",
+                        "live_search_used": True,
+                        "citation_count": 1,
+                        "record_count": 2,
+                        "fresh_record_count": 1,
+                        "stale_record_count": 1,
+                        "grounding_status": "grounded",
+                        "rerank_applied": True,
+                    },
+                    "retrieval_eval": {
+                        "citation_coverage": 0.8,
+                        "grounding_score": 0.75,
+                        "source_quality": "medium",
+                    },
+                },
+                "turn_trace": {
+                    "warnings": ["fallback_used"],
+                    "changed_blocks": [{"id": "loc_1", "type": "LocationBlock", "changed_fields": ["props"]}],
+                    "component_builder": {
+                        "loc_1": {"component_type": "LocationBlock", "fallback_used": True}
+                    },
+                    "note_editor": {"action": "append_block", "target_block_id": "loc_1", "structured": True, "fallback_used": True},
+                },
+                "agent_backends": {"note_editor": "create_agent"},
+            },
+        },
+    ])
+
+    assert overview["session_count"] == 2
+    assert overview["active_document_count"] == 2
+    assert overview["summary"]["avg_block_count"] == 1.5
+    assert overview["rag"]["session_count"] == 2
+    assert overview["rag"]["grounded_session_count"] == 2
+    assert overview["cache"]["cache_hit_rate"] == 0.5
+    assert overview["cache"]["live_search_rate"] == 0.5
+    assert overview["cache"]["rerank_rate"] == 0.5
+    assert overview["execution"]["builder_fallback_total"] == 1
+    assert overview["execution"]["warning_session_count"] == 1
+    assert overview["distributions"]["scenarios"][0]["scenario"] in {"seeding", "travel"}
+    assert overview["distributions"]["components"][0]["component_type"] in {"ProductSpecCard", "PollBlock", "LocationBlock"}
+    assert len(overview["sessions"]) == 2
+    assert overview["recommendations"]
+
+
+def test_build_benchmark_overview_handles_empty_snapshot_list():
+    overview = _build_benchmark_overview([])
+
+    assert overview["session_count"] == 0
+    assert overview["sessions"] == []
+    assert overview["recommendations"]

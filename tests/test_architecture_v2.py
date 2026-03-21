@@ -112,6 +112,40 @@ def test_note_document_schema_accepts_richer_block_metadata():
     assert document.blocks[0].fact_bindings[0]["fact_field_labels"] == ["电池容量"]
 
 
+def test_note_document_applies_retrieval_grounding_to_blocks_without_manual_meta():
+    note_document = build_note_document(
+        document_view={
+            "page_title": "Mate 60 grounded 页面",
+            "blocks": [
+                {"id": "spec_1", "component_type": "ProductSpecCard", "content_brief": "参数证据"},
+                {"id": "story_1", "component_type": "StoryText", "content_brief": "正文总结"},
+            ],
+            "spec_1": {"type": "ProductSpecCard", "core_features": ["5000mAh", "6999 元"]},
+            "story_1": {"type": "StoryText", "paragraphs": ["这台机器的影像表现很强。"]},
+        },
+        retrieved_knowledge={
+            "confirmed_facts": {
+                "battery_capacity": {"value": "5000mAh"},
+                "price": {"value": "6999元"},
+            },
+            "fact_sources": [
+                {"title": "华为官网 Mate 60", "url": "https://consumer.huawei.com/cn/phones/mate-60/", "source_scope": "official"},
+                {"title": "用户评价合集", "url": "https://www.bilibili.com/video/BV1xx", "source_scope": "review"},
+            ],
+        },
+    )
+
+    spec_block = next(block for block in note_document["blocks"] if block["id"] == "spec_1")
+    story_block = next(block for block in note_document["blocks"] if block["id"] == "story_1")
+
+    assert spec_block["fact_bindings"][0]["kind"] == "retrieval_grounded"
+    assert spec_block["fact_bindings"][0]["sources"] == ["华为官网 Mate 60"]
+    assert "battery_capacity" in spec_block["fact_bindings"][0]["fact_fields"]
+    assert story_block["fact_bindings"][0]["kind"] == "retrieval_grounded"
+    assert story_block["fact_bindings"][0]["sources"] == ["用户评价合集"]
+    assert any(binding["block_id"] == "spec_1" for binding in note_document["fact_bindings"])
+
+
 def test_intent_gateway_result_normalization_fills_general_when_missing_scores():
     normalized = _normalize_gateway_result(
         IntentGatewayOutput(

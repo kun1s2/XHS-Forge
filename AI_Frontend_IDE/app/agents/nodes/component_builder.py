@@ -18,6 +18,13 @@ from app.agents.utils.fact_utils import (
 )
 from app.agents.state import ComponentTaskState
 from app.core.config import settings
+from app.core.context_engineering import (
+    build_asset_summary,
+    build_fact_summary,
+    build_policy_summary,
+    build_retrieval_evidence_slice,
+    count_fact_summary_entries,
+)
 from app.core.schema import ComponentBuilderOutput
 from app.core.component_manifest import (
     filter_payload_for_component,
@@ -33,6 +40,7 @@ from app.core.component_manifest import (
     supports_fact_binding,
 )
 from app.core.note_document import append_note_document_block, build_note_document_from_state, update_note_document_block
+from app.core.prompt_engineering import build_prompt_snapshot, render_string_prompt
 
 # Limit concurrent worker-style generation tasks.
 _github_limiter = asyncio.Semaphore(10)
@@ -42,7 +50,7 @@ def get_builder_llm():
     global _llm_instance
     if _llm_instance is None:
         _llm_instance = create_llm(
-            model=settings.LLM_WORKER_MODEL, 
+            model=settings.LLM_MODEL, 
             api_key=settings.LLM_API_KEY, 
             base_url=settings.LLM_BASE_URL, 
             temperature=0.3
@@ -78,61 +86,13 @@ def _clip_text(value: Any, limit: int = 220) -> str:
     return f"{text[: limit - 1].rstrip()}…"
 
 
-def _pick_global_guide_summary(content_msgs: list[Any]) -> str:
+def _pick_document_guide_summary(content_msgs: list[Any]) -> str:
     for msg in reversed(content_msgs or []):
         content = getattr(msg, "content", None)
         summary = _clip_text(content, 240)
         if summary:
             return summary
     return "未提供额外导引"
-
-
-def _build_planner_policy_summary(planner_policy: dict[str, Any]) -> dict[str, Any]:
-    tone_policy = planner_policy.get("tone_policy", {}) if isinstance(planner_policy.get("tone_policy"), dict) else {}
-    layout_policy = planner_policy.get("layout_policy", {}) if isinstance(planner_policy.get("layout_policy"), dict) else {}
-    theme_policy = planner_policy.get("theme_policy", {}) if isinstance(planner_policy.get("theme_policy"), dict) else {}
-    return {
-        "tone": {
-            "style": tone_policy.get("style") or tone_policy.get("tone") or "",
-            "intensity": tone_policy.get("intensity") or tone_policy.get("strength") or "",
-        },
-        "layout": {
-            "preferred_block_intents": list(layout_policy.get("preferred_block_intents") or [])[:4],
-            "interaction_bias": layout_policy.get("interaction_bias") or "",
-        },
-        "theme": {
-            "preset": theme_policy.get("preset") or "",
-            "interaction_level": theme_policy.get("interaction_level") or "",
-        },
-    }
-
-
-def _build_fact_summary(retrieved_knowledge: dict[str, Any], image_assets: list[dict[str, Any]]) -> dict[str, Any]:
-    attrs = retrieved_knowledge.get("core_attributes") if isinstance(retrieved_knowledge.get("core_attributes"), dict) else {}
-    confirmed = retrieved_knowledge.get("confirmed_facts") if isinstance(retrieved_knowledge.get("confirmed_facts"), dict) else {}
-    conflict_list = retrieved_knowledge.get("fact_conflicts") if isinstance(retrieved_knowledge.get("fact_conflicts"), list) else []
-    return {
-        "entity": retrieved_knowledge.get("entity_name") or "",
-        "key_selling_points": list(retrieved_knowledge.get("key_selling_points") or [])[:3],
-        "known_issues": list(retrieved_knowledge.get("known_issues") or [])[:3],
-        "core_attributes": dict(list(attrs.items())[:5]),
-        "confirmed_facts": dict(list(confirmed.items())[:4]),
-        "conflict_count": len(conflict_list),
-        "image_count": len([asset for asset in image_assets if asset.get("url")]),
-    }
-
-
-def _count_fact_summary_entries(fact_summary: dict[str, Any]) -> int:
-    count = 0
-    if fact_summary.get("entity"):
-        count += 1
-    count += len(fact_summary.get("key_selling_points") or [])
-    count += len(fact_summary.get("known_issues") or [])
-    count += len(fact_summary.get("core_attributes") or {})
-    count += len(fact_summary.get("confirmed_facts") or {})
-    if fact_summary.get("conflict_count"):
-        count += 1
-    return count
 
 
 def _nonempty_keys(payload: dict[str, Any] | None) -> list[str]:
@@ -365,24 +325,18 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
     fact_summary = {"entity": "", "key_selling_points": [], "known_issues": [], "core_attributes": {}, "confirmed_facts": {}, "conflict_count": 0, "image_count": 0}
     if isinstance(retrieved_knowledge, dict):
         battle_report = retrieved_knowledge.get("battle_report")
-        fact_summary = _build_fact_summary(retrieved_knowledge, image_assets)
+        fact_summary = build_fact_summary(retrieved_knowledge, image_assets)
         fact_grounding = build_fact_grounding_context(retrieved_knowledge)
     else:
         fact_grounding = ""
 
     # 2. 提取导引文案
     content_msgs = state.get("content_messages", [])
-    global_guide = _pick_global_guide_summary(content_msgs)
-    planner_policy_summary = _build_planner_policy_summary(planner_policy)
-    asset_summary = [
-        {
-            "role": str(asset.get("role") or "supporting"),
-            "desc": _clip_text(asset.get("desc") or asset.get("source_reason") or "素材图", 80),
-        }
-        for asset in image_assets[:3]
-        if asset.get("url")
-    ]
-    fact_summary_count = _count_fact_summary_entries(fact_summary)
+    document_guide_summary = _pick_document_guide_summary(content_msgs)
+    policy_summary = build_policy_summary(planner_policy)
+    asset_summary = build_asset_summary(image_assets, limit=3)
+    evidence_slice = build_retrieval_evidence_slice(retrieved_knowledge, semantic_role=contract_snapshot.get("semantic_role"), limit=3)
+    fact_summary_count = count_fact_summary_entries(fact_summary)
     asset_count = len([asset for asset in image_assets if asset.get("url")])
 
     async with _github_limiter:
@@ -393,38 +347,27 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
         structured_llm = llm.with_structured_output(ComponentBuilderOutput, method="function_calling")
         
         # 3. 构造指令 (contract-first + compact prompt)
-        system_prompt = f"""你是一个顶级组件设计师。当前构建 ID: [{comp_id}], 类型: "{comp_type}"。
-
-【🧱 组件 Contract】
-{json.dumps(contract_snapshot, ensure_ascii=False, indent=2)}
-
-【⚠️ 本组件专项简报】: >> {content_brief} <<
-
-【📖 全局导引摘要】:
-{global_guide}
-
-【📊 事实摘要】:
-{json.dumps(fact_summary, ensure_ascii=False, indent=2)}
-
-【🖼️ 可用资产摘要】:
-{json.dumps(asset_summary, ensure_ascii=False, indent=2)}
-
-【🗺️ Planner Policy 摘要】:
-{json.dumps(planner_policy_summary, ensure_ascii=False, indent=2)}
-
-【🧭 事实可信度约束】:
-{fact_grounding or "暂无已确认事实；若存在冲突，不要编造绝对参数。"}
-
-【通用铁律】：
-1. 职责锁定：仅针对简报指派的细节创作。
-2. 严禁复读：严禁照抄全局背景原句。
-3. 📸 零幻觉图像：若事实库无图，image_url 设为 null。
-4. 若“已确认事实”存在，优先使用这些值，不要输出与其冲突的参数。
-5. 若某个参数仍存在冲突且未确认，不要把它写成确定数字结论。
-"""
-
-        if comp_type == "VersusCard" and battle_report:
-            system_prompt += f"\n【🚨 强制对冲数据】:\n{json.dumps(battle_report, ensure_ascii=False)}"
+        system_prompt = render_string_prompt(
+            "component_builder_system.xml",
+            comp_id=comp_id,
+            comp_type=comp_type,
+            contract_snapshot=json.dumps(contract_snapshot, ensure_ascii=False, indent=2),
+            content_brief=content_brief,
+            global_guide=document_guide_summary,
+            fact_summary=json.dumps(fact_summary, ensure_ascii=False, indent=2),
+            asset_summary=json.dumps(asset_summary, ensure_ascii=False, indent=2),
+            planner_policy_summary=json.dumps(policy_summary, ensure_ascii=False, indent=2),
+            fact_grounding=(
+                (fact_grounding or "暂无已确认事实；若存在冲突，不要编造绝对参数。")
+                + f"\n\n【🔎 Evidence Slice】\n{json.dumps(evidence_slice, ensure_ascii=False, indent=2)}"
+            ),
+            battle_report=json.dumps(battle_report, ensure_ascii=False, indent=2) if (comp_type == "VersusCard" and battle_report) else "",
+        )
+        prompt_snapshot = build_prompt_snapshot(
+            "component_builder",
+            system_prompt=system_prompt,
+            user_prompt=f"请根据指令完成组件数据构建。用户指令：{user_query}",
+        )
 
         try:
             fallback_data = build_component_fallback(
@@ -466,6 +409,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
 
             return {
                 "note_document": updated_document,
+                "node_prompts": prompt_snapshot,
                 "turn_trace": {
                     "component_builder": {
                         comp_id: {
@@ -519,8 +463,9 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                     style={"css_classes": "opacity-90", "inline_styles": {}},
                  )
                  return {
-                    "note_document": updated_document,
-                    "turn_trace": {
+                     "note_document": updated_document,
+                     "node_prompts": prompt_snapshot,
+                     "turn_trace": {
                         "component_builder": {
                             comp_id: {
                                 "component_type": comp_type,
@@ -558,6 +503,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
             )
             return {
                 "note_document": updated_document,
+                "node_prompts": prompt_snapshot,
                 "turn_trace": {
                     "component_builder": {
                         comp_id: {

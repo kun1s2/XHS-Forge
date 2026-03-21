@@ -5,12 +5,15 @@ those payloads from the canonical NoteDocument bridge instead of direct state
 shape coupling.
 """
 
+import json
+
 from app.core.agent_runtime import create_controlled_agent
 from app.core.llm_factory import create_llm
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.agents.tools_registry import PATCH_TOOLS
 from app.core.note_document import build_note_document_from_state
+from app.core.prompt_engineering import build_prompt_snapshot, render_string_prompt
 from langchain_core.messages import AIMessage
 
 async def surgical_patch_agent(state: UIProjectState) -> dict:
@@ -30,29 +33,26 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
 
     print(f"🔪 [手术刀] 正在对组件 {target_id} 进行微创修复...")
     note_document = build_note_document_from_state(state)
+    target_block = next((block for block in (note_document.get("blocks") or []) if block.get("id") == target_id), {})
 
     llm = create_llm(
-        model=settings.LLM_LOGIC_MODEL,
+        model=settings.LLM_MODEL,
         api_key=settings.LLM_API_KEY,
         base_url=settings.LLM_BASE_URL,
         temperature=0.2 # 微调需要高确定性
     )
 
-    system_prompt = """你是一个资深的前端微调专家。
-你的职责是围绕当前选中组件执行最小必要修改，而不是重写整页。
-
-【你的手术流程】
-1. 诊断：调用 inspect_component_state 查看组件当前 JSON 数据。
-2. 决策：根据用户指令判断需要修改哪些字段（如 title、paragraphs、image_url）。
-3. 换图：如果用户想换图但没给图，可以调用 google_images 搜图，再把结果填入 image_url。
-4. 开刀：调用 apply_diff_update 传入 JSON 补丁。
-   - 补丁格式示例: '{"title": "新标题", "style": {"css_classes": "bg-red-500"}}'
-5. 结束：修改完成后立即停止调用工具。
-
-【约束】
-- 只修改必要字段。
-- 不要输出 JSON 到最终回复。
-- 完成后用一句中文确认修改完成。"""
+    system_prompt = render_string_prompt(
+        "patch_doctor_system.xml",
+        target_id=target_id,
+        target_component_json=json.dumps(target_block, ensure_ascii=False, indent=2),
+    )
+    user_prompt = f"当前目标组件 ID: {target_id}。用户修改指令: {user_instruction}"
+    prompt_snapshot = build_prompt_snapshot(
+        "patch_doctor",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
 
     # 构建微创医生
     patch_doctor = create_controlled_agent(
@@ -64,7 +64,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
 
     try:
         inputs = {
-            "messages": [("user", f"当前目标组件 ID: {target_id}。用户修改指令: {user_instruction}")],
+            "messages": [("user", user_prompt)],
             "note_document": note_document,
         }
         
@@ -80,6 +80,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
         return {
             **({"note_document": result["note_document"]} if result.get("note_document") else {}),
             "main_messages": [AIMessage(content=f"✨ {content}")],
+            "node_prompts": prompt_snapshot,
             "agent_backends": {"patch_doctor": patch_doctor.backend},
         }
 
@@ -87,5 +88,6 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
         print(f"❌ [手术失败]: {e}")
         return {
             "main_messages": [AIMessage(content="🔧 手术遭遇未知错误，请重试。")],
+            "node_prompts": prompt_snapshot,
             "agent_backends": {"patch_doctor": patch_doctor.backend},
         }
