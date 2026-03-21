@@ -19,10 +19,14 @@ class WorkspaceDataResponse(BaseResponse):
     messages: Dict[str, List[Dict[str, Any]]]  # 分面板的结构化聊天记录
     active_panel: str
     selected_element_id: Optional[str]
-    data_dsl: Dict[str, Any]
-    style_dsl: Dict[str, Any]
     image_assets: List[Dict[str, Any]] = []
     node_prompts: Dict[str, Any] = {}
+    note_document: Dict[str, Any] = {}
+    planner_output: Dict[str, Any] = {}
+    planner_policy: Dict[str, Any] = {}
+    turn_trace: Dict[str, Any] = {}
+    agent_backends: Dict[str, Any] = {}
+    inspector_summary: Dict[str, Any] = {}
     oss_url: Optional[str]
     source_code: str = ""
     checkpoints: List[CheckpointInfo]

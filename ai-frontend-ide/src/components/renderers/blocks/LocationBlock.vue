@@ -1,6 +1,6 @@
 <template>
   <div :id="compId" :class="[cssClasses]" :style="inlineStyles" @click="handleClick" @mouseover="handleMouseOver">
-    <div class="flex items-center gap-3 px-3 py-3 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer group">
+    <div class="flex items-center gap-3 px-3 py-3 rounded-2xl border transition-all cursor-pointer group" :style="shellStyle">
       <!-- ✨ 左侧图标：带呼吸感的背景 -->
       <div 
         class="w-10 h-10 rounded-full flex items-center justify-center shadow-inner shrink-0"
@@ -12,17 +12,17 @@
       <!-- ✨ 中间文字：展示真实 POI 名称与地址 -->
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-1.5 mb-0.5">
-          <div class="text-[14px] font-bold text-gray-900 truncate">{{ props.data?.poi_name || props.data?.location || '未知地点' }}</div>
+          <div class="text-[14px] font-bold truncate" :style="{ color: 'var(--text-color)' }">{{ props.data?.poi_name || props.data?.location || '未知地点' }}</div>
           <!-- ✨ 如果有坐标，显示“已校准”小标签 -->
           <div v-if="hasCoordinates" class="px-1 py-0.5 bg-green-100 text-green-600 text-[9px] rounded font-bold uppercase tracking-tighter">GPS</div>
         </div>
-        <div class="text-[11px] text-gray-500 truncate leading-tight">
+        <div class="text-[11px] truncate leading-tight" :style="{ color: 'var(--text-muted)' }">
           {{ props.data?.location || '点击查看详情' }}
         </div>
       </div>
 
       <!-- ✨ 右侧箭头 -->
-      <div class="text-gray-300 group-hover:text-gray-400 group-hover:translate-x-0.5 transition-all">
+      <div class="group-hover:translate-x-0.5 transition-all" :style="arrowStyle">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
         </svg>
@@ -44,6 +44,12 @@ const emit = defineEmits(['select', 'hover'])
 
 const cssClasses = computed(() => props.style?.css_classes || '')
 const inlineStyles = computed(() => props.style?.inline_styles || {})
+const shellStyle = computed(() => ({
+  background: 'var(--card-bg)',
+  borderColor: 'var(--card-border)',
+  boxShadow: 'var(--card-shadow)',
+}))
+const arrowStyle = computed(() => ({ color: 'var(--text-muted)' }))
 
 const hasCoordinates = computed(() => props.data?.lat !== undefined && props.data?.lng !== undefined)
 

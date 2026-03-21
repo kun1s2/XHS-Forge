@@ -7,7 +7,7 @@
     <task_context>
         {% if is_update %}
         <mode>增量修改模式</mode>
-        <current_dsl>{{ current_data_dsl }}</current_dsl>
+        <current_canvas_snapshot>{{ current_canvas_snapshot }}</current_canvas_snapshot>
         <target_element>{{ selected_element }}</target_element>
         {% else %}
         <mode>全新生成模式</mode>

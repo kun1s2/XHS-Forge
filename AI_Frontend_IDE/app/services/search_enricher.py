@@ -1,9 +1,7 @@
-# app/services/search_enricher.py
 import logging
 import json
 import re
-import asyncio
-from typing import List, Dict, Any
+from copy import deepcopy
 from app.tools.network_search import search_network_structured_async
 from app.core.llm_factory import create_llm
 from app.core.config import settings
@@ -23,12 +21,10 @@ def get_cleaner_llm():
         )
     return _cleaner_llm
 
-async def enrich_product_data(data_dsl: dict, archetype: str = "general") -> dict:
-    """
-    【全领域事实增强引擎 3.0】：领域感知 + 极速 LLM 蒸馏。
-    无论用户搜的是相机、护肤品还是餐厅，都能输出专家级参数。
-    """
-    enriched_dsl = data_dsl.copy()
+async def enrich_product_document(note_document: dict, archetype: str = "general") -> dict:
+    """Distill product/location facts directly into NoteDocument blocks."""
+    document = deepcopy(note_document or {})
+    blocks = list(document.get("blocks") or [])
     llm = get_cleaner_llm()
     
     # 1. 确定领域画像与提取目标
@@ -42,17 +38,24 @@ async def enrich_product_data(data_dsl: dict, archetype: str = "general") -> dic
     target_info = DOMAIN_MAP.get(archetype, DOMAIN_MAP["general"])
 
     # 2. 嗅探页面全局主体
-    page_title = data_dsl.get("page_title", "")
-    title_block = next((v.get("title") for v in data_dsl.values() if isinstance(v, dict) and v.get("type") == "TitleBlock"), "")
+    page_title = ((document.get("document_meta") or {}).get("title") or "").strip()
+    title_block = next(
+        (
+            str((block.get("props") or {}).get("title") or "").strip()
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "TitleBlock"
+        ),
+        "",
+    )
     global_subject = title_block or page_title
 
-    for comp_id, comp_data in enriched_dsl.items():
-        if not isinstance(comp_data, dict): continue
-            
-        comp_type = comp_data.get("type")
-        # 只要是需要“事实”的卡片，都启动增强
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        comp_type = str(block.get("type") or "")
+        props = deepcopy(block.get("props") or {})
         if comp_type in ["ProductCard", "ProductSpecCard", "LocationBlock"]:
-            local_title = comp_data.get("title", "")
+            local_title = str(props.get("title") or "").strip()
             query_subject = local_title if local_title and len(local_title) > 2 else global_subject
             
             print(f"🔍 [事实增强] 正在为「{query_subject}」寻找互联网真实数据 (领域: {archetype})...")
@@ -86,24 +89,26 @@ async def enrich_product_data(data_dsl: dict, archetype: str = "general") -> dic
                 # 4. 回填 DSL：数据闭环
                 # 修正商品/地点名字
                 if distilled_data.get("refined_name") and "未提及" not in distilled_data["refined_name"]:
-                    enriched_dsl[comp_id]["title"] = distilled_data["refined_name"]
+                    props["title"] = distilled_data["refined_name"]
                 
                 # 修正价格
                 price_val = distilled_data.get("price")
                 if price_val and "未提及" not in str(price_val):
-                    enriched_dsl[comp_id]["price"] = str(price_val)
+                    props["price"] = str(price_val)
                 else:
-                    # 强力兜底：如果还是没拿到，根据上下文盲猜一个（仅为占位，防止显示“搜索未提及”）
-                    enriched_dsl[comp_id]["price"] = "￥价格请以官方为准"
+                    props["price"] = "￥价格请以官方为准"
 
                 
                 # 修正参数
                 if distilled_data.get("features"):
-                    enriched_dsl[comp_id]["core_features"] = distilled_data["features"][:5]
+                    props["core_features"] = distilled_data["features"][:5]
+
+                block["props"] = props
                 
                 print(f"✅ [事实增强] 「{query_subject}」数据已由 LLM 完成领域级蒸馏")
                         
             except Exception as e:
                 logger.error(f"事实增强蒸馏失败: {e}")
                 
-    return enriched_dsl
+    document["blocks"] = blocks
+    return document

@@ -229,3 +229,12 @@ cd /root/XHS-Forge/ai-frontend-ide
 cp .env.example .env.local
 echo "VITE_ENABLE_SHOWCASE=true" >> .env.local
 ```
+
+## 当前交付状态
+- 当前仓库已完成求职展示版收官。
+- 核心能力：自然语言生成与持续编辑笔记、回滚/分支、可信事实链、素材资产层、前后端统一文档协议。
+- 验证状态：全量 `pytest` 通过，前端生产构建通过。
+
+- 交付级复查入口：`scripts/final_acceptance.sh`
+
+- 仓库级持续验收：`.github/workflows/final-acceptance.yml`

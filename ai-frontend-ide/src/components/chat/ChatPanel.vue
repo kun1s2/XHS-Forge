@@ -21,11 +21,17 @@
       <div class="flex items-center gap-3 ml-auto">
         <button 
           @click="showInspector = !showInspector"
-          class="p-1.5 hover:bg-[#333] rounded transition-colors text-gray-400 hover:text-blue-400"
+          class="relative p-1.5 hover:bg-[#333] rounded transition-colors text-gray-400 hover:text-blue-400"
           :class="{ 'text-blue-400 bg-[#333]': showInspector }"
           title="切换 Agent 驾驶舱"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+          <span
+            v-if="pendingFactConflictCount > 0"
+            class="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full border border-amber-700/50 bg-amber-900/90 px-1 text-[9px] font-bold text-amber-200"
+          >
+            {{ pendingFactConflictCount }}
+          </span>
         </button>
 
         <span v-if="wsStatus === 'connected'" class="flex items-center gap-1.5 text-xs text-green-400 whitespace-nowrap">
@@ -45,6 +51,13 @@
     <!-- ✨ Agent Inspector 驾驶舱 (可折叠) -->
     <div v-if="showInspector" class="p-4 pb-0 animate-in slide-in-from-top duration-300">
       <AgentInspector />
+    </div>
+
+    <div
+      v-if="pendingFactConflictCount > 0"
+      class="mx-4 mt-4 rounded-xl border border-amber-800/30 bg-amber-900/10 px-4 py-3 text-[12px] text-amber-200"
+    >
+      发现 {{ pendingFactConflictCount }} 个待确认事实，当前页面已自动采用保守表达，避免把冲突参数写成绝对结论。
     </div>
 
     <div class="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar" ref="msgListRef">
@@ -243,7 +256,7 @@ import ShowcaseRail from './ShowcaseRail.vue'
 import type { ShowcaseProfile } from '../../types/chat'
 
 const chatStore = useChatStore()
-const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, selectedParagraphIndex, imageAssets, creatorPersona, hotTrends, showcaseProfiles, pageData, composerDraft } = storeToRefs(chatStore)
+const { messages, wsStatus, currentNode, thoughtText, nodeStreamOutput, selectedComponentId, selectedParagraphIndex, imageAssets, creatorPersona, hotTrends, showcaseProfiles, composerDraft, pendingFactConflictCount, selectedBlock, selectedPayload } = storeToRefs(chatStore)
 const { setSelectedComponent, addPendingUploadAsset, removeImageAsset } = chatStore
 const showcaseEnabled = chatStore.showcaseEnabled
 const msgListRef = ref<HTMLElement | null>(null)
@@ -267,15 +280,6 @@ const componentLabelMap: Record<string, string> = {
   WeatherPolaroid: '氛围图卡',
 }
 
-const selectedBlock = computed(() => {
-  const blocks = ((pageData.value as any)?.blocks || []) as Array<Record<string, any>>
-  return blocks.find((block) => block.id === selectedComponentId.value) || null
-})
-
-const selectedPayload = computed(() => {
-  if (!selectedComponentId.value) return {}
-  return ((pageData.value as Record<string, any>)?.[selectedComponentId.value] || {}) as Record<string, any>
-})
 
 const selectedComponentLabel = computed(() => {
   const componentType = String(selectedBlock.value?.component_type || '')
@@ -329,6 +333,14 @@ const selectedQuickActions = computed(() => {
   if (componentType === 'PollBlock') {
     actions.push({ label: '更毒舌', prompt: '把这个投票块改得更毒舌一点。' })
     actions.push({ label: '更温和', prompt: '把这个投票块改得更温和一点。' })
+  }
+
+  if (componentType === 'ProductSpecCard') {
+    actions.push({ label: '参数更克制', prompt: '把这个参数卡改成更克制的保守表达，不要把存在冲突的参数写成绝对结论。' })
+    actions.push({ label: '提醒确认官方值', prompt: '把这个参数卡补一句提醒，说明存在待确认参数，建议以官方页或人工确认为准。' })
+    if (pendingFactConflictCount.value === 0) {
+      actions.push({ label: '应用已确认事实', prompt: '把这个参数卡改得更明确一点，优先使用已经确认的事实值。' })
+    }
   }
 
   return actions
@@ -404,7 +416,7 @@ const handleFileSelect = async (e: Event) => {
 }
 
 const handleSend = () => {
-  if ((!composerDraft.value.trim() && imageAssets.value.length === 0) || isUploading.value || currentNode.value !== '') return
+  if ((!composerDraft.value.trim() && stagedUploadUrls.value.length === 0) || isUploading.value || currentNode.value !== '') return
 
   chatStore.sendMessage(composerDraft.value, { imageUrls: stagedUploadUrls.value })
   stagedUploadUrls.value = []

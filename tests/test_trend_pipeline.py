@@ -1,0 +1,21 @@
+import pytest
+from unittest.mock import AsyncMock, patch
+
+from app.services.trend_pipeline import TrendPipeline
+
+
+@pytest.mark.asyncio
+async def test_trend_pipeline_primes_research_with_intent_v2():
+    pipeline = TrendPipeline()
+
+    with patch("app.services.trend_pipeline.research_agent", new_callable=AsyncMock) as mock_research:
+        mock_research.return_value = {"retrieved_knowledge": {"entity_name": "Mate 60"}}
+        with patch("app.services.cache_service.cache_service.set_hot_knowledge", new_callable=AsyncMock) as mock_set:
+            await pipeline._pre_research_topic("Mate 60", deep_scan=True)
+
+    mock_research.assert_awaited_once()
+    state = mock_research.await_args.args[0]
+    assert state["intent_result_v2"]["needs_assets"] == "search"
+    assert state["intent_result_v2"]["needs_research"] is True
+    assert state["intent_result_v2"]["scenario_scores"] == {"seeding": 1.0}
+    mock_set.assert_awaited_once()

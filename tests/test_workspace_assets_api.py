@@ -1,9 +1,15 @@
+import asyncio
 from types import SimpleNamespace
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from app.api.workspace import router as workspace_router
+from app.api.workspace import (
+    AssetMutationRequest,
+    FactConfirmationRequest,
+    confirm_workspace_fact,
+    import_workspace_asset,
+    search_workspace_images,
+    set_workspace_cover_asset,
+)
+from app.core.note_document import build_note_document
 
 
 class FakeSnapshot:
@@ -24,12 +30,8 @@ class FakeAgent:
         return None
 
 
-def _build_app(agent=None):
-    app = FastAPI()
-    app.include_router(workspace_router)
-    app.state.agent = agent or FakeAgent()
-    app.state.vector_store = SimpleNamespace()
-    return app
+def _build_request(agent=None):
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(agent=agent or FakeAgent(), vector_store=SimpleNamespace())))
 
 
 def test_workspace_asset_search_endpoint_returns_structured_results(monkeypatch):
@@ -37,49 +39,51 @@ def test_workspace_asset_search_endpoint_returns_structured_results(monkeypatch)
         return [f"https://img.example/{idx}.jpg" for idx in range(num)]
 
     monkeypatch.setattr("app.api.workspace.search_google_images", fake_search)
-    app = _build_app()
-
-    with TestClient(app) as client:
-        response = client.get("/workspace/thread-1/assets/search", params={"query": "Mate 60 实拍图", "limit": 3})
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "success"
-    assert len(payload["results"]) == 3
-    assert payload["results"][0]["source_type"] == "search"
+    payload = asyncio.run(search_workspace_images("thread-1", "Mate 60 实拍图", 3))
+    assert payload.status == "success"
+    assert len(payload.results) == 3
+    assert payload.results[0].source_type == "search"
 
 
 def test_workspace_cover_endpoint_updates_cover_block_and_imports_asset():
     agent = FakeAgent(
         {
             "image_assets": [],
-            "data_dsl": {
-                "blocks": [{"id": "title_1", "component_type": "TitleBlock", "props": {}}],
-                "title_1": {"type": "TitleBlock", "title": "旧标题"},
-            },
+            "note_document": build_note_document(
+                document_view={
+                    "blocks": [{"id": "title_1", "component_type": "TitleBlock", "content_brief": ""}],
+                    "title_1": {"type": "TitleBlock", "title": "旧标题"},
+                },
+                block_style_map={},
+            ),
         }
     )
-    app = _build_app(agent)
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/workspace/thread-1/assets/cover",
-            json={
-                "url": "https://img.example/cover.jpg",
-                "desc": "Mate 60 封面",
-                "source_type": "search",
-                "query": "Mate 60 实拍图",
-            },
+    request = _build_request(agent)
+    response = asyncio.run(
+        set_workspace_cover_asset(
+            "thread-1",
+            AssetMutationRequest(
+                url="https://img.example/cover.jpg",
+                desc="Mate 60 封面",
+                source_type="search",
+                query="Mate 60 实拍图",
+            ),
+            request,
         )
+    )
 
-    assert response.status_code == 200
+    assert response.message == "已设为封面图"
     patch = agent.updated[0]["values"]
     assert patch["image_assets"][0]["url"] == "https://img.example/cover.jpg"
-    assert patch["data_dsl"]["blocks"][0]["component_type"] == "CoverSwiper"
-    assert patch["data_dsl"]["blocks"][1]["component_type"] == "TitleBlock"
-    assert patch["data_dsl"]["title_1"]["title"] == "旧标题"
-    cover_block = patch["data_dsl"]["blocks"][0]
-    assert patch["data_dsl"][cover_block["id"]]["image_urls"] == ["https://img.example/cover.jpg"]
+    assert patch["note_document"]["blocks"][0]["type"] == "CoverSwiper"
+    assert patch["note_document"]["blocks"][1]["type"] == "TitleBlock"
+    assert patch["note_document"]["blocks"][1]["props"]["title"] == "旧标题"
+    cover_block = patch["note_document"]["blocks"][0]
+    assert cover_block["props"]["image_urls"] == ["https://img.example/cover.jpg"]
+    trace_patch = agent.updated[-1]["values"]["turn_trace"]["workspace_action"]
+    assert trace_patch["action"] == "workspace_set_cover"
+    assert trace_patch["target_block_id"] == cover_block["id"]
+    assert isinstance(agent.updated[-1]["values"]["turn_trace"]["changed_blocks"], list)
 
 
 def test_workspace_fact_confirmation_updates_retrieved_knowledge():
@@ -102,21 +106,50 @@ def test_workspace_fact_confirmation_updates_retrieved_knowledge():
             }
         }
     )
-    app = _build_app(agent)
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/workspace/thread-1/facts/confirm",
-            json={
-                "field": "battery_capacity",
-                "value": "5000",
-                "sources": ["华为官网"],
-            },
+    request = _build_request(agent)
+    response = asyncio.run(
+        confirm_workspace_fact(
+            "thread-1",
+            FactConfirmationRequest(field="battery_capacity", value="5000", sources=["华为官网"]),
+            request,
         )
+    )
 
-    assert response.status_code == 200
-    patch = agent.updated[0]["values"]["retrieved_knowledge"]
-    assert patch["confirmed_facts"]["battery_capacity"]["value"] == "5000mAh"
-    assert patch["core_attributes"]["battery_capacity"] == "5000mAh"
-    assert patch["fact_review_status"] == "confirmed"
-    assert patch["fact_conflicts"] == []
+    assert response.message == "已确认 电池容量: 5000"
+    patch = agent.updated[0]["values"]
+    knowledge_patch = patch["retrieved_knowledge"]
+    assert knowledge_patch["confirmed_facts"]["battery_capacity"]["value"] == "5000mAh"
+    assert knowledge_patch["core_attributes"]["battery_capacity"] == "5000mAh"
+    assert knowledge_patch["fact_review_status"] == "confirmed"
+    assert knowledge_patch["fact_conflicts"] == []
+    assert patch["note_document"]["provenance"]["confirmed_facts"]["battery_capacity"]["value"] == "5000mAh"
+
+
+def test_workspace_import_asset_also_updates_note_document():
+    agent = FakeAgent({
+        "image_assets": [],
+        "note_document": build_note_document(
+            document_view={"page_title": "示例", "blocks": []},
+            block_style_map={},
+        ),
+    })
+    request = _build_request(agent)
+    response = asyncio.run(
+        import_workspace_asset(
+            "thread-1",
+            AssetMutationRequest(
+                url="https://img.example/lib.jpg",
+                desc="图库图",
+                source_type="search",
+                query="Mate 60",
+            ),
+            request,
+        )
+    )
+
+    assert response.message == "素材已加入资产池"
+    patch = agent.updated[0]["values"]
+    assert patch["image_assets"][0]["url"] == "https://img.example/lib.jpg"
+    assert patch["note_document"]["assets"][0]["url"] == "https://img.example/lib.jpg"
+    assert patch["note_document"]["document_meta"]["title"] == "示例"
+    assert agent.updated[-1]["values"]["turn_trace"]["workspace_action"]["action"] == "workspace_import_asset"

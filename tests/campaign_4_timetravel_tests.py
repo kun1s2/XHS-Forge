@@ -1,16 +1,17 @@
 # 🧪 战役四：时空穿梭与幽灵数据防御 (Time-Travel & Ghost Data Tests)
 import pytest
 from AI_Frontend_IDE.app.agents.state import (
-    merge_dsl,
+    merge_state_patch,
     merge_patch_tracks,
     restore_component_version,
 )
+from AI_Frontend_IDE.app.core.note_document import build_note_document
 
 
 def test_patch_tracks_increment_on_new_field():
     """增量修改与快照生成：为 product_1 新增 tag 后，patch_tracks['product_1'] 长度 +1。"""
     state = {
-        "data_dsl": {"product_1": {"type": "ProductCard", "title": "相机"}},
+        "document_view": {"product_1": {"type": "ProductCard", "title": "相机"}},
         "patch_tracks": {"product_1": []},
     }
     new_track = {
@@ -25,13 +26,20 @@ def test_patch_tracks_increment_on_new_field():
 
 
 def test_restore_component_version_tombstone_and_ghost_removal():
-    """毒药补丁回滚：restore 返回的补丁含 tag: None，merge 后 data_dsl 中 tag 被物理删除，其他组件不受影响。"""
+    """毒药补丁回滚：restore 返回 note_document 补丁，回滚后目标块恢复历史快照且不污染其他块。"""
     # 当前状态：product_1 有 tag，text_1 有独立修改
     state = {
-        "data_dsl": {
-            "product_1": {"type": "ProductCard", "title": "相机", "tag": "2024 年度理财产品"},
-            "text_1": {"type": "StoryText", "paragraphs": ["最新正文"]},
-        },
+        "note_document": build_note_document(
+            document_view={
+                "blocks": [
+                    {"id": "product_1", "component_type": "ProductCard", "content_brief": ""},
+                    {"id": "text_1", "component_type": "StoryText", "content_brief": ""},
+                ],
+                "product_1": {"type": "ProductCard", "title": "相机", "tag": "2024 年度理财产品"},
+                "text_1": {"type": "StoryText", "paragraphs": ["最新正文"]},
+            },
+            block_style_map={},
+        ),
         "patch_tracks": {
             "product_1": [
                 {
@@ -44,15 +52,11 @@ def test_restore_component_version_tombstone_and_ghost_removal():
     }
 
     patch_result = restore_component_version(state, "product_1", 0)
-    assert "data_dsl" in patch_result
-    assert "product_1" in patch_result["data_dsl"]
-    rollback = patch_result["data_dsl"]["product_1"]
-    # 毒药补丁：当前有而快照没有的 key 应为 None
-    assert rollback.get("tag") is None
+    assert "note_document" in patch_result
 
-    # 合并后全局 data_dsl
-    merged_dsl = merge_dsl(state["data_dsl"], patch_result["data_dsl"])
-    assert "tag" not in merged_dsl["product_1"]
-    assert merged_dsl["product_1"]["title"] == "相机"
-    # 其他组件不受影响
-    assert merged_dsl["text_1"]["paragraphs"] == ["最新正文"]
+    merged_document = merge_state_patch(state["note_document"], patch_result["note_document"])
+    product_block = next(block for block in merged_document["blocks"] if block["id"] == "product_1")
+    text_block = next(block for block in merged_document["blocks"] if block["id"] == "text_1")
+    assert "tag" not in product_block["props"]
+    assert product_block["props"]["title"] == "相机"
+    assert text_block["props"]["paragraphs"] == ["最新正文"]

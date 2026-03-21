@@ -1,3 +1,11 @@
+"""Primary LangGraph runtime for the note workspace.
+
+The graph keeps user-facing orchestration explicit:
+- agent nodes handle routing/planning/edit decisions
+- deterministic nodes resolve blocks, compile themes, verify, and render
+- state stays centralized so rollback, tracing, and workspace restore remain stable
+"""
+
 import time
 import functools
 import json
@@ -12,6 +20,8 @@ from langgraph.types import Send
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.schema import OutlineOutput
+from app.core.note_document import build_document_view_from_state, build_note_document_from_state, build_note_document_from_structure_patch
+from app.core.component_manifest import resolve_component_for_block_intent
 
 # 引入节点
 from app.agents.nodes.asset_node import asset_processor_node
@@ -25,13 +35,14 @@ from app.agents.nodes.style_node import style_agent
 from app.agents.nodes.render_node import render_node
 from app.agents.nodes.refusal_node import refusal_node
 from app.agents.nodes.battle_node import battle_node
-from app.agents.nodes.outline_node import outline_agent, should_continue_outlining
 from app.agents.nodes.component_builder import component_builder_node
 from app.agents.nodes.note_editor_node import note_editor_node
+from app.agents.nodes.planner_node import planner_node
 from app.agents.nodes.verify_note_node import verify_note_node
-from app.agents.tools_registry import RESEARCH_TOOLS, OUTLINE_TOOLS
+from app.agents.tools_registry import RESEARCH_TOOLS
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.agents.utils.fact_utils import summarize_confirmed_attributes
+from app.core.runtime_log import append_latest_console_log
 
 def with_performance_profiling(node_name: str, func):
     @functools.wraps(func)
@@ -40,11 +51,15 @@ def with_performance_profiling(node_name: str, func):
         try:
             result = await func(state)
             elapsed = time.perf_counter() - start_time
+            message = f"⏱️ [性能监控] 节点 {node_name} 完毕, 耗时: {elapsed:.2f}s"
             print(f"⏱️ [性能监控] 节点 {node_name} 完毕, 耗时: \033[93m{elapsed:.2f}s\033[0m")
+            append_latest_console_log(message)
             return result
         except Exception as e:
             elapsed = time.perf_counter() - start_time
+            message = f"❌ [性能监控] 节点 {node_name} 失败, 耗时: {elapsed:.2f}s"
             print(f"❌ [性能监控] 节点 {node_name} 失败, 耗时: \033[91m{elapsed:.2f}s\033[0m")
+            append_latest_console_log(message)
             raise e
     return wrapper
 
@@ -63,8 +78,8 @@ def _has_local_selection(state: UIProjectState) -> bool:
 
 
 def _has_existing_canvas(state: UIProjectState) -> bool:
-    data_dsl = state.get("data_dsl") or {}
-    return bool(data_dsl.get("blocks"))
+    execution_view = build_document_view_from_state(state)
+    return bool(execution_view.get("blocks"))
 
 
 def _latest_user_text(state: UIProjectState) -> str:
@@ -120,38 +135,97 @@ def _looks_like_existing_canvas_edit(user_text: str) -> bool:
     )
 
 
+def _materialize_blocks_from_planner(state: UIProjectState) -> list[dict[str, Any]]:
+    planner_output = state.get("planner_output") or {}
+    block_intents = list(planner_output.get("block_intents") or [])
+    if not block_intents:
+        return []
+
+    blocks = []
+    seen_types: set[str] = set()
+    for idx, intent in enumerate(block_intents):
+        intent_type = str(intent.get("intent_type") or "narrative_text")
+        preferred_component = intent.get("preferred_component")
+        component_type = preferred_component or resolve_component_for_block_intent(
+            intent_type,
+            has_images=bool(state.get("image_assets")),
+            scenario_scores=planner_output.get("scenario_scores") or {},
+        )
+        if not component_type:
+            continue
+        base_id = component_type.replace("Block", "").replace("Card", "").lower()
+        block_id = f"{base_id}_{idx + 1}"
+        if component_type in seen_types and intent_type not in {"narrative_text"}:
+            continue
+        seen_types.add(component_type)
+        brief = str(intent.get("goal") or intent_type.replace("_", " ")).strip()
+        if component_type == "TitleBlock":
+            brief = brief or "页面标题"
+        elif component_type == "StoryText":
+            brief = brief or "正文叙事"
+        blocks.append({
+            "id": block_id,
+            "component_type": component_type,
+            "content_brief": brief,
+        })
+    return blocks
+
+
 def route_intent(state: UIProjectState) -> str:
-    route = state.get("intent_route", "").lower()
+    intent_v2 = state.get("intent_result_v2") or {}
+    task_type = str(intent_v2.get("task_type") or "").lower()
+    edit_scope = str(intent_v2.get("edit_scope") or "").lower()
+    needs_research = bool(intent_v2.get("needs_research"))
+
+    route = str(state.get("intent_route", "") or "").lower()
     has_local_selection = _has_local_selection(state)
     has_existing_canvas = _has_existing_canvas(state)
     latest_user_text = _latest_user_text(state)
-    if "refusal" in route: return "refusal_node"
-    if has_local_selection and any(kw in route for kw in ["patch", "content", "文案", "structure", "结构", "style", "样式"]):
+
+    if task_type == "refuse" or "refusal" in route:
+        return "refusal_node"
+
+    if edit_scope in {"selected_block", "selected_paragraph"} or has_local_selection:
         return "note_editor"
-    if (
-        not has_local_selection
-        and has_existing_canvas
-        and _looks_like_existing_canvas_edit(latest_user_text)
-        and any(kw in route for kw in ["patch", "content", "文案", "structure", "结构", "style", "样式"])
-    ):
+
+    if task_type == "edit":
         return "note_editor"
-    if not has_local_selection and has_existing_canvas and _looks_like_existing_canvas_edit(latest_user_text):
+
+    if has_existing_canvas and _looks_like_existing_canvas_edit(latest_user_text):
         return "note_editor"
-    if "patch" in route: return "patch_node"
-    elif any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]):
-        return "research_agent" 
-    elif "structure" in route or "结构" in route: return "note_editor"
-    elif "style" in route or "样式" in route: return "note_editor"
+
+    if task_type == "create":
+        return "research_agent"
+
+    if task_type in {"inspect", "confirm_fact"}:
+        return END
+
+    if "patch" in route:
+        return "patch_node"
+    if any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]) or needs_research:
+        return "research_agent"
+    if "structure" in route or "结构" in route or "style" in route or "样式" in route:
+        return "note_editor"
     return END
 
 async def outline_synthesizer(state: UIProjectState) -> dict:
     """
-    【大纲合成器】：验证并收束由画布工具直接修改的 data_dsl 状态。
+    【大纲合成器】：验证并收束 block skeleton，直接产出 NoteDocument。
     """
-    # 此时 data_dsl 已经被 append_block 等工具直接修改好了
-    data_dsl = dict(state.get("data_dsl", {}))
-    blocks = list(data_dsl.get("blocks", []))
+    current_note_document = build_note_document_from_state(state)
+    execution_view = build_document_view_from_state(state)
+    blocks = [
+        {
+            "id": block.get("id"),
+            "component_type": block.get("component_type"),
+            "content_brief": block.get("content_brief", ""),
+        }
+        for block in execution_view.get("blocks", [])
+    ]
+    if not blocks and settings.ENABLE_PLANNER_V2:
+        blocks = _materialize_blocks_from_planner(state)
     retrieved_knowledge = state.get("retrieved_knowledge", {}) if isinstance(state.get("retrieved_knowledge", {}), dict) else {}
+    planner_output = state.get("planner_output") or {}
     main_msgs = state.get("main_messages", []) or []
     user_query = str(getattr(main_msgs[-1], "content", "") or "") if main_msgs else ""
     entity_name = normalize_entity_name(retrieved_knowledge.get("entity_name") or user_query or "这篇笔记")
@@ -201,19 +275,53 @@ async def outline_synthesizer(state: UIProjectState) -> dict:
     for i, b in enumerate(blocks):
         if not b.get("id"): b["id"] = f"block_{i}"
 
-    resolved_page_title = data_dsl.get("page_title") or f"{entity_name} 深度种草"
+    current_title = str(((current_note_document.get("document_meta") or {}).get("title") or "")).strip()
+    resolved_page_title = current_title if current_title and current_title != "XHS-Forge Note" else f"{entity_name} 深度种草"
     print(f"✅ [大纲合成] 画布定稿，共 {len(blocks)} 个区块。")
+    next_note_document = build_note_document_from_structure_patch(
+        current_note_document,
+        page_title=resolved_page_title,
+        blocks=blocks,
+    )
+    return {"note_document": next_note_document}
+
+
+async def outline_resolver_node(state: UIProjectState) -> dict:
+    """
+    【现代化大纲解析器】：
+    直接消费 planner.block_intents 与 component manifest，确定性产出 block skeleton。
+    不再走 历史工具循环。
+    """
+    note_document = build_note_document_from_state(state)
+    if not (note_document.get("blocks") or []):
+        synthesized = await outline_synthesizer(state)
+    else:
+        synthesized = {"note_document": note_document}
+
+    planner_output = state.get("planner_output") or {}
+    block_intents = [
+        str(item.get("intent_type") or "")
+        for item in list(planner_output.get("block_intents") or [])
+        if str(item.get("intent_type") or "").strip()
+    ]
+    blocks = list((synthesized.get("note_document") or {}).get("blocks") or [])
     return {
-        "data_dsl": {
-            "page_title": resolved_page_title,
-            "page_theme": data_dsl.get("page_theme", {}),
-            "blocks": blocks
-        }
+        **synthesized,
+        "turn_trace": {
+            "outline": {
+                "mode": "resolver",
+                "resolution_source": "manifest_semantic_role",
+                "block_intents": block_intents,
+                "resolved_components": [str(block.get("type") or "") for block in blocks],
+                "block_count": len(blocks),
+            }
+        },
+        "agent_backends": {"outline_resolver": "deterministic_resolver"},
     }
 
 def map_components(state: UIProjectState) -> list:
-    data_dsl = state.get("data_dsl") or {}
-    blocks = data_dsl.get("blocks", [])
+    execution_view = build_document_view_from_state(state)
+    blocks = execution_view.get("blocks", [])
     if not blocks: return ["style_node"]
     
     user_query = _latest_user_text(state)
@@ -231,6 +339,7 @@ def map_components(state: UIProjectState) -> list:
             "retrieved_knowledge": retrieved_knowledge,
             "creator_persona": creator_persona,
             "image_assets": state.get("image_assets", []),
+            "planner_policy": state.get("planner_policy", {}),
             "content_messages": [] 
         })
         for b in blocks
@@ -249,12 +358,10 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
     workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node))
     
-    # ✨ 核心重构：大纲 ReAct 节点组
-    workflow.add_node("outline_node", with_performance_profiling("outline_node", outline_agent))
-    workflow.add_node("outline_tools", ToolNode(OUTLINE_TOOLS))
-    workflow.add_node("outline_synthesizer", outline_synthesizer)
+    workflow.add_node("outline_resolver", with_performance_profiling("outline_resolver", outline_resolver_node))
 
     workflow.add_node("component_builder", component_builder_node)
+    workflow.add_node("planner", with_performance_profiling("planner", planner_node))
     workflow.add_node("note_editor", with_performance_profiling("note_editor", note_editor_node))
     workflow.add_node("verify_note", with_performance_profiling("verify_note", verify_note_node))
     workflow.add_node("structure_node", with_performance_profiling("structure_node", structure_agent))
@@ -284,20 +391,14 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_edge("distill_node", "controversy_sniffer")
     workflow.add_edge("controversy_sniffer", "battle_node")
     
-    # ✨ 核心重构：大纲 ReAct 循环
-    workflow.add_edge("battle_node", "outline_node")
-    workflow.add_conditional_edges(
-        "outline_node", 
-        should_continue_outlining, 
-        {
-            "outline_tools": "outline_tools",
-            "outline_synthesizer": "outline_synthesizer"
-        }
-    )
-    workflow.add_edge("outline_tools", "outline_node") # 循环连回思考节点
-    
-    # 合成完毕后分发并发任务
-    workflow.add_conditional_edges("outline_synthesizer", map_components, ["component_builder", "style_node"])
+    if settings.ENABLE_PLANNER_V2:
+        workflow.add_edge("battle_node", "planner")
+        workflow.add_edge("planner", "outline_resolver")
+    else:
+        workflow.add_edge("battle_node", "outline_resolver")
+
+    # 解析完毕后分发并发任务
+    workflow.add_conditional_edges("outline_resolver", map_components, ["component_builder", "style_node"])
     
     workflow.add_edge("style_node", "render")
     workflow.add_edge("render", END)

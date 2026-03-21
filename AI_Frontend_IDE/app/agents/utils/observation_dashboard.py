@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from app.agents.state import UIProjectState
+from app.core.note_document import build_document_view_from_state
 
 def generate_observation_dashboard(state: UIProjectState) -> str:
     """
@@ -7,8 +8,8 @@ def generate_observation_dashboard(state: UIProjectState) -> str:
     将复杂的状态机数据脱水为 Agent 易于理解的战术概览。
     """
     # 1. 观测：已建成的页面
-    data_dsl = state.get("data_dsl", {})
-    current_blocks = data_dsl.get("blocks", [])
+    execution_view = build_document_view_from_state(state)
+    current_blocks = execution_view.get("blocks", [])
     
     canvas_summary = []
     used_images_count = 0

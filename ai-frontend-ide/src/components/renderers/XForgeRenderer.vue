@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import { resolveNodeStyles } from '../../utils/StyleDictionary';
 import { resolveResponsiveLayout, getCurrentBreakpoint } from '../../utils/LayoutSolver';
 import { useChatStore } from '../../stores/useChatStore';
+import componentManifestJson from '../../config/componentManifest.json';
 
 // 1. 导入所有原子组件（大动脉接通）
 import CollageContainer from './blocks/CollageContainer.vue';
@@ -51,11 +52,12 @@ const componentMap: Record<string, any> = {
   TimelineBlock
 };
 
+const componentManifest = (componentManifestJson as { components?: Array<Record<string, any>> }).components || [];
+const supportedTypes = new Set(componentManifest.map((item) => String(item.type || "")));
+
 const props = defineProps<{
-  node: { id: string; component_type: string; props?: Record<string, any> };
+  node: { id: string; component_type: string; props?: Record<string, any>; style?: Record<string, any> };
   index: number;
-  pageData: Record<string, any>;
-  styleData: Record<string, any>;
 }>();
 
 const chatStore = useChatStore();
@@ -66,10 +68,11 @@ const breakpoint = getCurrentBreakpoint(windowWidth);
 
 // 语义样式解析
 const componentStyle = computed(() => {
-  if (!props.styleData || !props.node?.id) {
-    return { css_classes: '', inline_styles: {} };
-  }
-  return props.styleData[props.node.id] || { css_classes: '', inline_styles: {} };
+  const authored = (props.node?.style || {}) as Record<string, any>;
+  return {
+    css_classes: authored.css_classes || '',
+    inline_styles: authored.inline_styles || {},
+  };
 });
 
 const computedClasses = computed(() => {
@@ -140,8 +143,7 @@ const handleUnhover = () => {
   }
 };
 const nodeData = computed(() => {
-  if (!props.pageData || !props.node?.id) return {};
-  const rawData = props.pageData[props.node.id] || {};
+  const rawData = ((props.node?.props || {}) as Record<string, any>);
   const type = props.node?.component_type;
 
   if (type === 'RadarChartBlock' && !rawData.metrics && Array.isArray(rawData.dimensions) && Array.isArray(rawData.scores)) {
@@ -167,7 +169,7 @@ const nodeData = computed(() => {
 
 // 动态组件解析逻辑 (大小写不敏感匹配)
 const resolveComp = (type: string) => {
-  if (!type) return null;
+  if (!type || !supportedTypes.has(type)) return null;
   if (componentMap[type]) return componentMap[type];
   const lowerType = type.toLowerCase();
   const entry = Object.entries(componentMap).find(([name]) => name.toLowerCase() === lowerType);
@@ -191,7 +193,6 @@ const resolveComp = (type: string) => {
         :comp-id="node.id"
         :node="node"
         :data="nodeData"
-        :pageData="pageData"
         :style="{ css_classes: computedClasses, inline_styles: componentStyle.inline_styles || {} }"
         :selectedParagraph="selectedParagraph"
         @select="handleSelectPayload"

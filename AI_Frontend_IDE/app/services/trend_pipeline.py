@@ -60,7 +60,14 @@ class TrendPipeline:
             "main_messages": [HumanMessage(content=prompt)],
             "scenarios": ["seeding"],
             "active_archetype": "general",
-            "intent_result": {"asset_request": "SEARCH", "narrative_mode": "contrast"} 
+            "intent_result_v2": {
+                "task_type": "create",
+                "edit_scope": "none",
+                "needs_research": True,
+                "needs_assets": "search",
+                "scenario_scores": {"seeding": 1.0},
+                "risk_flags": [],
+            },
         }
 
         

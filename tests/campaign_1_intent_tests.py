@@ -1,9 +1,7 @@
 import pytest
-import json
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from AI_Frontend_IDE.app.agents.nodes.intent_node import intent_agent
-from AI_Frontend_IDE.app.core.schema import ArchetypeEnum, IntentOutput
+from AI_Frontend_IDE.app.core.schema import IntentGatewayOutput
 from langchain_core.messages import HumanMessage
 
 @pytest.mark.asyncio
@@ -14,18 +12,21 @@ async def test_intent_gateway_global_evaluation():
     initial_state = {
         "active_panel": "main",
         "main_messages": [HumanMessage(content="帮我出一篇关于富士 X100VI 的复古风测评。")],
-        "data_dsl": {},
+        "document_view": {},
         "selected_element_id": None,
         "active_archetype": "general"
     }
 
-    # 模拟 LLM 返回结构化输出
-    mock_intent_output = IntentOutput(
-        thought_process="用户想要创建新内容，路由至 content_node",
+    # 模拟 LLM 返回现代 Gateway V2 输出
+    mock_intent_output = IntentGatewayOutput(
+        thought_process="用户想要创建新内容，走 create 主链。",
         reason="新内容请求",
-        intent_route="content_node",
-        scenarios=["photography"],
-        detected_archetype=ArchetypeEnum.SEEDING
+        task_type="create",
+        edit_scope="none",
+        needs_research=False,
+        needs_assets="none",
+        scenario_scores={"seeding": 1.0},
+        risk_flags=[],
     )
 
     # ✨ 工业级 Mock：拦截 LCEL 执行入口 ainvoke，不碰魔术方法，坚如磐石
@@ -40,10 +41,12 @@ async def test_intent_gateway_global_evaluation():
     # 断言 1: 正确路由与 archetype
     assert result["intent_route"] == "content_node"
     assert result["active_archetype"] == "seeding"
-    # 断言 2: Token 防御 — 防止意图网关 Token 泄露；若有人误传全量 data_dsl，CI 将熔断
+    assert result["intent_result_v2"]["task_type"] == "create"
+    assert result["intent_result_v2"]["edit_scope"] == "none"
+    # 断言 2: Token 防御 — 防止意图网关 Token 泄露；若有人误传全量 document_view，CI 将熔断
     if result.get("node_prompts", {}).get("intent_agent"):
         human_content = str(result["node_prompts"]["intent_agent"])
-        assert "空" in human_content or '"空"' in human_content or "data_context" in human_content
+        assert "Gateway V2" in human_content
 
 @pytest.mark.asyncio
 async def test_intent_gateway_fast_path():
@@ -53,7 +56,7 @@ async def test_intent_gateway_fast_path():
     initial_state = {
         "active_panel": "content", # 非 main 面板
         "content_messages": [HumanMessage(content="把这个副标题改得更毒舌一点。")],
-        "data_dsl": {"product_1": {"type": "ProductCard"}},
+        "document_view": {"product_1": {"type": "ProductCard"}},
         "selected_element_id": "product_1",
         "active_archetype": "seeding"
     }
@@ -64,6 +67,8 @@ async def test_intent_gateway_fast_path():
 
         # 断言 1: 极速路由命中
         assert result["intent_route"] == "patch_node"
+        assert result["intent_result_v2"]["task_type"] == "edit"
+        assert result["intent_result_v2"]["edit_scope"] == "selected_block"
         # 断言 2: 未调用 LLM
         mock_get_llm.assert_not_called()
         print("⚡ [测试成功] Fast-path 命中，未调用 LLM")

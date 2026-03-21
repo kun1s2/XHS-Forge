@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import './assets/tailwind.css'
+import { setupFrontendObserver } from './utils/frontendObserver'
 import App from './App.vue'
 
 // ✨ 哨兵核心修复：全局注册递归渲染引擎
@@ -13,4 +14,5 @@ const pinia = createPinia()
 app.component('XForgeRenderer', XForgeRenderer)
 
 app.use(pinia)
+setupFrontendObserver(pinia)
 app.mount('#app')

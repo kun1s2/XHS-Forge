@@ -4,7 +4,7 @@ from app.agents.state import UIProjectState
 from app.agents.tools_registry import TOOL_POOL
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.tools.serpapi_search import search_google_images
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 # --- 🚀 事实哨兵 6.6：柔性取证版 ---
 
@@ -21,6 +21,22 @@ async def research_agent(state: UIProjectState) -> dict:
             ).strip()
         return str(message_content or "").strip()
 
+    def _infer_asset_mode_from_query(query: str) -> str:
+        if any(token in (query or "") for token in ["搜图", "找图", "实拍图", "实拍", "配图", "图片"]):
+            return "SEARCH"
+        return "NONE"
+
+    def _build_asset_label(name: str, query: str) -> str:
+        candidate = str(name or "").strip() or str(query or "").strip()
+        candidate = candidate.replace("帮我", "").replace("请", "").strip()
+        for prefix in ["搜几张", "搜一下", "搜", "找几张", "找一下", "找"]:
+            if candidate.startswith(prefix):
+                candidate = candidate[len(prefix):].strip()
+        for suffix in ["实拍图", "图片", "配图"]:
+            if candidate.endswith(suffix):
+                candidate = candidate[: -len(suffix)].strip()
+        return candidate or "素材"
+
     main_msgs = state.get("main_messages", [])
     if not main_msgs: return {}
     user_query = _extract_user_text(main_msgs[-1].content)
@@ -33,11 +49,15 @@ async def research_agent(state: UIProjectState) -> dict:
         cached = await cache_service.get_hot_knowledge(hit_keywords[0])
         if cached:
             print(f"🚀 [哨兵加速] 命中缓存: {hit_keywords[0]}")
-            return {"retrieved_knowledge": cached}
+            return {"retrieved_knowledge": cached, "agent_backends": {"research_agent": "deterministic_tool_orchestrator"}}
 
     # 2. 信号提取
-    intent_res = state.get("intent_result")
-    asset_mode = getattr(intent_res, "asset_request", "NONE") if not isinstance(intent_res, dict) else intent_res.get("asset_request", "NONE")
+    intent_v2 = state.get("intent_result_v2") or {}
+    if isinstance(intent_v2, dict) and intent_v2:
+        needs_assets = str(intent_v2.get("needs_assets") or "none").lower()
+        asset_mode = "SEARCH" if needs_assets == "search" else "NONE"
+    else:
+        asset_mode = _infer_asset_mode_from_query(user_query)
 
     # 3. 并发取证决策
     search_tool = TOOL_POOL["network_search"]
@@ -68,23 +88,14 @@ async def research_agent(state: UIProjectState) -> dict:
         real_image_urls = []
 
     # 构造虚假的 AIMessage 包含 tool_calls
-    fake_ai_msg = AIMessage(
-        content="",
-        tool_calls=[
-            {"name": "network_search", "args": {"query": f"{user_query} 深度资料"}, "id": "manual_search"},
-            {"name": "google_images", "args": {"query": f"{user_query} 真实素材图"}, "id": "manual_images"}
-        ]
-    )
-
-    # 构造 ToolMessage 容器 (已废弃，直接注入知识库)
-    # text_tool_msg = ToolMessage(...)
-
     print(f"✅ [搜证完毕] 已获取真实文本与 {len(real_image_urls) if real_image_urls else 0} 条图片直链。")
 
     # 构造 image_assets 结构
-    final_assets = [{"url": u, "desc": f"{user_query} 实拍图"} for u in real_image_urls]
+    asset_label = _build_asset_label(entity_name, user_query)
+    final_assets = [{"url": u, "desc": f"{asset_label} 实拍图"} for u in real_image_urls]
 
     return {
+        "agent_backends": {"research_agent": "deterministic_tool_orchestrator"},
         # 直接将战术情报返回给全局状态，而不是去污染聊天记录！
         "retrieved_knowledge": {
             "entity_name": entity_name or user_query,

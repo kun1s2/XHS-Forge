@@ -8,6 +8,7 @@ from app.core.schema import StructurePatchOutput # ✨ 引入宪法模型
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
 import sys
+from app.core.note_document import build_document_view_from_state, build_note_document_from_state, build_note_document_from_structure_patch
 
 # ✨ 性能优化：全局复用 LLM 实例
 _llm_instance = None
@@ -37,7 +38,23 @@ async def structure_agent(state: UIProjectState) -> dict:
     structured_llm = llm.with_structured_output(StructurePatchOutput, method="function_calling")
     
     # 2. 提取当前状态
-    current_data_dsl = state.get("data_dsl", {})
+    execution_view = build_document_view_from_state(state)
+    current_canvas_snapshot = {
+        "page_title": execution_view.get("page_title"),
+        "page_theme": execution_view.get("page_theme"),
+        "blocks": [
+            {
+                "id": block.get("id"),
+                "component_type": block.get("component_type"),
+                "content_brief": block.get("content_brief", ""),
+            }
+            for block in execution_view.get("blocks", [])
+        ],
+    }
+    for block in execution_view.get("blocks", []):
+        block_id = block.get("id")
+        if block_id:
+            current_canvas_snapshot[block_id] = block.get("props", {})
     selected_element = state.get("selected_element_id", "无 (全局修改)")
     active_archetype = state.get("active_archetype", "general")
     
@@ -51,7 +68,7 @@ async def structure_agent(state: UIProjectState) -> dict:
 
     assets = state.get("image_assets", [])
     assets_text = json.dumps(assets, ensure_ascii=False) if assets else "无"
-    is_update = bool(current_data_dsl and current_data_dsl.get("page_order"))
+    is_update = bool(execution_view.get("blocks"))
 
     # 3. ====== ✨ 现代化：从外部 XML 加载系统提示词 ======
     prompt_path = Path(__file__).parents[2] / "prompts" / "structure_system.xml"
@@ -75,7 +92,7 @@ async def structure_agent(state: UIProjectState) -> dict:
         
         inputs = {
             "is_update": is_update,
-            "current_data_dsl": json.dumps(current_data_dsl, ensure_ascii=False),
+            "current_canvas_snapshot": json.dumps(current_canvas_snapshot, ensure_ascii=False),
             "selected_element": selected_element,
             "active_archetype": active_archetype, 
             "content_context": content_context,
@@ -91,14 +108,16 @@ async def structure_agent(state: UIProjectState) -> dict:
         result: StructurePatchOutput = await invoke_with_retry(chain, inputs)
         
         # 6. ====== ✨ 极简模式：直接输出生成的结构补丁包 ======
-        # 依靠 state.py 里的 merge_dsl 自动完成深度合并
-        dsl_patch = {
-            "page_title": result.page_title,
-            "blocks": [b.model_dump() for b in result.blocks]
-        }
+        # 依靠 state.py 里的 merge_state_patch 自动完成深度合并
+        component_payloads = {}
         for comp_id, comp_data in result.components.items():
-            # 过滤掉 None 值，确保补丁包的纯净
-            dsl_patch[comp_id] = {k: v for k, v in comp_data.model_dump().items() if v is not None}
+            component_payloads[comp_id] = {k: v for k, v in comp_data.model_dump().items() if v is not None}
+        next_note_document = build_note_document_from_structure_patch(
+            build_note_document_from_state(state),
+            page_title=result.page_title,
+            blocks=[b.model_dump() for b in result.blocks],
+            component_payloads=component_payloads,
+        )
         
         # ✨ 修复：转为字符串
         archetype_str = result.detected_archetype.value if hasattr(result.detected_archetype, 'value') else str(result.detected_archetype)
@@ -111,13 +130,13 @@ async def structure_agent(state: UIProjectState) -> dict:
     except Exception as e:
         print(f"❌ Structure Agent 最终失败 (已达到最大重试次数): {e}")
         # 失败返回空字典，Reducer 会保全当前页面状态，防止白屏
-        dsl_patch = {} 
+        next_note_document = build_note_document_from_state(state)
         prompt_data = []
         archetype_str = "general"
 
     return {
         "structure_result": result, # ✨ 供 WebSocket 截获思维链
-        "data_dsl": dsl_patch,
+        "note_document": next_note_document,
         "active_archetype": archetype_str, # ✨ 更新当前原型 (字符串)
         "node_prompts": {"structure_node": prompt_data} # ✨ 保存结构化提示词
     }

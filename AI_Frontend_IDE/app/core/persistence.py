@@ -16,11 +16,7 @@ async def generate_store():
 # 异步 Checkpointer 工厂 (保持不变)
 @contextlib.asynccontextmanager
 async def generate_checkpointer():
-    serializer = JsonPlusSerializer(
-        allowed_msgpack_modules=[
-            ("app.core.schema", "IntentOutput"),
-        ]
-    )
+    serializer = JsonPlusSerializer()
     async with AsyncPostgresSaver.from_conn_string(
         settings.POSTGRES_URL,
         serde=serializer,

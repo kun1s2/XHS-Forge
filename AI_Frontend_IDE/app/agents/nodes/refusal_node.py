@@ -5,10 +5,9 @@ async def refusal_node(state: UIProjectState) -> dict:
     """
     【风控隔离区】：针对非法或风险指令的礼貌拒绝节点。
     """
-    intent_res = state.get("intent_result")
     risk_reason = "内容违反安全策略"
-    if intent_res:
-        risk_reason = getattr(intent_res, "thought_process", "检测到潜在风险")
+    if state.get("thought_process"):
+        risk_reason = str(state.get("thought_process") or risk_reason)
 
     print(f"🛡️ [Refusal Node] 拦截生效: {risk_reason}")
     

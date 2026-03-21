@@ -4,6 +4,13 @@ from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
+from app.core.note_document import (
+    append_note_document_block,
+    build_note_document_from_state,
+    insert_note_document_block,
+    remove_note_document_block,
+    update_note_document_block,
+)
 
 # 安全的 CSS 变体字典
 SAFE_VARIANTS = {
@@ -19,7 +26,8 @@ SAFE_VARIANTS = {
 def append_block(
     component_type: str, 
     content_brief: str, 
-    tool_call_id: Annotated[str, InjectedToolCallId]
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    state: Annotated[dict, InjectedState],
 ) -> Command:
     """
     【追加积木】：当你需要在页面末尾新增一个组件时，调用此工具。
@@ -35,7 +43,7 @@ def append_block(
     
     return Command(
         update={
-            "data_dsl": {"_block_append": new_block},
+            "note_document": append_note_document_block(build_note_document_from_state(state), new_block),
             "messages": [ToolMessage(content=f"成功追加积木: {new_id}", tool_call_id=tool_call_id)]
         }
     )
@@ -45,7 +53,8 @@ def insert_block(
     component_type: str, 
     content_brief: str, 
     insert_index: int,
-    tool_call_id: Annotated[str, InjectedToolCallId]
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    state: Annotated[dict, InjectedState],
 ) -> Command:
     """
     【插入积木】：当你需要将新组件精确插入到页面的特定位置时，调用此工具。
@@ -58,7 +67,7 @@ def insert_block(
     
     return Command(
         update={
-            "data_dsl": {"_block_insert": {"index": insert_index, "block": new_block}},
+            "note_document": insert_note_document_block(build_note_document_from_state(state), new_block, insert_index),
             "messages": [ToolMessage(content=f"成功在索引 {insert_index} 插入积木: {new_id}", tool_call_id=tool_call_id)]
         }
     )
@@ -66,7 +75,8 @@ def insert_block(
 @tool
 def remove_block(
     block_id: str, 
-    tool_call_id: Annotated[str, InjectedToolCallId]
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    state: Annotated[dict, InjectedState],
 ) -> Command:
     """
     【删除积木】：当你发现某个组件排版多余，或用户明确要求删除时，调用此工具。
@@ -74,7 +84,7 @@ def remove_block(
     """
     return Command(
         update={
-            "data_dsl": {"_block_remove": block_id},
+            "note_document": remove_note_document_block(build_note_document_from_state(state), block_id),
             "messages": [ToolMessage(content=f"成功删除积木: {block_id}", tool_call_id=tool_call_id)]
         }
     )
@@ -83,7 +93,8 @@ def remove_block(
 def update_block_brief(
     block_id: str, 
     new_brief: str, 
-    tool_call_id: Annotated[str, InjectedToolCallId]
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    state: Annotated[dict, InjectedState],
 ) -> Command:
     """
     【更新积木简报】：当你不需要更换组件，只需要调整工兵的撰写要求时，调用此工具。
@@ -92,7 +103,11 @@ def update_block_brief(
     """
     return Command(
         update={
-            "data_dsl": {"_block_update": {"id": block_id, "data": {"content_brief": new_brief, "needs_rebuild": True}}},
+            "note_document": update_note_document_block(
+                build_note_document_from_state(state),
+                block_id,
+                metadata={"content_brief": new_brief, "needs_rebuild": True},
+            ),
             "messages": [ToolMessage(content=f"成功更新积木简报: {block_id}", tool_call_id=tool_call_id)]
         }
     )
@@ -125,15 +140,17 @@ def apply_component_variant(
     - 'vintage_film': 复古胶片滤镜（【绝对且仅能】用于 CoverSwiper/WeatherPolaroid 等图片组件！）
     - 'elegant_reading': 优雅阅读体验（适合 StoryText 等长文本组件）
     """
-    style_dsl = state.get("style_dsl", {})
-    updated_style = dict(style_dsl)
+    note_document = build_note_document_from_state(state)
+    updated_document = note_document
     
     if variant_name in SAFE_VARIANTS:
-        if block_id in updated_style:
-            # 拼接类名
-            current_classes = updated_style[block_id].get("css_classes", "")
+        target_block = next((block for block in (note_document.get("blocks") or []) if block.get("id") == block_id), None)
+        if target_block:
+            current_style = dict(target_block.get("style") or {})
+            current_classes = current_style.get("css_classes", "")
             if SAFE_VARIANTS[variant_name] not in current_classes:
-                updated_style[block_id]["css_classes"] = f"{current_classes} {SAFE_VARIANTS[variant_name]}".strip()
+                current_style["css_classes"] = f"{current_classes} {SAFE_VARIANTS[variant_name]}".strip()
+            updated_document = update_note_document_block(note_document, block_id, style=current_style)
             msg = f"✅ 成功为组件 {block_id} 挂载 {variant_name} 视觉特效。"
         else:
             msg = f"❌ 组件 {block_id} 不在样式表中。"
@@ -142,7 +159,7 @@ def apply_component_variant(
         
     return Command(
         update={
-            "style_dsl": updated_style,
+            "note_document": updated_document,
             "messages": [ToolMessage(content=msg, tool_call_id=tool_call_id)]
         }
     )

@@ -4,6 +4,7 @@ from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from langchain_core.messages import ToolMessage
+from app.core.note_document import build_note_document_from_state, update_note_document_block
 
 # --- 🔪 微创手术刀：用于 patch_node 的原子级修改工具 ---
 
@@ -29,12 +30,12 @@ def apply_diff_update(
         )
 
     # 获取当前完整状态
-    data_dsl = state.get("data_dsl", {})
-    style_dsl = state.get("style_dsl", {})
+    note_document = build_note_document_from_state(state)
+    target_block = next((block for block in (note_document.get("blocks") or []) if block.get("id") == component_id), {})
     
     # 提取目标组件数据
-    target_data = data_dsl.get(component_id, {})
-    target_style = style_dsl.get(component_id, {})
+    target_data = target_block.get("props") or {}
+    target_style = target_block.get("style") or {}
     
     # 分离数据与样式更新
     data_update = {k: v for k, v in patch_dict.items() if k != "style"}
@@ -46,11 +47,9 @@ def apply_diff_update(
     new_style = {**target_style, **style_update}
     
     # 构造原子更新指令
-    # 我们利用 _block_update 机制（需要在 state.py 中确认是否支持深度合并，这里先用直接覆盖 key 的方式）
     return Command(
         update={
-            "data_dsl": {component_id: new_data},
-            "style_dsl": {component_id: new_style},
+            "note_document": update_note_document_block(note_document, component_id, props=new_data, style=new_style),
             "messages": [ToolMessage(content=f"✅ 已对 {component_id} 执行微创手术。更新字段: {list(patch_dict.keys())}", tool_call_id=tool_call_id)]
         }
     )
@@ -64,8 +63,9 @@ def inspect_component_state(
     """
     【诊断内窥镜】：在动刀前，先查看该组件当前的完整数据和样式状态。
     """
-    data_dsl = state.get("data_dsl", {})
-    comp_data = data_dsl.get(component_id, "未找到该组件数据")
+    note_document = build_note_document_from_state(state)
+    target_block = next((block for block in (note_document.get("blocks") or []) if block.get("id") == component_id), None)
+    comp_data = (target_block or {}).get("props", "未找到该组件数据")
     
     return Command(
         update={

@@ -2,8 +2,10 @@ import operator
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+from app.core.note_document import build_note_document_from_state, update_note_document_block
 
-def merge_dsl(left: dict, right: dict) -> dict:
+
+def merge_state_patch(left: dict, right: dict) -> dict:
     """
     深度合并字典（增加防御性编程与列表覆盖机制）
     """
@@ -54,7 +56,7 @@ def merge_dsl(left: dict, right: dict) -> dict:
         if v is None:
             merged.pop(k, None)
         elif isinstance(v, dict) and isinstance(merged.get(k), dict):
-            merged[k] = merge_dsl(merged[k], v)
+            merged[k] = merge_state_patch(merged[k], v)
         else:
             merged[k] = v
             
@@ -91,16 +93,19 @@ def restore_component_version(state: Any, element_id: str, version_index: int) -
     if not data_snapshot:
         return {}
         
-    # ✨ 核心修复：构造“毒药补丁”，杀死当前存在但快照里没有的 Key
-    current_component_data = state.get("data_dsl", {}).get(element_id, {})
+    note_document = build_note_document_from_state(state)
+    current_block = next((block for block in (note_document.get("blocks") or []) if block.get("id") == element_id), {})
+    current_component_data = current_block.get("props") or {}
     rollback_patch = data_snapshot.copy()
-    
+
     for k in current_component_data.keys():
         if k not in data_snapshot:
-            rollback_patch[k] = None  # 利用 merge_dsl 的机制将其 pop 掉
-            
+            rollback_patch[k] = None
+
+    rollback_patch = {k: v for k, v in rollback_patch.items() if v is not None}
+
     return {
-        "data_dsl": {element_id: rollback_patch}
+        "note_document": update_note_document_block(note_document, element_id, props=rollback_patch)
     }
 
 class UIProjectState(TypedDict):
@@ -123,14 +128,19 @@ class UIProjectState(TypedDict):
     active_panel: str 
     selected_element_id: Optional[str]
     
-    # ✨ 意图大脑的最新输出 (4.0 信号源)
-    intent_result: Optional[Any] # 存储 IntentOutput 对象
+    intent_result_v2: Optional[Any]
+    planner_output: Optional[Any]
+    planner_policy: Annotated[dict, merge_state_patch]
+    scenario_scores: Annotated[dict, merge_state_patch]
+    note_document: Annotated[dict, merge_state_patch]
+    turn_trace: Annotated[dict, merge_state_patch]
+    agent_backends: Annotated[dict, merge_state_patch]
     
     # ====== ✨ 现代化进化：加入 operator.add ======
     # 全局图库资产池 [{"url": "...", "desc": "..."}]
     # 加上 operator.add 后，asset_node 只需要 return {"image_assets": [新图]}
     # LangGraph 底层会自动把新图 append 到老数组后面，绝对不会再发生覆盖丢失了！
-    image_assets: Annotated[List[Dict[str, str]], operator.add]
+    image_assets: Annotated[List[Dict[str, Any]], operator.add]
     
     # 待打标的图片队列（本轮新上传的 URL，asset_node 处理完会清空）
     pending_images: List[str]
@@ -138,15 +148,11 @@ class UIProjectState(TypedDict):
     content_template_id: str
     style_template_id: str
     
-    # 核心字典，绑定了你极其强大的深度合并 Reducer
-    data_dsl: Annotated[dict, merge_dsl]
-    style_dsl: Annotated[dict, merge_dsl]
-    
     # ✨ 核心新增：组件级生长档案
     patch_tracks: Annotated[dict, merge_patch_tracks]
     
     # ✨ 新增：用于调试的提示词检查槽位 { "node_name": "full_prompt_text" }
-    node_prompts: Annotated[dict, merge_dsl]
+    node_prompts: Annotated[dict, merge_state_patch]
     
     # ✨ 核心重构：RAG 检索到的私域知识 (现已支持结构化字典)
     # 大一统知识背包：整合了 RAG 结果、实体属性和外部事实
@@ -176,5 +182,6 @@ class ComponentTaskState(TypedDict):
     active_archetype: str
     retrieved_knowledge: Any
     creator_persona: str
-    image_assets: List[Dict[str, str]]
+    image_assets: List[Dict[str, Any]]
+    planner_policy: Dict[str, Any]
     content_messages: List[BaseMessage]

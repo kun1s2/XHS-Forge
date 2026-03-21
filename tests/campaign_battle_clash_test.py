@@ -22,8 +22,8 @@ async def run_battle_clash_test():
         "active_archetype": "general",
         "image_assets": [],
         "pending_images": [],
-        "data_dsl": {},
-        "style_dsl": {},
+        "document_view": {},
+        "block_style_map": {},
         "creator_persona": "硬核数码博主",
         "retrieved_knowledge": {}
     }
@@ -56,21 +56,21 @@ async def run_battle_clash_test():
         print(f"❌ [对冲合成] 失败：未找到 battle_report")
 
     # 3. 审计区块与数据填充
-    data_dsl = final_state.get("data_dsl", {})
-    blocks = data_dsl.get("blocks", [])
+    document_view = final_state.get("document_view", {})
+    blocks = document_view.get("blocks", [])
     block_types = [b["component_type"] for b in blocks]
     print(f"🧱 [区块序列] { ' -> '.join(block_types) }")
     
     # 查找 VersusCard 数据
     vs_card_id = next((b["id"] for b in blocks if b["component_type"] == "VersusCard"), None)
-    if vs_card_id and vs_card_id in data_dsl:
-        vs_data = data_dsl[vs_card_id]
+    if vs_card_id and vs_card_id in document_view:
+        vs_data = document_view[vs_card_id]
         print(f"📦 [VersusCard 数据校验] 标题存在: {bool(vs_data.get('title'))} | Pros存在: {bool(vs_data.get('proText'))}")
     else:
-        print(f"⚠️ [VersusCard 数据校验] 未在 data_dsl 中找到 VersusCard 数据")
+        print(f"⚠️ [VersusCard 数据校验] 未在 document_view 中找到 VersusCard 数据")
 
     # 4. 结论
-    if battle_report and "VersusCard" in block_types and vs_card_id in data_dsl:
+    if battle_report and "VersusCard" in block_types and vs_card_id in document_view:
         print("\n🏆 [结论] 舆情对冲测试完美通过！多线程并发生成与物理合成逻辑闭环。")
     else:
         print("\n⚠️ [结论] 测试未完全达标，请检查 Graph 链路或节点输出。")

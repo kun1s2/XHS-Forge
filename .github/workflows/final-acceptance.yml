@@ -1,0 +1,42 @@
+name: Final Acceptance
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  final-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ai-frontend-ide/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r AI_Frontend_IDE/requirements.txt
+          pip install pytest
+
+      - name: Install frontend dependencies
+        working-directory: ai-frontend-ide
+        run: npm ci
+
+      - name: Run final acceptance
+        run: bash scripts/final_acceptance.sh

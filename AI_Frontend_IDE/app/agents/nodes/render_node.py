@@ -1,23 +1,26 @@
 import base64
-import random
-import json
 from typing import Dict, Any
 from app.agents.state import UIProjectState
 from app.services.oss_client import upload_html_to_oss
+from app.core.component_manifest import is_component_supported_for_html
+from app.core.note_document import build_document_view_from_note_document, build_note_document_from_state
+from app.core.runtime_log import write_latest_html
 
 # --- 🚀 全量物理组件库 5.6 (Precision Edition) ---
 
-def render_block(block: Dict[str, Any], data_dsl: Dict[str, Any], style_dsl: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
+def render_block(block: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
     """
     【物理组件锻造炉】：严禁脑补，数据驱动。
     """
     if not block: return ""
     comp_id = block.get("id")
     comp_type = block.get("component_type", "").lower()
-    comp_data = data_dsl.get(comp_id, {})
+    if not is_component_supported_for_html(block.get("component_type")):
+        return ""
+    comp_data = block.get("props") or {}
     
     # 获取组件专属样式
-    style_info = style_dsl.get(comp_id, {})
+    style_info = block.get("style") or {}
     css_classes = style_info.get("css_classes", "")
 
     # --- 1. TitleBlock (大标题) ---
@@ -171,13 +174,13 @@ async def render_node(state: UIProjectState) -> dict:
     """
     【后端物理渲染器 5.6】：物理级数据校验，严禁占位符。
     """
-    data_dsl = state.get("data_dsl", {})
-    style_dsl = state.get("style_dsl", {})
-    blocks = data_dsl.get("blocks", [])
+    note_document = build_note_document_from_state(state)
+    execution_view = build_document_view_from_note_document(note_document)
+    blocks = execution_view.get("blocks", [])
     
     # 聚合变量
-    page_theme = data_dsl.get("page_theme") or {}
-    style_vars = style_dsl.get("global_vars") or {}
+    page_theme = execution_view.get("page_theme") or {}
+    style_vars = execution_view.get("global_vars") or {}
     all_vars = {**style_vars, **page_theme}
     
     # 强制修正背景色饱和度
@@ -190,14 +193,14 @@ async def render_node(state: UIProjectState) -> dict:
         return {"final_html": "<div style='padding:40px; text-align:center;'>Waiting for content...</div>"}
 
     # 执行物理区块渲染
-    body_content = "".join([render_block(b, data_dsl, style_dsl, all_vars) for b in blocks])
+    body_content = "".join([render_block(b, all_vars) for b in blocks])
     
     html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>{data_dsl.get('page_title', 'XHS-Forge Note')}</title>
+    <title>{execution_view.get('page_title', 'XHS-Forge Note')}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {{ {css_vars_str} }}
@@ -233,7 +236,16 @@ async def render_node(state: UIProjectState) -> dict:
         b64 = base64.b64encode(html_template.encode()).decode()
         oss_url = f"data:text/html;base64,{b64}"
         
+    write_latest_html(html_template)
+
+    merged_state = dict(state)
+    merged_state["final_html"] = html_template
+    merged_state["final_oss_url"] = oss_url
     return {
         "final_html": html_template,
-        "final_oss_url": oss_url
+        "final_oss_url": oss_url,
+        "note_document": build_note_document_from_state(merged_state)
     }
+
+
+document_renderer_node = render_node

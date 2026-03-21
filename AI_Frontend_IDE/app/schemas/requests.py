@@ -1,5 +1,5 @@
 # app/schemas/requests.py
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 class ForkRequest(BaseModel):
@@ -22,7 +22,7 @@ class ChatWSPayload(BaseModel):
     # 接收前端传来的锁定组件 ID，供 structure_node / style_node 做局部修改
     selected_element_id: Optional[str] = Field(None, description="当前在画布中锁定的组件ID")
     # 全局图库资产池：前端同步的 [{"url": "...", "desc": "语义"}]，每次发信覆盖 state.image_assets
-    current_assets: Optional[List[Dict[str, str]]] = Field(
+    current_assets: Optional[List[Dict[str, Any]]] = Field(
         default_factory=list,
         description="当前图库列表，每项含 url 与 desc，生成的页面必须用上全部图片",
     )

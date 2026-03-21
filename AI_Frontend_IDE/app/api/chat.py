@@ -8,6 +8,15 @@ from langchain_core.messages import HumanMessage
 from app.services.cache_service import get_trend_cache, set_trend_cache, RiskControlCache
 from app.services.trend_pipeline import process_new_trend_background
 from app.core.config import settings
+from app.core.note_document import build_note_document_from_state
+from app.core.runtime_log import (
+    append_latest_console_log,
+    append_log_divider,
+    reset_latest_console_log,
+    summarize_node_output,
+    summarize_turn_completion,
+    truncate_text,
+)
 
 router = APIRouter()
 
@@ -18,7 +27,7 @@ NODE_THOUGHT_MAP = {
     "tools": "🔧 正在调用专业工具执行任务...",
     "controversy_sniffer": "🛡️ 正在进行内容合规与舆情审计...",
     "content_node": "✍️ 正在为您撰写爆款文案...",
-    "outline_node": "🗺️ 正在为您勾勒页面大纲...",
+    "outline_resolver": "🧭 正在根据策略稳定解析页面骨架...",
     "component_builder": "👷 工兵正在全力搭建组件...",
     "enrichment_node": "🚀 正在执行事实补全与地理位置打卡...",
     "style_node": "🎨 正在为您生成高定版页面样式...",
@@ -34,19 +43,130 @@ TOOL_THOUGHT_MAP = {
     "generate_images_tool": "🎨 正在调用 CogView 绘制视觉素材..."
 }
 
+TRACE_STATE_NODE = "render"
+
+
+def _safe_json_signature(value):
+    try:
+        return json.dumps(value or {}, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return str(value)
+
+
+def _extract_note_document(values):
+    current = (values or {}).get("note_document")
+    if isinstance(current, dict) and current:
+        return current
+    return build_note_document_from_state(values or {})
+
+
+def _get_document_blocks(doc):
+    return list((doc or {}).get("blocks") or [])
+
+
+def _summarize_document(values):
+    doc = _extract_note_document(values)
+    blocks = _get_document_blocks(doc)
+    return {
+        "title": ((doc.get("document_meta") or {}).get("title") or "XHS-Forge Note"),
+        "block_count": len(blocks),
+        "block_order": [
+            {"id": str(block.get("id") or ""), "type": str(block.get("type") or "")}
+            for block in blocks
+        ],
+    }
+
+
+def _build_block_change_set(before_values, after_values):
+    before_doc = _extract_note_document(before_values)
+    after_doc = _extract_note_document(after_values)
+    before_blocks = {str(block.get("id") or ""): block for block in _get_document_blocks(before_doc) if block.get("id")}
+    after_blocks = {str(block.get("id") or ""): block for block in _get_document_blocks(after_doc) if block.get("id")}
+    before_order = {str(block.get("id") or ""): idx for idx, block in enumerate(_get_document_blocks(before_doc)) if block.get("id")}
+    after_order = {str(block.get("id") or ""): idx for idx, block in enumerate(_get_document_blocks(after_doc)) if block.get("id")}
+    changes = []
+    for block_id in sorted(set(before_blocks) | set(after_blocks)):
+        before_block = before_blocks.get(block_id)
+        after_block = after_blocks.get(block_id)
+        if before_block is None and after_block is not None:
+            changes.append({"id": block_id, "type": str(after_block.get("type") or ""), "changed_fields": ["added"]})
+            continue
+        if after_block is None and before_block is not None:
+            changes.append({"id": block_id, "type": str(before_block.get("type") or ""), "changed_fields": ["removed"]})
+            continue
+        changed_fields = []
+        if str(before_block.get("type") or "") != str(after_block.get("type") or ""):
+            changed_fields.append("type")
+        if before_order.get(block_id) != after_order.get(block_id):
+            changed_fields.append("order")
+        if _safe_json_signature(before_block.get("props") or {}) != _safe_json_signature(after_block.get("props") or {}):
+            changed_fields.append("props")
+        if _safe_json_signature(before_block.get("style") or {}) != _safe_json_signature(after_block.get("style") or {}):
+            changed_fields.append("style")
+        if changed_fields:
+            changes.append({"id": block_id, "type": str(after_block.get("type") or before_block.get("type") or ""), "changed_fields": changed_fields})
+    return changes
+
+
+def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
+    changed_blocks = _build_block_change_set(before_values or {}, after_values or {})
+    note_editor_trace = ((after_values or {}).get("turn_trace") or {}).get("note_editor") or {}
+    content_like_fields = {"props", "type", "order", "added", "removed"}
+    style_only = bool(changed_blocks) and any("style" in item.get("changed_fields", []) for item in changed_blocks) and not any(content_like_fields & set(item.get("changed_fields", [])) for item in changed_blocks)
+    warnings = []
+    if note_editor_trace.get("action") == "noop":
+        warnings.append("noop")
+    if note_editor_trace.get("fallback_used"):
+        warnings.append("fallback_used")
+    if style_only:
+        warnings.append("style_changed_without_content")
+    return {
+        "query": turn_context.get("user_query", ""),
+        "selected_element_id": turn_context.get("selected_element_id"),
+        "panel": turn_context.get("panel", "main"),
+        "timeline": timeline,
+        "route": {
+            "intent_route": (after_values or {}).get("intent_route", ""),
+            "active_archetype": (after_values or {}).get("active_archetype", ""),
+        },
+        "planner": ((after_values or {}).get("turn_trace") or {}).get("planner") or {},
+        "note_editor": note_editor_trace,
+        "before_summary": _summarize_document(before_values or {}),
+        "after_summary": _summarize_document(after_values or {}),
+        "changed_blocks": changed_blocks,
+        "warnings": warnings,
+    }
+
+
+async def _aupdate_state_compat(agent, config, values, *, as_node: str):
+    try:
+        return await agent.aupdate_state(config, values, as_node=as_node)
+    except TypeError:
+        return await agent.aupdate_state(config, values)
+
+
+def _latest_thread_config(config: dict | None) -> dict:
+    configurable = dict((config or {}).get("configurable") or {})
+    configurable.pop("checkpoint_id", None)
+    return {"configurable": configurable}
+
 
 def _build_turn_end_payload(
     checkpoint_id: str,
     *,
     oss_url,
     image_assets,
-    page_data,
-    style_data,
     source_code,
     node_prompts=None,
+    note_document=None,
+    planner_output=None,
+    planner_policy=None,
+    turn_trace=None,
+    agent_backends=None,
 ):
     """
-    统一构造 turn_end 包，并兼容 snake_case / camelCase 两套前端字段。
+    统一构造 turn_end 包。正式协议以 note_document / planner / trace 为主，
+    不再向前端公开旧页面协议字段，legacy 页面状态仅允许在 store/workspace 内部兼容层派生。
     """
     payload = {
         "checkpoint_id": checkpoint_id,
@@ -55,11 +175,6 @@ def _build_turn_end_payload(
         "ossUrl": oss_url,
         "image_assets": image_assets or [],
         "imageAssets": image_assets or [],
-        "page_data": page_data or {},
-        "pageData": page_data or {},
-        "noteData": page_data or {},
-        "style_data": style_data or {},
-        "styleData": style_data or {},
         "source_code": source_code or "",
         "sourceCode": source_code or "",
         "htmlPreview": source_code or "",
@@ -67,6 +182,24 @@ def _build_turn_end_payload(
     if node_prompts is not None:
         payload["node_prompts"] = node_prompts
         payload["nodePrompts"] = node_prompts
+    resolved_note_document = note_document or build_note_document_from_state({
+        "note_document": note_document or {},
+        "image_assets": image_assets or [],
+    })
+    if resolved_note_document is not None:
+        payload["note_document"] = resolved_note_document
+        payload["noteDocument"] = resolved_note_document
+    if planner_output is not None:
+        payload["planner_output"] = planner_output
+    if planner_policy is not None:
+        payload["planner_policy"] = planner_policy
+        payload["plannerPolicy"] = planner_policy
+    if turn_trace is not None:
+        payload["turn_trace"] = turn_trace
+        payload["turnTrace"] = turn_trace
+    if agent_backends is not None:
+        payload["agent_backends"] = agent_backends
+        payload["agentBackends"] = agent_backends
     return payload
 
 @router.websocket("/chat/{thread_id}")
@@ -88,6 +221,9 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 data = await websocket.receive_text()
                 
                 # --- DEBUG 模式：打印原始输入 ---
+                reset_latest_console_log(f"[DEBUG] 最新请求 thread={thread_id}")
+                append_log_divider('REQUEST')
+                append_latest_console_log(f"[DEBUG] 收到前端消息: {data[:200]}...")
                 if settings.XHS_FORGE_DEBUG:
                     print(f"\n\033[95m[DEBUG] 收到前端消息: {data[:200]}...\033[0m")
 
@@ -108,29 +244,77 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                         })
                     
                     # 续火执行
-                    await _run_graph_loop(agent, None, config, websocket)
+                    await _run_graph_loop(agent, None, config, websocket, turn_context={"user_query": "", "selected_element_id": payload_dict.get("selected_element_id"), "panel": payload_dict.get("panel", "main"), "before_values": {}})
                     continue
 
                 # 2. 正常消息解析
                 try:
                     payload = ChatWSPayload.model_validate_json(data)
+                    append_latest_console_log(
+                        f"🧾 [REQUEST] panel={payload.panel} | selected={payload.selected_element_id or 'global'} | "
+                        f"assets={len(payload.current_assets or [])} | text={truncate_text(payload.content, 120) or '(empty)'}"
+                    )
                 except ValidationError as ve:
                     await websocket.send_json({"event": "error", "data": f"请求格式错误: {ve}"})
                     continue
 
-                user_query_str = payload.content
+                user_query_str = (payload.content or "").strip()
+                pending_urls = payload.image_urls or []
+
+                if not user_query_str and not pending_urls:
+                    await websocket.send_json({"event": "error", "data": "请输入修改指令，或上传本轮要使用的新图片。"})
+                    continue
                 
                 # --- 🛡️ 【第一防御梯队：风控网关拦截】 ---
                 is_vetoed = await RiskControlCache.check_veto(user_query_str)
                 if is_vetoed:
                     print(f"🛑 [绝对防御] 发现违规内容，已在入口点阻断: {user_query_str[:15]}")
-                    veto_dsl = {
-                        "page_order": ["title_1", "text_1"],
-                        "title_1": {"type": "TitleBlock", "title": "🚫 触发系统安全保护"},
-                        "text_1": {
-                            "type": "StoryText", 
-                            "paragraphs": ["您探讨的话题涉及敏感、暴力或高危领域，已被拦截。", "XHS-Forge 致力于提供健康创作环境。✨"]
-                        }
+                    veto_note_document = {
+                        "document_meta": {"title": "🚫 触发系统安全保护", "active_archetype": "general", "scenarios": ["general"]},
+                        "theme": {"page_theme": {}, "global_vars": {"--primary-vibe": "#ff2442"}},
+                        "blocks": [
+                            {
+                                "id": "title_1",
+                                "type": "TitleBlock",
+                                "label": "标题",
+                                "semantic_role": "heading",
+                                "content_brief": "安全提示",
+                                "props": {"type": "TitleBlock", "title": "🚫 触发系统安全保护"},
+                                "style": {},
+                                "asset_refs": [],
+                                "fact_bindings": [],
+                                "editable_targets": ["title"],
+                                "asset_support": "none",
+                                "fact_binding_support": False,
+                                "order": 0,
+                            },
+                            {
+                                "id": "text_1",
+                                "type": "StoryText",
+                                "label": "正文",
+                                "semantic_role": "narrative_text",
+                                "content_brief": "安全说明",
+                                "props": {
+                                    "type": "StoryText",
+                                    "paragraphs": [
+                                        "您探讨的话题涉及敏感、暴力或高危领域，已被拦截。",
+                                        "XHS-Forge 致力于提供健康创作环境。✨",
+                                    ],
+                                },
+                                "style": {},
+                                "asset_refs": [],
+                                "fact_bindings": [],
+                                "editable_targets": ["paragraphs"],
+                                "asset_support": "none",
+                                "fact_binding_support": False,
+                                "order": 1,
+                            },
+                        ],
+                        "assets": [],
+                        "fact_bindings": [],
+                        "provenance": {"fact_sources": [], "fact_conflicts": [], "confirmed_facts": {}, "fact_review_status": "clear"},
+                        "ui_state": {"selected_element_id": None, "active_panel": payload.panel, "patch_tracks": {}},
+                        "planner": {},
                     }
                     await websocket.send_json({"event": "token", "node": "risk_gateway", "data": "\n🛡️ 系统检测到高危/敏感内容，风控拦截已生效！"})
                     await websocket.send_json({
@@ -139,16 +323,14 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                             payload.parent_checkpoint_id or "veto_hit",
                             oss_url=None,
                             image_assets=payload.current_assets or [],
-                            page_data=veto_dsl,
-                            style_data={"global_vars": {"--primary-vibe": "#ff2442"}},
                             source_code="",
+                            note_document=veto_note_document,
                         ),
                     })
                     continue
 
                 # --- 2. 【第二阶段：极速嗅探】去 Redis 查缓存 ---
                 selected_el = payload.selected_element_id or "无 (全局修改)"
-                pending_urls = payload.image_urls or []
                 
                 cached_result = await get_trend_cache(user_query_str, selected_el)
                 if cached_result and not pending_urls:
@@ -160,9 +342,8 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                             payload.parent_checkpoint_id or "cache_hit",
                             oss_url=None,
                             image_assets=payload.current_assets or [],
-                            page_data=cached_result,
-                            style_data={},
                             source_code="",
+                            note_document=build_note_document_from_state({"note_document": cached_result}),
                         ),
                     })
                     continue
@@ -193,7 +374,19 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 if payload.parent_checkpoint_id: config["configurable"]["checkpoint_id"] = payload.parent_checkpoint_id
 
                 # 执行图循环
-                await _run_graph_loop(agent, inputs, config, websocket)
+                before_state = await agent.aget_state(config)
+                await _run_graph_loop(
+                    agent,
+                    inputs,
+                    config,
+                    websocket,
+                    turn_context={
+                        "user_query": user_query_str,
+                        "selected_element_id": payload.selected_element_id or "无 (全局修改)",
+                        "panel": payload.panel,
+                        "before_values": before_state.values or {},
+                    },
+                )
 
             except WebSocketDisconnect:
                 raise  # 交给外层统一处理，避免当普通错误处理或向已断开连接写数据
@@ -206,7 +399,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
     except WebSocketDisconnect as e:
         print(f"[WS] Client {thread_id} disconnected (code={getattr(e, 'code', '')}, reason={getattr(e, 'reason', '') or '(none)'}).")
 
-async def _run_graph_loop(agent, inputs, config, websocket):
+async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
     """【核心循环】带全量日志、自动续火与 HITL 拦截"""
     current_inputs = inputs
     resume_count = 0
@@ -217,6 +410,7 @@ async def _run_graph_loop(agent, inputs, config, websocket):
     # 🌟 哨兵监控：实时捕获最后一公里产生的物理资产
     final_oss_url = None
     final_html = ""
+    trace_timeline = []
 
     while resume_count < MAX_RESUME:
         if websocket.client_state != WebSocketState.CONNECTED:
@@ -233,16 +427,24 @@ async def _run_graph_loop(agent, inputs, config, websocket):
                 final_oss_url = output.get("final_oss_url")
                 final_html = output.get("final_html", "")
                 if settings.XHS_FORGE_DEBUG:
-                    print(f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else 'None'}...")
+                    message = f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else None}..."
+                    print(message)
+                    append_latest_console_log(message)
 
             # --- DEBUG 日志输出 ---
             if settings.XHS_FORGE_DEBUG:
                 if kind == "on_chain_start" and event["name"] != "LangGraph":
-                    print(f"\033[1;36m▶️  [NODE START]: {event['name']}\033[0m")
+                    message = f"▶️  [NODE START]: {event['name']}"
+                    print(f"\033[1;36m{message}\033[0m")
+                    append_latest_console_log(message)
+                    trace_timeline.append({"event": "node_start", "node": event["name"]})
                 elif kind == "on_chain_end" and event["name"] != "LangGraph":
                     output = event["data"].get("output", {})
-                    out_str = str(output)[:300] + "..." if len(str(output)) > 300 else str(output)
-                    print(f"\033[1;32m✅ [NODE END]: {event['name']} -> Output: {out_str}\033[0m")
+                    out_str = summarize_node_output(event['name'], output)
+                    message = f"✅ [NODE END]: {event['name']} -> {out_str}"
+                    print(f"\033[1;32m{message}\033[0m")
+                    append_latest_console_log(message)
+                    trace_timeline.append({"event": "node_end", "node": event["name"]})
 
             # 1. 思维链下发
             if kind == "on_chain_end":
@@ -271,23 +473,42 @@ async def _run_graph_loop(agent, inputs, config, websocket):
             elif kind == "on_tool_start":
                 tool_name = event["name"]
                 thought = TOOL_THOUGHT_MAP.get(tool_name, f"🔧 正在执行工具: {tool_name}...")
+                trace_timeline.append({"event": "tool_start", "node": tool_name})
+                append_latest_console_log(f"🔧 [TOOL START]: {tool_name}")
                 await websocket.send_json({"event": "thought", "data": thought})
 
-        # 检查快照
+        # 检查快照。注意：如果这轮是从旧 checkpoint 分叉出来的，收尾必须回到“线程最新”状态，
+        # 不能继续拿带 checkpoint_id 的 config 读旧快照，否则前端会收到父版本页面。
         snapshot = await agent.aget_state(config)
+        latest_config = _latest_thread_config(config)
         if not snapshot.next:
-            # 运行结束，下发最终结果
-            # ✨ 哨兵补丁：优先使用实时捕获的结果，如果没捕获到再用快照兜底
+            latest_snapshot = await agent.aget_state(latest_config)
+            turn_trace = _build_turn_trace(
+                turn_context=turn_context or {},
+                before_values=(turn_context or {}).get("before_values") or {},
+                after_values=latest_snapshot.values or {},
+                timeline=trace_timeline,
+            )
+            try:
+                await _aupdate_state_compat(agent, latest_config, {"turn_trace": turn_trace}, as_node=TRACE_STATE_NODE)
+                latest_snapshot = await agent.aget_state(latest_config)
+            except Exception:
+                pass
+            append_log_divider('TURN END')
+            append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, latest_snapshot.values or {})}")
             await websocket.send_json({
                 "event": "turn_end",
                 "data": _build_turn_end_payload(
-                    snapshot.config["configurable"]["checkpoint_id"],
-                    oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
-                    image_assets=snapshot.values.get("image_assets", []),
-                    page_data=snapshot.values.get("data_dsl", {}),
-                    style_data=snapshot.values.get("style_dsl", {}),
-                    source_code=final_html or snapshot.values.get("final_html", ""),
-                    node_prompts=snapshot.values.get("node_prompts"),
+                    latest_snapshot.config["configurable"]["checkpoint_id"],
+                    oss_url=final_oss_url or latest_snapshot.values.get("final_oss_url"),
+                    image_assets=latest_snapshot.values.get("image_assets", []),
+                    source_code=final_html or latest_snapshot.values.get("final_html", ""),
+                    node_prompts=latest_snapshot.values.get("node_prompts"),
+                    note_document=latest_snapshot.values.get("note_document"),
+                    planner_output=latest_snapshot.values.get("planner_output"),
+                    planner_policy=latest_snapshot.values.get("planner_policy"),
+                    turn_trace=turn_trace,
+                    agent_backends=latest_snapshot.values.get("agent_backends"),
                 ),
             })
             return
@@ -300,17 +521,31 @@ async def _run_graph_loop(agent, inputs, config, websocket):
         last_next_signature = next_signature
 
         if repeated_next_count >= 2:
-            print(f"⚠️ [AUTO RESUME GUARD] 检测到重复续火 {next_signature}，提前下发当前快照避免前端卡死。")
+            message = f"⚠️ [AUTO RESUME GUARD] 检测到重复续火 {next_signature}，提前下发当前快照避免前端卡死。"
+            print(message)
+            append_latest_console_log(message)
+            turn_trace = _build_turn_trace(
+                turn_context=turn_context or {},
+                before_values=(turn_context or {}).get("before_values") or {},
+                after_values=snapshot.values or {},
+                timeline=trace_timeline,
+            )
+            turn_trace["warnings"] = list((turn_trace.get("warnings") or [])) + ["auto_resume_guard"]
+            append_log_divider('TURN END')
+            append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, snapshot.values or {})}")
             await websocket.send_json({
                 "event": "turn_end",
                 "data": _build_turn_end_payload(
                     snapshot.config["configurable"]["checkpoint_id"],
                     oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
                     image_assets=snapshot.values.get("image_assets", []),
-                    page_data=snapshot.values.get("data_dsl", {}),
-                    style_data=snapshot.values.get("style_dsl", {}),
                     source_code=final_html or snapshot.values.get("final_html", ""),
                     node_prompts=snapshot.values.get("node_prompts"),
+                    note_document=snapshot.values.get("note_document"),
+                    planner_output=snapshot.values.get("planner_output"),
+                    planner_policy=snapshot.values.get("planner_policy"),
+                    turn_trace=turn_trace,
+                    agent_backends=snapshot.values.get("agent_backends"),
                 ),
             })
             return
@@ -324,30 +559,51 @@ async def _run_graph_loop(agent, inputs, config, websocket):
             return
 
         # 自动续火
-        if settings.XHS_FORGE_DEBUG: print(f"\033[90m🔥 [AUTO RESUME] 命中中断点 {snapshot.next}，正在自动唤醒...\033[0m")
+        if settings.XHS_FORGE_DEBUG:
+            message = f"🔥 [AUTO RESUME] 命中中断点 {snapshot.next}，正在自动唤醒..."
+            print(f"\033[90m{message}\033[0m")
+            append_latest_console_log(message)
         current_inputs = None
         resume_count += 1
 
-    snapshot = await agent.aget_state(config)
-    print(f"⚠️ [AUTO RESUME GUARD] 超过最大自动续火次数，强制回传当前快照: {snapshot.next}")
+    latest_config = _latest_thread_config(config)
+    snapshot = await agent.aget_state(latest_config)
+    message = f"⚠️ [AUTO RESUME GUARD] 超过最大自动续火次数，强制回传当前快照: {snapshot.next}"
+    print(message)
+    append_latest_console_log(message)
+    turn_trace = _build_turn_trace(
+        turn_context=turn_context or {},
+        before_values=(turn_context or {}).get("before_values") or {},
+        after_values=snapshot.values or {},
+        timeline=trace_timeline,
+    )
+    turn_trace["warnings"] = list((turn_trace.get("warnings") or [])) + ["max_auto_resume_exceeded"]
+    append_log_divider('TURN END')
+    append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, snapshot.values or {})}")
     await websocket.send_json({
         "event": "turn_end",
         "data": _build_turn_end_payload(
             snapshot.config["configurable"]["checkpoint_id"],
             oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
             image_assets=snapshot.values.get("image_assets", []),
-            page_data=snapshot.values.get("data_dsl", {}),
-            style_data=snapshot.values.get("style_dsl", {}),
             source_code=final_html or snapshot.values.get("final_html", ""),
             node_prompts=snapshot.values.get("node_prompts"),
+            note_document=snapshot.values.get("note_document"),
+            planner_output=snapshot.values.get("planner_output"),
+            planner_policy=snapshot.values.get("planner_policy"),
+            turn_trace=turn_trace,
+            agent_backends=snapshot.values.get("agent_backends"),
         ),
     })
     return
 
 def _extract_thought(output):
     if not isinstance(output, dict): return None
-    for key in ["intent_result", "structure_result", "style_result", "content_result"]:
+    top_level = output.get("thought_process")
+    if top_level:
+        return top_level
+    for key in ["structure_result", "style_result", "content_result"]:
         res_obj = output.get(key)
         if res_obj is not None:
             return getattr(res_obj, "thought_process", None)
-    return output.get("thought_process")
+    return None

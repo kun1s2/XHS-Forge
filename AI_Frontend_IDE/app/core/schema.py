@@ -38,6 +38,7 @@ class ComponentData(BaseModel):
     title: Optional[str] = Field(None, description="主标题内容")
     subtitle: Optional[str] = Field(None, description="副标题内容")
     paragraphs: Optional[List[str]] = Field(None, description="正文文本段落")
+    paragraph_meta: Optional[List[Dict[str, Any]]] = Field(None, description="正文段落元数据，如来源、是否已确认、提示说明")
     
     # ✨ 为 VersusCard 补上专属武器！
     proText: Optional[str] = Field(None, description="红榜/优势描述（仅 VersusCard 可用，严禁写成数组）")
@@ -93,6 +94,7 @@ class ComponentData(BaseModel):
     # 7. 🗣️ 评价弹幕条 (UserReviewMarquee)
     reviews: Optional[List[str]] = Field(None, description="真实网友评价的短句数组")
     core_features: Optional[List[str]] = Field(None, description="核心参数/特性列表（用于 ProductSpecCard）")
+    feature_meta: Optional[List[Dict[str, Any]]] = Field(None, description="参数卡条目元数据，如来源、是否已确认、提示说明")
     likes: Optional[Union[str, int]] = Field(None, description="点赞数（如 1.2w）")
     collects: Optional[Union[str, int]] = Field(None, description="收藏数")
     comments: Optional[Union[str, int]] = Field(None, description="评论数")
@@ -207,56 +209,82 @@ class FocusedKnowledge(BaseModel):
             raise ValueError("domain_category 命中受限领域")
         return v
 
-class IntentOutput(BaseModel):
-    """意图分析大脑的输出结构 (4.0 六维意图雷达版)"""
-    thought_process: str = Field(description="思维链推理过程")
-    reason: str = Field(..., description="极简理由（10字以内）。")
-    intent_route: Literal["content_node", "structure_node", "style_node", "rag_node", "patch_node"] = Field(..., description="决定路由的节点名")
-    
-    # ✨ 维度 1/2: 基础叙事协议
-    narrative_mode: Literal["contrast", "sequential", "suspense", "spatial"] = Field(
-        default="spatial", 
-        description="叙事模式"
-    )
-    intensity_level: float = Field(default=0.0, description="情绪烈度")
+class ScenarioPolicy(BaseModel):
+    scenario_id: str
+    weight: float = 0.0
+    tone_bias: str = "balanced"
+    asset_policy: str = "reuse_first"
+    theme_preset: str = "general_editorial"
+    interaction_bias: str = "medium"
+    preferred_block_intents: List[str] = Field(default_factory=list)
 
-    # ✨ 维度 3: 视觉美学风向
-    visual_vibe: Literal["general", "minimalist", "vintage", "cyberpunk", "y2k", "natural", "kawaii", "luxury"] = Field(
-        default="general", 
-        description="视觉美学风向（如：极简、复古、千禧风等）"
-    )
-    
-    # ✨ 维度 4: 受众画像靶向
-    target_audience: str = Field(
-        default="泛人群", 
-        description="推测的目标受众画像（如：早八大学生、中产宝妈、硬核极客等）"
-    )
 
-    # ✨ 维度 5: 核心互动目标 (CTA)
-    call_to_action: Literal["none", "engagement", "conversion", "follower", "help"] = Field(
-        default="none", 
-        description="核心互动目标：engagement(骗评互动), conversion(种草带货), follower(涨粉), help(求助答疑)"
-    )
+class BlockIntent(BaseModel):
+    intent_type: str
+    priority: int = 0
+    goal: str = ""
+    preferred_component: Optional[str] = None
+    required: bool = False
 
-    # ✨ 维度 6: 时态与环境感知
-    temporal_context: Optional[str] = Field(
-        default=None, 
-        description="时态/环境感知（如：清晨、深夜放毒、周末、雨天等），用于触发环境氛围组件"
-    )
 
-    # ✨ 物理探针
-    asset_request: Literal["NONE", "SEARCH", "GENERATE"] = Field(
-        default="NONE", 
-        description="资产请求：NONE(默认), SEARCH(搜图), GENERATE(AI生图)"
-    )
-    
-    detected_element_id: Optional[str] = Field(None, description="识别出的潜在修改目标 ID")
-    scenarios: List[str] = Field(default_factory=list, description="识别的业务场景标签")
-    detected_archetype: str = Field(default="general", description="识别出的业务场景原型 ID")
+class PlannerOutput(BaseModel):
+    reason: str
+    scenario_scores: Dict[str, float] = Field(default_factory=dict)
+    tone_policy: Dict[str, Any] = Field(default_factory=dict)
+    layout_policy: Dict[str, Any] = Field(default_factory=dict)
+    asset_policy: Dict[str, Any] = Field(default_factory=dict)
+    fact_policy: Dict[str, Any] = Field(default_factory=dict)
+    theme_policy: Dict[str, Any] = Field(default_factory=dict)
+    block_intents: List[BlockIntent] = Field(default_factory=list)
 
-    @field_validator('scenarios', mode='before')
-    @classmethod
-    def validate_scenarios(cls, v: Any) -> List[str]:
-        # ✨ 哨兵重构：不再校验硬编码集合，直接透传字符串列表，由 Node 层动态校验
-        if not isinstance(v, list): return ["general"]
-        return [str(item) for item in v]
+
+class NoteDocumentAsset(BaseModel):
+    id: str
+    url: str
+    desc: str = ""
+    source_type: Optional[str] = None
+    query: Optional[str] = None
+    role: str = "supporting"
+    locked: bool = False
+    selection_state: str = "available"
+    source_reason: Optional[str] = None
+    used_by_blocks: List[str] = Field(default_factory=list)
+
+
+class NoteDocumentBlock(BaseModel):
+    id: str
+    type: str
+    label: str = ""
+    semantic_role: str = "content"
+    content_brief: str = ""
+    props: Dict[str, Any] = Field(default_factory=dict)
+    style: Dict[str, Any] = Field(default_factory=dict)
+    asset_refs: List[str] = Field(default_factory=list)
+    fact_bindings: List[Dict[str, Any]] = Field(default_factory=list)
+    editable_targets: List[str] = Field(default_factory=list)
+    asset_support: Literal["none", "optional", "required"] = "none"
+    fact_binding_support: bool = False
+    order: int = 0
+
+
+class NoteDocument(BaseModel):
+    document_meta: Dict[str, Any] = Field(default_factory=dict)
+    theme: Dict[str, Any] = Field(default_factory=dict)
+    blocks: List[NoteDocumentBlock] = Field(default_factory=list)
+    assets: List[NoteDocumentAsset] = Field(default_factory=list)
+    fact_bindings: List[Dict[str, Any]] = Field(default_factory=list)
+    provenance: Dict[str, Any] = Field(default_factory=dict)
+    ui_state: Dict[str, Any] = Field(default_factory=dict)
+    planner: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IntentGatewayOutput(BaseModel):
+    """现代化 gateway 输出：只保留路由与资源决策所需信号。"""
+    thought_process: str = Field(default="", description="网关级推理摘要，供 trace 与拒绝节点使用")
+    reason: str = Field(default="", description="简短理由")
+    task_type: Literal["create", "edit", "inspect", "confirm_fact", "refuse"] = "create"
+    edit_scope: Literal["global", "selected_block", "selected_paragraph", "none"] = "global"
+    needs_research: bool = False
+    needs_assets: Literal["none", "search", "generate", "reuse"] = "none"
+    scenario_scores: Dict[str, float] = Field(default_factory=dict)
+    risk_flags: List[str] = Field(default_factory=list)

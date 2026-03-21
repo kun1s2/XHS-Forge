@@ -7,7 +7,6 @@ from .patch_node import surgical_patch_agent
 from .style_node import style_agent
 from .render_node import render_node
 from .battle_node import battle_node
-from .outline_node import outline_agent
 from .component_builder import component_builder_node
 
 __all__ = [
@@ -20,6 +19,5 @@ __all__ = [
     "style_agent",
     "render_node",
     "battle_node",
-    "outline_agent",
     "component_builder_node"
 ]

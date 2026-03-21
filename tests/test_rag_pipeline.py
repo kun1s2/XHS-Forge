@@ -1,15 +1,14 @@
 import pytest
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch, MagicMock
 from pydantic import ValidationError
-from fastapi.testclient import TestClient
-
 # 引入核心业务组件
 from app.core.schema import FocusedKnowledge
 from app.services.mock_rag_service import retrieve_from_mock_db
 from app.agents.nodes.research_agent import research_agent
 from app.agents.state import UIProjectState
-from app.main import app # 引入 FastAPI 实例
+from app.api.workspace import inspect_agent_state
 
 # --- 🧪 Test Suite 1: 测试 Mock 库与 Schema 强校验 ---
 
@@ -76,7 +75,7 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
         "main_messages": [HumanMessage(content="我想写小米17 Ultra")],
         "active_panel": "main",
         "retrieved_knowledge": None,
-        "intent_result": {"asset_request": "NONE"},
+        "intent_result_v2": {"needs_assets": "none"},
     }
     
     # 3. 触发节点（执行必须是阻塞的）
@@ -88,23 +87,45 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
     assert result["retrieved_knowledge"]["is_fact_ready"] is True
     assert "Snapdragon 8 Gen 5" in result["retrieved_knowledge"]["text_facts"]
     assert result["image_assets"] == []
+    assert result["agent_backends"]["research_agent"] == "deterministic_tool_orchestrator"
     print("\n✅ [时序校验通过]: research_node 已阻塞完成并成功回填 State。")
+
+
+@pytest.mark.asyncio
+@patch.dict(
+    "app.agents.nodes.research_agent.TOOL_POOL",
+    {
+        "network_search": MagicMock(
+            ainvoke=AsyncMock(side_effect=[
+                "Mate 60 官方参数",
+                "Mate 60 用户评价"
+            ])
+        )
+    },
+)
+@patch("app.agents.nodes.research_agent.search_google_images", new_callable=AsyncMock)
+@patch("app.services.cache_service.cache_service.get_hot_knowledge", new_callable=AsyncMock)
+@patch("app.services.cache_service.cache_service.match_trends_in_text", new_callable=AsyncMock)
+async def test_research_node_can_infer_asset_search_from_query_without_legacy_intent(mock_match_trends, mock_get_hot_knowledge, mock_search_google_images):
+    mock_match_trends.return_value = []
+    mock_get_hot_knowledge.return_value = None
+    mock_search_google_images.return_value = ["https://img.example/mate60.jpg"]
+
+    from langchain_core.messages import HumanMessage
+    result = await research_agent({
+        "main_messages": [HumanMessage(content="帮我搜几张 Mate 60 实拍图")],
+        "active_panel": "main",
+        "retrieved_knowledge": None,
+    })
+
+    assert result["image_assets"] == [{"url": "https://img.example/mate60.jpg", "desc": "Mate 60 实拍图"}]
+    assert result["agent_backends"]["research_agent"] == "deterministic_tool_orchestrator"
 
 # --- 🧪 Test Suite 3: 测试白盒探针 API ---
 
 def test_glassbox_inspect_api():
     """验证前端能否顺利偷窥 Agent 脑电图"""
-    # ✨ 哨兵修复：手动初始化 app.state，防止 AttributeError
-    if not hasattr(app.state, 'agent'):
-        app.state.agent = MagicMock()
-        
-    client = TestClient(app)
-    
-    # 1. 模拟一个 thread_id
     test_thread_id = "test_case_001"
-    
-    # 2. Mock 掉 app.state.agent 的 aget_state 方法
-    # 创建一个模拟的 StateSnapshot
     mock_values = {
         "intent_route": "research_agent",
         "creator_persona": "硬核数码博主",
@@ -112,16 +133,13 @@ def test_glassbox_inspect_api():
     }
     mock_snapshot = MagicMock()
     mock_snapshot.values = mock_values
-    
-    # 使用 patch 修改 mock 对象的 aget_state 行为
-    app.state.agent.aget_state = AsyncMock(return_value=mock_snapshot)
-    
-    # 3. 发起请求
-    response = client.get(f"/workspace/{test_thread_id}/inspect")
-    
-    # 4. 断言
-    assert response.status_code == 200
-    data = response.json()
+
+    mock_agent = MagicMock()
+    mock_agent.aget_state = AsyncMock(return_value=mock_snapshot)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(agent=mock_agent)))
+
+    data = asyncio.run(inspect_agent_state(test_thread_id, request))
+
     assert data["status"] == "success"
     assert data["data"]["intent_route"] == "research_agent"
     assert data["data"]["creator_persona"] == "硬核数码博主"

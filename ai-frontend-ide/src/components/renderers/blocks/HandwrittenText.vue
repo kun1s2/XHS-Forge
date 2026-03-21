@@ -3,10 +3,10 @@ import { computed } from 'vue';
 
 const props = defineProps<{
   node: any;
-  pageData: any;
+  data?: any;
 }>();
 
-const nodeData = computed(() => props.pageData[props.node.id] || {});
+const nodeData = computed(() => props.data || props.node?.props || {});
 </script>
 
 <template>

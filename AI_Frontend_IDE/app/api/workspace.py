@@ -1,7 +1,8 @@
+import json
 import uuid
 from copy import deepcopy
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
@@ -14,6 +15,8 @@ from app.agents.utils.fact_utils import (
     apply_confirmed_facts_to_knowledge,
     merge_confirmed_fact_selection,
 )
+from app.core.note_document import build_note_document_from_state, replace_note_document_blocks, update_note_document_block
+from app.core.runtime_log import append_latest_console_log, append_log_divider, reset_latest_console_log, summarize_turn_completion, write_latest_frontend_observation
 
 router = APIRouter(prefix="/workspace", tags=["Workspace Operations"])
 
@@ -50,6 +53,13 @@ class FactConfirmationRequest(BaseModel):
     sources: List[str] = []
 
 
+class FrontendObservationRequest(BaseModel):
+    thread_id: Optional[str] = None
+    event_type: str
+    message: str = ''
+    payload: Dict[str, Any] = {}
+
+
 def normalize_human_content(content):
     if isinstance(content, list):
         text_parts = []
@@ -76,9 +86,9 @@ def _extract_session_title(values: dict, thread_id: str) -> str:
             compact = " ".join(text.split())
             return compact[:24] + ("..." if len(compact) > 24 else "")
 
-    page_title = str((values.get("data_dsl") or {}).get("page_title") or "").strip()
-    if page_title and page_title != "XHS-Forge Note":
-        return page_title[:24] + ("..." if len(page_title) > 24 else "")
+    document_title = str((((values.get("note_document") or {}).get("document_meta") or {}).get("title")) or "").strip()
+    if document_title and document_title != "XHS-Forge Note":
+        return document_title[:24] + ("..." if len(document_title) > 24 else "")
 
     return f"项目 {thread_id[:8]}"
 
@@ -108,12 +118,102 @@ async def _aupdate_state_compat(agent, config, values, *, as_node: str):
 WORKSPACE_STATE_NODE = "render"
 
 
+def _extract_document_blocks(note_document: dict | None) -> list[dict]:
+    if not isinstance(note_document, dict):
+        return []
+    blocks = note_document.get("blocks") or []
+    return [block for block in blocks if isinstance(block, dict)]
+
+
+def _summarize_document_state(values: dict | None) -> dict:
+    note_document = (values or {}).get("note_document") or build_note_document_from_state(values or {})
+    blocks = _extract_document_blocks(note_document)
+    return {
+        "title": str(((note_document or {}).get("document_meta") or {}).get("title") or "XHS-Forge Note"),
+        "block_count": len(blocks),
+        "block_order": [
+            {"id": str(block.get("id") or ""), "type": str(block.get("type") or "")}
+            for block in blocks
+        ],
+    }
+
+
+def _build_workspace_block_change_set(before_values: dict | None, after_values: dict | None) -> list[dict]:
+    before_blocks = {str(block.get("id") or ""): block for block in _extract_document_blocks((before_values or {}).get("note_document") or build_note_document_from_state(before_values or {})) if block.get("id")}
+    after_blocks = {str(block.get("id") or ""): block for block in _extract_document_blocks((after_values or {}).get("note_document") or build_note_document_from_state(after_values or {})) if block.get("id")}
+    before_order = {bid: idx for idx, bid in enumerate(before_blocks.keys())}
+    after_order = {bid: idx for idx, bid in enumerate(after_blocks.keys())}
+    changes = []
+    for block_id in sorted(set(before_blocks) | set(after_blocks)):
+        before_block = before_blocks.get(block_id)
+        after_block = after_blocks.get(block_id)
+        if before_block is None and after_block is not None:
+            changes.append({"id": block_id, "type": str(after_block.get("type") or ""), "changed_fields": ["added"]})
+            continue
+        if after_block is None and before_block is not None:
+            changes.append({"id": block_id, "type": str(before_block.get("type") or ""), "changed_fields": ["removed"]})
+            continue
+        changed_fields = []
+        if str(before_block.get("type") or "") != str(after_block.get("type") or ""):
+            changed_fields.append("type")
+        if before_order.get(block_id) != after_order.get(block_id):
+            changed_fields.append("order")
+        if json.dumps(before_block.get("props") or {}, sort_keys=True, ensure_ascii=False) != json.dumps(after_block.get("props") or {}, sort_keys=True, ensure_ascii=False):
+            changed_fields.append("props")
+        if json.dumps(before_block.get("style") or {}, sort_keys=True, ensure_ascii=False) != json.dumps(after_block.get("style") or {}, sort_keys=True, ensure_ascii=False):
+            changed_fields.append("style")
+        if changed_fields:
+            changes.append({"id": block_id, "type": str(after_block.get("type") or before_block.get("type") or ""), "changed_fields": changed_fields})
+    return changes
+
+
+async def _record_workspace_operation(agent, config: dict, *, action: str, reason: str, before_values: dict | None, selected_element_id: str | None = None, warnings: list[str] | None = None):
+    latest_state = await agent.aget_state(config)
+    after_values = latest_state.values or {}
+    turn_trace = {
+        "query": reason,
+        "selected_element_id": selected_element_id or after_values.get("selected_element_id") or "global",
+        "panel": str(after_values.get("active_panel") or "main"),
+        "timeline": [{"event": "workspace_action", "node": action}],
+        "route": {
+            "intent_route": str(after_values.get("intent_route") or "workspace_operation"),
+            "active_archetype": str(after_values.get("active_archetype") or ""),
+        },
+        "planner": {},
+        "note_editor": {},
+        "workspace_action": {
+            "action": action,
+            "reason": reason,
+            "structured": True,
+            "fallback_used": False,
+            "target_block_id": selected_element_id or after_values.get("selected_element_id") or "global",
+        },
+        "before_summary": _summarize_document_state(before_values or {}),
+        "after_summary": _summarize_document_state(after_values or {}),
+        "changed_blocks": _build_workspace_block_change_set(before_values or {}, after_values or {}),
+        "warnings": list(warnings or []),
+    }
+    await _aupdate_state_compat(agent, config, {"turn_trace": turn_trace}, as_node=WORKSPACE_STATE_NODE)
+    reset_latest_console_log(f"[DEBUG] 最新工作台动作 thread={config.get('configurable', {}).get('thread_id', '')}")
+    append_log_divider('WORKSPACE ACTION')
+    append_latest_console_log(f"🧭 [WORKSPACE] action={action} | selected={selected_element_id or 'global'} | reason={reason}")
+    append_log_divider('TURN END')
+    append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, latest_state.values or {})}")
+    return turn_trace
+
+
 def _format_checkpoint_timestamp(created_at) -> str:
     if isinstance(created_at, str) and created_at:
         return created_at
     if created_at:
         return created_at.isoformat()
     return datetime.now().isoformat()
+
+
+def _build_next_note_document(values: dict | None, **overrides):
+    merged = dict(values or {})
+    merged.update(overrides)
+    return build_note_document_from_state(merged)
 
 def get_agent(request: Request):
     """依赖注入：从 FastAPI 生命周期中安全获取编译好的 Agent 引擎"""
@@ -160,9 +260,15 @@ async def rollback_component(thread_id: str, req: ComponentRollbackRequest, requ
     
     if not patch:
         raise HTTPException(status_code=400, detail="回滚失败：未找到有效历史快照")
+
+    patch = {
+        **patch,
+        "note_document": _build_next_note_document(values, **patch),
+    }
         
     # 3. ✨ 面试亮点：利用 update_state 直接修改持久化 Checkpoint
     await _aupdate_state_compat(agent, config, patch, as_node=WORKSPACE_STATE_NODE)
+    await _record_workspace_operation(agent, config, action="workspace_rollback_component", reason=f"组件回滚: {req.element_id}@{req.version_index}", before_values=values, selected_element_id=req.element_id)
     
     print(f"⏳ [原子回溯成功] 组件: {req.element_id} | 版本索引: {req.version_index}")
     return {"status": "success", "message": f"组件 {req.element_id} 已恢复至历史版本"}
@@ -178,6 +284,21 @@ async def get_trending_topics():
     if not trends:
         trends = ["索尼 A7C2", "华为 Mate 60", "赛博朋克风测评", "理想 L9 避雷", "春天第一杯咖啡"]
     return {"trends": trends}
+
+
+@router.post('/frontend-observe', response_model=BaseResponse)
+async def observe_frontend_state(req: FrontendObservationRequest):
+    payload = {
+        'thread_id': req.thread_id or '',
+        'event_type': req.event_type,
+        'message': req.message,
+        'payload': req.payload or {},
+    }
+    write_latest_frontend_observation(payload)
+    append_latest_console_log(
+        f"🖥️ [FRONTEND] type={req.event_type} | thread={req.thread_id or '-'} | message={req.message[:120]}"
+    )
+    return BaseResponse(message='前端观测已记录')
 
 
 @router.get("/showcase/profiles")
@@ -226,19 +347,24 @@ async def import_workspace_asset(thread_id: str, req: AssetMutationRequest, requ
     if any(asset.get("url") == req.url for asset in current_assets if isinstance(asset, dict)):
         return BaseResponse(message="素材已存在于资产池")
 
+    new_asset = {
+        "url": req.url,
+        "desc": req.desc,
+        "source_type": req.source_type,
+        "query": req.query,
+    }
+    next_assets = [*current_assets, new_asset]
+
     await _aupdate_state_compat(
         agent,
         config,
         {
-            "image_assets": [{
-                "url": req.url,
-                "desc": req.desc,
-                "source_type": req.source_type,
-                "query": req.query,
-            }]
+            "image_assets": [new_asset],
+            "note_document": _build_next_note_document(values, image_assets=next_assets),
         },
         as_node=WORKSPACE_STATE_NODE,
     )
+    await _record_workspace_operation(agent, config, action="workspace_import_asset", reason=f"素材入池: {req.desc}", before_values=values)
     return BaseResponse(message="素材已加入资产池")
 
 
@@ -252,38 +378,71 @@ async def set_workspace_cover_asset(thread_id: str, req: AssetMutationRequest, r
     state = await agent.aget_state(config)
     values = state.values or {}
     current_assets = values.get("image_assets", []) or []
-    data_dsl = deepcopy(values.get("data_dsl", {}) or {})
-    blocks = list(data_dsl.get("blocks", []) or [])
+    note_document = build_note_document_from_state(values)
+    blocks = list((note_document.get("blocks") or []))
 
-    cover_block = next((block for block in blocks if block.get("component_type") == "CoverSwiper"), None)
+    cover_block = next((block for block in blocks if block.get("type") == "CoverSwiper"), None)
     if cover_block:
-        cover_id = cover_block.get("id")
+        cover_id = str(cover_block.get("id") or "")
     else:
         cover_id = f"cover_{uuid.uuid4().hex[:8]}"
         cover_block = {
             "id": cover_id,
-            "component_type": "CoverSwiper",
+            "type": "CoverSwiper",
+            "label": "Cover Swiper",
+            "semantic_role": "hero_media",
+            "content_brief": "封面图轮播",
             "props": {},
+            "style": {},
+            "asset_refs": [],
+            "fact_bindings": [],
+            "editable_targets": ["images"],
+            "asset_support": "required",
+            "fact_binding_support": False,
+            "order": 0,
         }
         blocks.insert(0, cover_block)
+        note_document = replace_note_document_blocks(note_document, blocks)
 
-    data_dsl["blocks"] = blocks
-    data_dsl[cover_id] = {
-        **(data_dsl.get(cover_id, {}) or {}),
+    current_cover_props = deepcopy(
+        next(
+            ((block.get("props") or {}) for block in blocks if str(block.get("id") or "") == cover_id),
+            {},
+        )
+    )
+    current_cover_props.update({
         "type": "CoverSwiper",
         "image_urls": [req.url],
-    }
+    })
+    note_document = update_note_document_block(
+        note_document,
+        cover_id,
+        props=current_cover_props,
+        metadata={"asset_refs": [req.url]},
+    )
 
-    patch = {"data_dsl": data_dsl}
+    patch = {}
+    next_assets = list(current_assets)
     if not any(asset.get("url") == req.url for asset in current_assets if isinstance(asset, dict)):
-        patch["image_assets"] = [{
+        imported_asset = {
             "url": req.url,
             "desc": req.desc,
             "source_type": req.source_type,
             "query": req.query,
-        }]
+        }
+        patch["image_assets"] = [imported_asset]
+        next_assets.append(imported_asset)
+
+    patch["note_document"] = _build_next_note_document(
+        {
+            **values,
+            "note_document": note_document,
+        },
+        image_assets=next_assets,
+    )
 
     await _aupdate_state_compat(agent, config, patch, as_node=WORKSPACE_STATE_NODE)
+    await _record_workspace_operation(agent, config, action="workspace_set_cover", reason=f"设为封面: {req.desc}", before_values=values, selected_element_id=cover_id)
     return BaseResponse(message="已设为封面图")
 
 
@@ -328,11 +487,15 @@ async def confirm_workspace_fact(thread_id: str, req: FactConfirmationRequest, r
     await _aupdate_state_compat(
         agent,
         config,
-        {"retrieved_knowledge": next_knowledge},
+        {
+            "retrieved_knowledge": next_knowledge,
+            "note_document": _build_next_note_document(values, retrieved_knowledge=next_knowledge),
+        },
         as_node=WORKSPACE_STATE_NODE,
     )
 
     fact_label = FACT_FIELD_LABELS.get(req.field, req.field)
+    await _record_workspace_operation(agent, config, action="workspace_confirm_fact", reason=f"确认事实: {fact_label}={req.value}", before_values=values)
     return BaseResponse(message=f"已确认 {fact_label}: {req.value}")
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -425,6 +588,117 @@ def dedupe_assets(assets: list) -> list[dict]:
         deduped[url] = merged
     return list(deduped.values())
 
+
+def _build_inspector_summary(values: dict) -> dict:
+    note_document = values.get("note_document") or build_note_document_from_state(values)
+    blocks = list((note_document or {}).get("blocks") or [])
+    assets = dedupe_assets(list((note_document or {}).get("assets") or []) or values.get("image_assets", []) or [])
+    retrieved_knowledge = values.get("retrieved_knowledge") if isinstance(values.get("retrieved_knowledge"), dict) else {}
+    turn_trace = values.get("turn_trace") if isinstance(values.get("turn_trace"), dict) else {}
+    note_editor_trace = turn_trace.get("note_editor") if isinstance(turn_trace.get("note_editor"), dict) else {}
+    workspace_action_trace = turn_trace.get("workspace_action") if isinstance(turn_trace.get("workspace_action"), dict) else {}
+    component_builder_trace = turn_trace.get("component_builder") if isinstance(turn_trace.get("component_builder"), dict) else {}
+    execution_trace = note_editor_trace or workspace_action_trace
+    warnings = [str(item) for item in (turn_trace.get("warnings") or []) if item]
+    fact_bindings = list((note_document or {}).get("fact_bindings") or [])
+    conflict_count = len(retrieved_knowledge.get("fact_conflicts") or [])
+    confirmed_count = len(retrieved_knowledge.get("confirmed_facts") or {})
+    source_count = len(retrieved_knowledge.get("fact_sources") or [])
+    changed_blocks = list(turn_trace.get("changed_blocks") or [])
+    builder_items = [payload for payload in component_builder_trace.values() if isinstance(payload, dict)]
+    builder_component_types = [str(item.get("component_type") or "") for item in builder_items if item.get("component_type")]
+    builder_fallback_count = len([item for item in builder_items if item.get("fallback_used")])
+    builder_contract_filter_count = sum(int(item.get("contract_filter_count") or 0) for item in builder_items)
+    builder_precheck_warning_count = sum(int(item.get("precheck_warning_count") or 0) for item in builder_items)
+    builder_fact_summary_count = sum(int(item.get("fact_summary_count") or 0) for item in builder_items)
+    builder_asset_count = sum(int(item.get("asset_count") or 0) for item in builder_items)
+    builder_prompt_modes = sorted({str(item.get("prompt_mode") or "") for item in builder_items if item.get("prompt_mode")})
+    scenarios = list((note_document.get("document_meta") or {}).get("scenarios") or values.get("scenarios") or [])
+    entity_name = str(retrieved_knowledge.get("entity_name") or "").strip() or "未识别主体"
+    last_action = str(execution_trace.get("action") or "")
+    status = "attention" if warnings or conflict_count else ("active" if blocks else "idle")
+
+    suggestions = []
+    if not blocks:
+        suggestions.append("先生成一版页面，再观察结构化编辑是否命中目标。")
+    if "style_changed_without_content" in warnings:
+        suggestions.append("这轮更像改到了样式层，优先检查输入是否包含明确文本指令，以及命中区块是否正确。")
+    if "noop" in warnings:
+        suggestions.append("系统没有找到可落地的内容差异，建议检查结构化计划是否命中了正确区块。")
+    if execution_trace.get("fallback_used"):
+        suggestions.append("本轮进入了兜底路径，说明结构化动作还没有完全覆盖这类表达。")
+    if builder_fallback_count:
+        suggestions.append("这轮有组件落到了 builder fallback，建议优先检查组件 contract、事实摘要和局部业务简报。")
+    if builder_contract_filter_count:
+        suggestions.append("这轮 builder 过滤掉了一些越权字段，优先检查 block contract 是否与语义目标匹配。")
+    if builder_precheck_warning_count:
+        suggestions.append("这轮 builder 在合并前发现了必填字段缺失，建议核对简报和事实摘要是否足够支撑组件生成。")
+    if builder_fact_summary_count:
+        suggestions.append("builder 当前只消费压缩后的事实摘要；如果组件细节不够，优先补结构化 facts，而不是继续堆全局 prompt。")
+    if conflict_count:
+        suggestions.append("当前仍有待确认事实，强结论最好先在右侧确认冲突值。")
+    if not suggestions:
+        suggestions.append("当前链路状态正常，可以直接查看本轮追踪和结构化计划。")
+
+    headline = "当前工作台状态正常"
+    if status == "attention":
+        headline = "这轮执行里有需要关注的信号"
+    elif status == "idle":
+        headline = "当前工作台还没有生成内容"
+    elif last_action:
+        headline = f"最近一次动作：{last_action}"
+
+    return {
+        "headline": headline,
+        "status": status,
+        "focus": {
+            "entity_name": entity_name,
+            "scenarios": scenarios,
+            "selected_block_id": values.get("selected_element_id") or execution_trace.get("target_block_id") or None,
+            "intent_route": values.get("intent_route") or "等待指令",
+            "active_panel": values.get("active_panel") or "main",
+        },
+        "document": {
+            "title": (note_document.get("document_meta") or {}).get("title") or "未命名页面",
+            "block_count": len(blocks),
+            "asset_count": len(assets),
+            "fact_binding_count": len(fact_bindings),
+            "theme_preset": (note_document.get("theme") or {}).get("preset") or "default",
+        },
+        "execution": {
+            "last_action": last_action or "暂无动作",
+            "target_block_id": execution_trace.get("target_block_id") or values.get("selected_element_id") or "global",
+            "structured": execution_trace.get("structured", True),
+            "fallback_used": bool(execution_trace.get("fallback_used")),
+            "warning_count": len(warnings),
+            "changed_block_count": len(changed_blocks),
+            "runtime_count": len(values.get("agent_backends") or {}),
+        },
+        "builder": {
+            "component_count": len(builder_items),
+            "fallback_count": builder_fallback_count,
+            "contract_filter_count": builder_contract_filter_count,
+            "precheck_warning_count": builder_precheck_warning_count,
+            "fact_summary_count": builder_fact_summary_count,
+            "asset_count": builder_asset_count,
+            "prompt_modes": builder_prompt_modes,
+            "contract_first": bool(builder_items),
+            "component_types": builder_component_types[:6],
+        },
+        "facts": {
+            "confidence": str(retrieved_knowledge.get("fact_confidence") or "unknown"),
+            "conflict_count": conflict_count,
+            "confirmed_count": confirmed_count,
+            "source_count": source_count,
+            "needs_confirmation": bool(retrieved_knowledge.get("needs_fact_confirmation") or conflict_count),
+        },
+        "assets": {
+            "cover_count": len([asset for asset in assets if str(asset.get("role") or "") == "cover"]),
+            "bound_asset_count": len([asset for asset in assets if asset.get("used_by_blocks")]),
+        },
+        "suggestions": suggestions,
+    }
+
 @router.get("/{thread_id}", response_model=WorkspaceDataResponse)
 async def get_workspace_data(thread_id: str, request: Request):
     """
@@ -438,22 +712,25 @@ async def get_workspace_data(thread_id: str, request: Request):
     state = await agent.aget_state(config)
     
     if not state.values:
-        # 全新线程，返回初始空底座
         return WorkspaceDataResponse(
             is_new=True,
             messages={"main": [], "content": [], "style": [], "structure": [], "image": []},
             active_panel="main",
             selected_element_id=None,
-            data_dsl={},
-            style_dsl={},
             image_assets=[],
             node_prompts={},
+            note_document={},
+            planner_output={},
+            planner_policy={},
+            turn_trace={},
+            agent_backends={},
             oss_url=None,
             source_code="",
             checkpoints=[]
         )
         
     values = state.values
+    note_document = values.get("note_document") or build_note_document_from_state(values)
     checkpoints = []
     
     # 2. 榨干 LangGraph 底层元数据，提取 [轮信息] (时光机时间轴)
@@ -486,14 +763,28 @@ async def get_workspace_data(thread_id: str, request: Request):
         },
         active_panel=values.get("active_panel", "main"),
         selected_element_id=values.get("selected_element_id"),
-        data_dsl=values.get("data_dsl", {}),
-        style_dsl=values.get("style_dsl", {}),
         image_assets=dedupe_assets(values.get("image_assets", [])),
         node_prompts=values.get("node_prompts", {}),
+        note_document=note_document,
+        planner_output=values.get("planner_output", {}),
+        planner_policy=values.get("planner_policy", {}),
+        turn_trace=values.get("turn_trace", {}),
+        agent_backends=values.get("agent_backends", {}),
+        inspector_summary=_build_inspector_summary(values),
         oss_url=values.get("final_oss_url"),
         source_code=values.get("final_html", ""),
         checkpoints=checkpoints
     )
+
+
+
+@router.get("/{thread_id}/trace/latest")
+async def get_latest_turn_trace(thread_id: str, request: Request):
+    agent = get_agent(request)
+    config = {"configurable": {"thread_id": thread_id}}
+    state_snapshot = await agent.aget_state(config)
+    values = (state_snapshot.values or {}) if state_snapshot else {}
+    return {"status": "success", "data": values.get("turn_trace", {})}
 
 @router.get("/{thread_id}/inspect")
 async def inspect_agent_state(thread_id: str, request: Request):
@@ -517,7 +808,13 @@ async def inspect_agent_state(thread_id: str, request: Request):
         "intent_route": values.get("intent_route", "等待指令"), # 上一步的路由决策
         "retrieved_knowledge": values.get("retrieved_knowledge", ""), # 搜索引擎抓取到的干货
         "has_controversy": values.get("has_controversy", False), # 是否触发黑红榜风控
-        "needs_disambiguation": values.get("needs_disambiguation", False) # 是否需要人类消歧
+        "needs_disambiguation": values.get("needs_disambiguation", False), # 是否需要人类消歧
+        "planner_output": values.get("planner_output", {}),
+        "planner_policy": values.get("planner_policy", {}),
+        "note_document": values.get("note_document") or build_note_document_from_state(values),
+        "turn_trace": values.get("turn_trace", {}),
+        "agent_backends": values.get("agent_backends", {}),
+        "inspector_summary": _build_inspector_summary(values),
     }
     
     return {"status": "success", "data": meaningful_state}
@@ -543,6 +840,7 @@ async def fork_thread(req: ForkRequest, request: Request):
     
     # 3. 完美克隆历史状态
     cloned_values = dict(old_state.values)
+    cloned_values["note_document"] = cloned_values.get("note_document") or build_note_document_from_state(cloned_values)
     
     # 只有当用户真的传了新指令，才去追加消息和触发 LLM
     if req.new_instruction:
@@ -553,10 +851,12 @@ async def fork_thread(req: ForkRequest, request: Request):
         cloned_values["active_panel"] = req.panel
         
         await _aupdate_state_compat(agent, new_config, cloned_values, as_node=WORKSPACE_STATE_NODE)
+        await _record_workspace_operation(agent, new_config, action="workspace_fork", reason=f"从 {req.old_thread_id} 分叉并追加新指令", before_values={}, selected_element_id=None)
         return ForkResponse(new_thread_id=new_thread_id, message="分支已创建，请用新ID连接WS继续流式生成。")
     else:
         # 如果没有新指令，仅仅做纯粹的状态克隆 (例如用户点击了"复制副本")
         await _aupdate_state_compat(agent, new_config, cloned_values, as_node=WORKSPACE_STATE_NODE)
+        await _record_workspace_operation(agent, new_config, action="workspace_fork", reason=f"从 {req.old_thread_id} 创建项目副本", before_values={}, selected_element_id=None)
         return ForkResponse(new_thread_id=new_thread_id, message="项目副本已创建完成。")
 
 @router.post("/select-region", response_model=BaseResponse)
@@ -570,6 +870,17 @@ async def select_region(req: SelectRegionRequest, request: Request):
     config = {"configurable": {"thread_id": req.thread_id}}
     
     # 直接修改上帝黑板上的 selected_element_id 字段
-    await _aupdate_state_compat(agent, config, {"selected_element_id": req.element_id}, as_node=WORKSPACE_STATE_NODE)
+    state = await agent.aget_state(config)
+    values = state.values or {}
+    await _aupdate_state_compat(
+        agent,
+        config,
+        {
+            "selected_element_id": req.element_id,
+            "note_document": _build_next_note_document(values, selected_element_id=req.element_id),
+        },
+        as_node=WORKSPACE_STATE_NODE,
+    )
+    await _record_workspace_operation(agent, config, action="workspace_select_region", reason=f"锁定区块: {req.element_id}", before_values=values, selected_element_id=req.element_id)
     
     return BaseResponse(message=f"已成功锁定前端元素: {req.element_id}")

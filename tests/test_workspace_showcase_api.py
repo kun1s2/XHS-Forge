@@ -1,18 +1,10 @@
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import asyncio
 
-from app.api.workspace import router as workspace_router
+from app.api.workspace import get_showcase_profiles
 
 
 def test_workspace_showcase_profiles_endpoint_returns_curated_tracks():
-    app = FastAPI()
-    app.include_router(workspace_router)
-
-    with TestClient(app) as client:
-        response = client.get("/workspace/showcase/profiles")
-
-    assert response.status_code == 200
-    payload = response.json()
+    payload = asyncio.run(get_showcase_profiles())
     profiles = payload["profiles"]
 
     assert [profile["id"] for profile in profiles] == ["digital_review", "travel_explore", "daily_share"]

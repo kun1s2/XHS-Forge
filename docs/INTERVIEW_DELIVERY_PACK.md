@@ -253,3 +253,11 @@ echo "VITE_ENABLE_SHOWCASE=true" >> .env.local
 如果面试快结束，你可以这样收尾：
 
 “这个项目对我最大的收获不是把 agent 数量做多，而是学会了什么时候该让 agent 决策，什么时候该把能力收回到状态机、校验器和渲染器里。最后我做出来的不是一个 prompt demo，而是一个更像创作工作台的系统。”
+
+## 当前状态
+- 当前版本已经是可直接演示的交付版。
+- 如果面试前需要最后确认，只需启动前后端并按文档中的 3 分钟 demo 顺序走一遍。
+
+- 如需在面试前快速复查当前仓库状态，可直接运行 `scripts/final_acceptance.sh`。
+
+- 仓库里也已经补了自动化最终验收 workflow：`.github/workflows/final-acceptance.yml`

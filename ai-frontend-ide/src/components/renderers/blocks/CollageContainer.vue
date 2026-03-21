@@ -2,7 +2,6 @@
 
 const props = defineProps<{
   node: any;
-  pageData: any;
 }>();
 
 // 简单的伪随机旋转算法，基于 ID 字符确保渲染一致性
@@ -30,7 +29,6 @@ const getOffset = (idx: number) => {
       <XForgeRenderer 
         :node="child" 
         :index="idx" 
-        :pageData="pageData" 
       />
     </div>
   </div>

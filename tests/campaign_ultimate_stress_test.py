@@ -14,7 +14,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 
 async def run_ultimate_stress_test():
-    print("🎬 [Ultimate Stress Test] 启动：X-Forge 7.0 导演级 ReAct 压测...")
+    print("🎬 [Ultimate Stress Test] 启动：现代 gateway/planner/resolver 压测...")
     
     # 指令：包含 6 个以上的组件需求
     user_query = (
@@ -22,7 +22,7 @@ async def run_ultimate_stress_test():
         "首先要有氛围感大图；然后详细对比它的复古外观与数码内核；列出传感器、像素等硬核参数；"
         "重点：用雷达图从手感、画质、溢价、便携这四个维度打分；"
         "结尾发起投票，看大家觉得它是‘理财产品’还是‘拍照工具’；"
-        "别忘了标注我在上海武康路的打卡位。全篇要美式复古风！"
+        "别忘了标注我在上海武康路的打卡位。整体做成克制但有张力的编辑部风格。"
     )
     
     # 初始化状态
@@ -35,8 +35,8 @@ async def run_ultimate_stress_test():
             {"url": "https://leica-camera.com/m11_hero.jpg", "desc": "徕卡 M11 正面实拍"},
             {"url": "https://leica-camera.com/m11_back.jpg", "desc": "徕卡 M11 经典后背"}
         ],
-        "data_dsl": {"blocks": []},
-        "style_dsl": {},
+        "document_view": {"blocks": []},
+        "block_style_map": {},
         "creator_persona": "资深影像评论人",
         "messages": []
     }
@@ -46,17 +46,16 @@ async def run_ultimate_stress_test():
     app = compile_my_graph(checkpointer=memory)
     config = RunnableConfig(configurable={"thread_id": "stress_test_leica"})
 
-    print(f"📡 [Step 1] 注入终极复杂度指令...")
+    print("📡 [Step 1] 注入终极复杂度指令...")
     
     # 执行并实时监控节点输出
     async for event in app.astream(initial_state, config=config, stream_mode="values"):
-        current_blocks = event.get("data_dsl", {}).get("blocks", [])
+        current_blocks = event.get("document_view", {}).get("blocks", [])
         msgs = event.get("messages", [])
         
         if msgs:
             last_msg = msgs[-1]
             if isinstance(last_msg, AIMessage) and last_msg.content:
-                # 打印 Agent 的内心独白
                 print(f"💭 [Agent Thought]: {str(last_msg.content)[:100]}...")
             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                 for tc in last_msg.tool_calls:
@@ -65,7 +64,7 @@ async def run_ultimate_stress_test():
     # 最终状态审计
     final_state = await app.aget_state(config)
     values = final_state.values
-    blocks = values.get("data_dsl", {}).get("blocks", [])
+    blocks = values.get("document_view", {}).get("blocks", [])
     block_types = [b["component_type"] for b in blocks]
 
     print("\n" + "="*50)
@@ -85,12 +84,14 @@ async def run_ultimate_stress_test():
             print(f"❌ [组件校验] {rb}: 缺失")
 
     # 风格审计
-    style_dsl = values.get("style_dsl", {})
-    global_vars = style_dsl.get("global_vars", {})
-    print(f"🎨 [视觉调性] 背景: {global_vars.get('--bg-color')} | 风格: {values.get('intent_result').visual_vibe if values.get('intent_result') else 'N/A'}")
+    block_style_map = values.get("block_style_map", {})
+    global_vars = block_style_map.get("global_vars", {})
+    planner_policy = values.get("planner_policy", {}) or {}
+    theme_policy = planner_policy.get("theme_policy", {}) if isinstance(planner_policy, dict) else {}
+    print(f"🎨 [视觉调性] 背景: {global_vars.get('--bg-color')} | ThemePreset: {theme_policy.get('preset', 'N/A')}")
 
     if success_count >= 5:
-        print("\n🏆 [结论] 压测完美通过！大纲 Agent 展现了极强的 ReAct 推演与画布控制能力。")
+        print("\n🏆 [结论] 压测完美通过！现代 planner/resolver 主链展现了稳定的积木规划与落地能力。")
     else:
         print("\n⚠️ [结论] 压测部分通过，积木丰富度未达预期。")
     print("="*50)

@@ -8,7 +8,7 @@ from app.agents.state import UIProjectState
 from langchain_core.messages import HumanMessage
 
 async def run_xiaomi_ignition_test():
-    print("\n🔥 [X-Forge 4.0 点火演习]: 小米 17 Ultra 争议测评")
+    print("\n🔥 [X-Forge Modern Ignition]: 小米 17 Ultra 争议测评")
     
     # 1. 构造初始状态
     state: UIProjectState = {
@@ -25,19 +25,23 @@ async def run_xiaomi_ignition_test():
         }
     }
 
-    # 2. 执行意图路由 (验证协议打标)
-    print("Step 1: 启动意图大脑...")
+    # 2. 执行意图路由 (验证 Gateway V2)
+    print("Step 1: 启动网关...")
     intent_res = await intent_agent(state)
-    mode = intent_res.get("intent_result").narrative_mode
-    intensity = intent_res.get("intent_result").intensity_level
-    print(f"📡 [协议拦截] Mode: {mode} | Intensity: {intensity}")
-    
-    assert mode == "contrast", f"❌ 意图识别错误，预期 contrast，实际 {mode}"
-    assert intensity >= 0.7, f"❌ 情绪烈度不足，预期 >= 0.7，实际 {intensity}"
-    print("✅ [意图校验通过]")
+    gateway = intent_res.get("intent_result_v2") or {}
+    print(
+        "📡 [Gateway V2] "
+        f"task={gateway.get('task_type')} | "
+        f"scope={gateway.get('edit_scope')} | "
+        f"research={gateway.get('needs_research')} | "
+        f"assets={gateway.get('needs_assets')}"
+    )
 
-    # 3. 执行大纲编排 (验证 AST 变异)
-    print("\nStep 2: 启动大纲策划...")
+    assert gateway.get("task_type") == "create", f"❌ 网关识别错误，预期 create，实际 {gateway.get('task_type')}"
+    print("✅ [网关校验通过]")
+
+    # 3. 执行大纲解析 (验证现代 resolver)
+    print("\nStep 2: 启动大纲解析...")
     state.update(intent_res)
     outline_res = await outline_agent(state)
     
@@ -45,15 +49,15 @@ async def run_xiaomi_ignition_test():
     print(f"🌲 [AST 变异预览]: {ast_json[:200]}...")
     
     assert "VersusCard" in ast_json, "❌ [AST 错误]: 未能在冲突场景下自动挂载 VersusCard！"
-    print("✅ [AST 编排通过]: VersusCard 已成功注入树结构。")
+    print("✅ [Resolver 校验通过]: VersusCard 已成功注入页面骨架。")
 
     # 4. 物理渲染验证
     print("\nStep 3: 启动物理渲染...")
-    state["data_dsl"] = outline_res["data_dsl"]
+    state["document_view"] = outline_res["document_view"]
     state["page_outline"] = outline_res["page_outline"]
     
     # 填充 Mock 的数据（模拟工兵已完成任务）
-    state["data_dsl"].update({
+    state["document_view"].update({
         "versus_specs": {
             "proText": "地表最强 1.5 英寸超大底，夜景之王！",
             "conText": "半斤重的机身，真的在考验我的腕力..."
@@ -66,7 +70,7 @@ async def run_xiaomi_ignition_test():
     assert "VersusCard" in html or "VS" in html, "❌ [渲染错误]: HTML 中缺失红蓝对峙组件！"
     print("✅ [渲染校验通过]: 物理源码已包含 VersusCard。")
 
-    print("\n🏆 [演习大捷]: 全链路叙事协议闭环验证成功！")
+    print("\n🏆 [演习大捷]: 现代 gateway -> resolver -> render 闭环验证成功！")
 
 if __name__ == "__main__":
     # 需要设置环境变量才能运行（由于脚本中包含了 intent_agent 调用）

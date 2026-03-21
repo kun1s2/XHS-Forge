@@ -1,9 +1,8 @@
-# app/services/image_generator.py
 import logging
 import json
 import asyncio
 import re
-from typing import List, Dict, Any
+from copy import deepcopy
 from app.tools.image_generation import generate_image
 from app.tools.image_recognition import describe_image
 from app.core.llm_factory import create_llm
@@ -11,20 +10,26 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-async def auto_generate_images(data_dsl: dict, archetype: str) -> dict:
-    """
-    【AI 智能配图服务】：如果页面缺少图片，自动调用 CogView 生成契合氛围的图片。
-    """
-    enriched_dsl = data_dsl.copy()
+async def auto_generate_images(note_document: dict, archetype: str) -> tuple[dict, list[dict]]:
+    """Generate missing media directly onto NoteDocument blocks."""
+    document = deepcopy(note_document or {})
+    blocks = list(document.get("blocks") or [])
     new_assets = []
     
     # 场景判断：加入 seeding (种草)，允许自动生图
     if archetype not in ["travel", "gourmet", "seeding"]:
-        return enriched_dsl, []
+        return document, []
 
     # ✨ 提取页面全局主体，用于构思生图 Prompt
-    page_title = data_dsl.get("page_title", "")
-    title_block = next((v.get("title") for v in data_dsl.values() if isinstance(v, dict) and v.get("type") == "TitleBlock"), "")
+    page_title = ((document.get("document_meta") or {}).get("title") or "").strip()
+    title_block = next(
+        (
+            str((block.get("props") or {}).get("title") or "").strip()
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "TitleBlock"
+        ),
+        "",
+    )
     subject = title_block or page_title or "宝藏好物"
     # 清理掉特殊字符
     subject = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9 ]", " ", subject).strip()
@@ -41,20 +46,22 @@ async def auto_generate_images(data_dsl: dict, archetype: str) -> dict:
     }
     aesthetic_style = AESTHETIC_MAP.get(archetype, AESTHETIC_MAP["general"])
 
-    for comp_id, comp_data in enriched_dsl.items():
-        if not isinstance(comp_data, dict):
+    for block in blocks:
+        if not isinstance(block, dict):
             continue
 
-        comp_type = comp_data.get("type")
+        comp_id = str(block.get("id") or "")
+        props = deepcopy(block.get("props") or {})
+        comp_type = str(block.get("type") or "")
 
         # 逻辑：如果是轮播图且没有图片，或者商品卡片没有图片
         needs_image = False
         target_field = ""
 
-        if comp_type == "CoverSwiper" and not comp_data.get("image_urls"):
+        if comp_type == "CoverSwiper" and not props.get("image_urls"):
             needs_image = True
             target_field = "image_urls"
-        elif comp_type == "ProductCard" and not comp_data.get("image_url"):
+        elif comp_type == "ProductCard" and not props.get("image_url"):
             needs_image = True
             target_field = "image_url"
 
@@ -62,7 +69,7 @@ async def auto_generate_images(data_dsl: dict, archetype: str) -> dict:
             print(f"🎨 [智能配图] 正在为「{subject}」构思指令 (场景: {archetype})...")
 
             # 1. 构思生图 Prompt
-            context = f"主题: {subject}, 组件类型: {comp_type}, 描述: {comp_data.get('desc', '')}"
+            context = f"主题: {subject}, 组件类型: {comp_type}, 描述: {props.get('desc', '')}"
             prompt_gen_msg = f"请为以下内容生成一段极简的 CogView 生图提示词（英文）。风格要求：{aesthetic_style}。内容主体：{context}"
 
             try:
@@ -74,9 +81,9 @@ async def auto_generate_images(data_dsl: dict, archetype: str) -> dict:
                 if generated_url:
                     # 3. 填充 DSL
                     if target_field == "image_urls":
-                        enriched_dsl[comp_id]["image_urls"] = [generated_url]
+                        props["image_urls"] = [generated_url]
                     else:
-                        enriched_dsl[comp_id]["image_url"] = generated_url
+                        props["image_url"] = generated_url
                     
                     # 4. ✨ 闭环关键：立即进行视觉取色，确保 Vibe 统一
                     print(f"👁️ [智能配图] 图片已生成，正在提取视觉调性...")
@@ -97,9 +104,10 @@ async def auto_generate_images(data_dsl: dict, archetype: str) -> dict:
                         })
                     except:
                         new_assets.append({"url": generated_url, "desc": f"AI生成的{subject}", "vibe_color": "#ff2442"})
-                        
+                    block["props"] = props
                     print(f"✅ [智能配图] 组件 {comp_id} 配图成功")
             except Exception as e:
                 logger.error(f"智能配图失败: {e}")
 
-    return enriched_dsl, new_assets
+    document["blocks"] = blocks
+    return document, new_assets

@@ -4,13 +4,13 @@
     {% if is_update %}
     <task_mode>增量文案修改</task_mode>
     <context>
-        <current_data_dsl>{{ current_data }}</current_data_dsl>
+        <current_document_context>{{ current_data }}</current_document_context>
         <selected_element>{{ selected_element }}</selected_element>
         <target_text>{{ target_text }}</target_text>
     </context>
     <instructions>
         <step>1. 请基于 &lt;target_text&gt; 原文案进行扩写或润色。</step>
-        <step>2. 保持 &lt;current_data_dsl&gt; 原有故事的背景和设定。</step>
+        <step>2. 保持 &lt;current_document_context&gt; 原有故事的背景和设定。</step>
         <step>3. 使用第一人称，语气亲切自然，多用感叹号和生动的 Emoji。</step>
         <step>4. 你必须按照底部规定的 JSON 格式输出结果，包含推理过程与正文：</step>
     </instructions>

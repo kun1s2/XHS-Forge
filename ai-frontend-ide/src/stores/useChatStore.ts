@@ -1,10 +1,66 @@
 // src/stores/useChatStore.ts
+// Main workspace store: persistent state, websocket/workspace sync, and user actions.
+// Pure protocol pickers and derived-data helpers live in `chatStoreDerivations.ts`
+// so this file stays focused on orchestration rather than data-shaping details.
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import type { ChatMessage, ImageAsset, ShowcaseProfile, WSEvent } from '../types/chat'
+import { computed, ref } from 'vue'
+import type {
+  AgentBackends,
+  AgentMeta,
+  ChatMessage,
+  ImageAsset,
+  InspectorSummary,
+  NoteDocument,
+  NoteDocumentAsset,
+  NoteDocumentBlock,
+  PlannerOutput,
+  PlannerPolicy,
+  RetrievedKnowledge,
+  ShowcaseProfile,
+  TurnTrace,
+  WSEvent,
+} from '../types/chat'
+import {
+  buildAssistantResultText,
+  dedupeImageAssets,
+  getConfiguredApiBase,
+  getDocumentBlockById,
+  getDocumentPayloadById,
+  getDocumentBlocks,
+  getPendingFactConflictCount,
+  getPreferredBlockById,
+  getPreferredCoverUrl,
+  getPreferredPatchTracks,
+  getPreferredPayloadById,
+  getPreferredRenderPageData,
+  getPreferredRenderStyleData,
+  getPreferredScenarioTags,
+  normalizeShowcaseProfile,
+  pickAgentBackends,
+  pickCheckpointId,
+  pickImageAssets,
+  pickInspectorSummary,
+  pickNodePrompts,
+  pickNoteDocument,
+  pickOssUrl,
+  pickPlannerOutput,
+  pickPlannerPolicy,
+  pickSourceCode,
+  pickTurnTrace,
+  resolveComparablePage,
+  toWsBase,
+} from './chatStoreDerivations'
+import { reportFrontendObservation } from '../utils/frontendReport'
 
 // 生成简单的 UUID
 const generateId = () => Math.random().toString(36).substring(2, 15)
+
+type SnapshotPart = {
+  type?: string
+  text?: string
+  image_url?: { url?: string }
+  [key: string]: unknown
+}
 
 const nodeMap: Record<string, string> = {
   'intent_node': '意图解析',
@@ -16,54 +72,29 @@ const nodeMap: Record<string, string> = {
   'asset_node': '素材调度'
 }
 
-const pickCheckpointId = (data: Record<string, any>) => data.checkpoint_id ?? data.checkpointId ?? null
-const pickOssUrl = (data: Record<string, any>) => data.oss_url ?? data.ossUrl ?? null
-const pickPageData = (data: Record<string, any>) => data.page_data ?? data.pageData ?? data.noteData ?? {}
-const pickStyleData = (data: Record<string, any>) => data.style_data ?? data.styleData ?? {}
-const pickNodePrompts = (data: Record<string, any>) => data.node_prompts ?? data.nodePrompts ?? {}
-const pickImageAssets = (data: Record<string, any>) => data.image_assets ?? data.imageAssets ?? []
-const pickSourceCode = (data: Record<string, any>) => data.source_code ?? data.sourceCode ?? data.htmlPreview ?? ''
 const showcaseEnabled = import.meta.env.VITE_ENABLE_SHOWCASE === 'true'
-const DEFAULT_ASSISTANT_RESULT_TEXT = '页面已更新，可以在右侧预览继续查看和编辑。'
 const THREAD_STORAGE_KEY = 'xhs_forge_active_thread'
 
-const componentLabelMap: Record<string, string> = {
-  CoverSwiper: '封面轮播',
-  VersusCard: '对比卡',
-  PollBlock: '投票卡',
-  RadarChartBlock: '雷达图',
-  ProductSpecCard: '参数卡',
-  StoryText: '正文区',
-  TitleBlock: '标题块',
-  LocationBlock: '地点卡',
-  WeatherPolaroid: '氛围图卡',
+const reportUiAction = (threadId: string, eventType: string, message: string, payload: Record<string, unknown> = {}) => {
+  void reportFrontendObservation({
+    thread_id: threadId || '',
+    event_type: eventType,
+    message,
+    payload,
+  })
 }
 
-const dedupeImageAssets = (assets: ImageAsset[]) => {
-  const deduped = new Map<string, ImageAsset>()
-  for (const asset of assets || []) {
-    if (!asset?.url) continue
-    const existing = deduped.get(asset.url)
-    deduped.set(asset.url, {
-      ...(existing || {}),
-      ...asset,
-      desc: asset.desc || existing?.desc || '素材图',
-    })
-  }
-  return Array.from(deduped.values())
-}
-
-const normalizeSnapshotMessages = (rawMessages: Array<Record<string, any>> = []) =>
+const normalizeSnapshotMessages = (rawMessages: Array<Record<string, unknown>> = []) =>
   rawMessages.map((msg) => {
     if (msg.role !== 'user') return { ...msg, content: String(msg.content || '') }
     if (Array.isArray(msg.content)) {
       const text = msg.content
-        .filter((part: Record<string, any>) => part?.type === 'text' && part?.text)
-        .map((part: Record<string, any>) => String(part.text))
+        .filter((part: SnapshotPart) => part?.type === 'text' && part?.text)
+        .map((part: SnapshotPart) => String(part.text))
         .join('')
       const imageUrls = msg.content
-        .filter((part: Record<string, any>) => part?.type === 'image_url' && part?.image_url?.url)
-        .map((part: Record<string, any>) => String(part.image_url.url))
+        .filter((part: SnapshotPart) => part?.type === 'image_url' && part?.image_url?.url)
+        .map((part: SnapshotPart) => String(part.image_url?.url))
       return { ...msg, content: text, imageUrls }
     }
     return { ...msg, content: String(msg.content || '') }
@@ -102,161 +133,18 @@ const hydrateSnapshotMessages = (
       thoughts: existing.thoughts,
       checkpointId: existing.checkpointId,
       ossUrl: existing.ossUrl,
-      pageData: existing.pageData,
-      styleData: existing.styleData,
       nodePrompts: existing.nodePrompts,
       imageAssets: existing.imageAssets,
       sourceCode: existing.sourceCode,
+      noteDocument: existing.noteDocument,
+      plannerOutput: existing.plannerOutput,
+      plannerPolicy: existing.plannerPolicy,
+      agentBackends: existing.agentBackends,
+      turnTrace: existing.turnTrace,
       streaming: false,
     } satisfies ChatMessage
   })
 }
-
-const getBlockList = (page?: Record<string, any> | null) =>
-  (Array.isArray(page?.blocks) ? page?.blocks : []) as Array<Record<string, any>>
-
-const getBlockTypeById = (page: Record<string, any> | null | undefined, blockId: string) => {
-  const block = getBlockList(page).find(item => item?.id === blockId)
-  return String(block?.component_type || '')
-}
-
-const getCoverUrl = (page?: Record<string, any> | null) => {
-  const coverBlock = getBlockList(page).find(block => block?.component_type === 'CoverSwiper')
-  if (!coverBlock?.id) return ''
-  const payload = (page || {})[coverBlock.id] as Record<string, any> | undefined
-  return String(payload?.image_urls?.[0] || payload?.image_url || '')
-}
-
-const hasBlockType = (page: Record<string, any> | null | undefined, componentType: string) =>
-  getBlockList(page).some(block => String(block?.component_type || '') === componentType)
-
-const getThemeSignature = (page?: Record<string, any> | null) =>
-  JSON.stringify((page?.page_theme || {}) as Record<string, any>)
-
-const pickContentSignature = (payload: Record<string, any> | null | undefined) => {
-  if (!payload) return ''
-  if (Array.isArray(payload.paragraphs)) return JSON.stringify(payload.paragraphs)
-  if (typeof payload.question === 'string') return `${payload.question}|${payload.option_a || ''}|${payload.option_b || ''}`
-  if (typeof payload.proText === 'string' || typeof payload.conText === 'string') return `${payload.proText || ''}|${payload.conText || ''}`
-  if (typeof payload.title === 'string') return payload.title
-  return ''
-}
-
-const buildAssistantResultText = (page: Record<string, any>, previousPage?: Record<string, any> | null, userText = '') => {
-  const blocks = getBlockList(page)
-  if (!blocks.length) return DEFAULT_ASSISTANT_RESULT_TEXT
-
-  const currentTypes = blocks
-    .map((block: Record<string, any>) => String(block?.component_type || ''))
-    .filter(Boolean)
-  const currentLabels = currentTypes
-    .map(type => componentLabelMap[type] || type)
-    .filter(Boolean)
-
-  const previousBlocks = getBlockList(previousPage)
-  const previousTypes = previousBlocks
-    .map((block: Record<string, any>) => String(block?.component_type || ''))
-    .filter(Boolean)
-
-  const currentIds = blocks.map(block => String(block?.id || '')).filter(Boolean)
-  const previousIds = previousBlocks.map(block => String(block?.id || '')).filter(Boolean)
-  const addedIds = currentIds.filter(id => !previousIds.includes(id))
-  const removedIds = previousIds.filter(id => !currentIds.includes(id))
-
-  for (const id of currentIds) {
-    if (!previousIds.includes(id)) continue
-    const previousType = getBlockTypeById(previousPage || {}, id)
-    const currentType = getBlockTypeById(page, id)
-    if (previousType && currentType && previousType !== currentType) {
-      return `页面已更新，已将${componentLabelMap[previousType] || previousType}替换为${componentLabelMap[currentType] || currentType}。`
-    }
-  }
-
-  const previousCoverUrl = getCoverUrl(previousPage)
-  const currentCoverUrl = getCoverUrl(page)
-  if (currentCoverUrl && currentCoverUrl !== previousCoverUrl) {
-    return previousCoverUrl
-      ? `页面已更新，封面图已替换，当前共 ${blocks.length} 个区块。`
-      : `页面已更新，已添加封面图，当前共 ${blocks.length} 个区块。`
-  }
-
-  if (removedIds.length) {
-    const removedType = getBlockTypeById(previousPage || {}, removedIds[0])
-    const stillHasSameType = removedType ? hasBlockType(page, removedType) : false
-    if (!stillHasSameType) {
-      return `页面已更新，删除了${componentLabelMap[removedType] || removedType || '一个区块'}，当前共 ${blocks.length} 个区块。`
-    }
-  }
-
-  if (getThemeSignature(page) !== getThemeSignature(previousPage)) {
-    if (/(灰蓝|主题|风格|配色|色调)/.test(userText)) {
-      return `页面已更新，已按你的要求切换页面主题，当前共 ${blocks.length} 个区块。`
-    }
-    return `页面已更新，已切换页面主题，当前共 ${blocks.length} 个区块。`
-  }
-
-  for (const id of currentIds) {
-    if (!previousIds.includes(id)) continue
-    const prevPayload = (previousPage || {})[id] as Record<string, any> | undefined
-    const nextPayload = (page || {})[id] as Record<string, any> | undefined
-    const prevSig = pickContentSignature(prevPayload)
-    const nextSig = pickContentSignature(nextPayload)
-    if (prevSig && nextSig && prevSig !== nextSig) {
-      const blockType = getBlockTypeById(page, id)
-      if (/(毒舌|尖锐|重写|润色|改写|文案)/.test(userText)) {
-        return `页面已更新，已按你的要求调整${componentLabelMap[blockType] || blockType || '区块'}的文案内容。`
-      }
-      return `页面已更新，已调整${componentLabelMap[blockType] || blockType || '区块'}的文案内容。`
-    }
-  }
-
-  const addedType = addedIds.length
-    ? getBlockTypeById(page, addedIds[0])
-    : currentTypes.find(type => !previousTypes.includes(type))
-  if (addedType) {
-    return `页面已更新，新增了${componentLabelMap[addedType] || addedType}，当前共 ${blocks.length} 个区块。`
-  }
-
-  const firstTwo = currentLabels.slice(0, 2).join('、')
-  if (firstTwo) {
-    return `页面已更新，当前共 ${blocks.length} 个区块，包含 ${firstTwo}。`
-  }
-
-  return `页面已更新，当前共 ${blocks.length} 个区块。`
-}
-
-const getConfiguredApiBase = () => {
-  const configured = import.meta.env.VITE_API_BASE_URL
-  if (configured && typeof configured === 'string') {
-    return configured.replace(/\/$/, '')
-  }
-  if (import.meta.env.DEV) {
-    return 'http://127.0.0.1:8000'
-  }
-  return ''
-}
-
-const toWsBase = (httpBase: string) => {
-  if (!httpBase) return ''
-  if (httpBase.startsWith('https://')) return `wss://${httpBase.slice('https://'.length)}`
-  if (httpBase.startsWith('http://')) return `ws://${httpBase.slice('http://'.length)}`
-  return httpBase
-}
-
-const normalizeShowcaseProfile = (profile: Record<string, any>): ShowcaseProfile => ({
-  id: profile.id,
-  scenarioId: profile.scenario_id ?? profile.scenarioId ?? '',
-  title: profile.title ?? '',
-  persona: profile.persona ?? '硬核数码博主',
-  whyThisMatters: profile.why_this_matters ?? profile.whyThisMatters ?? '',
-  highlightFeatures: profile.highlight_features ?? profile.highlightFeatures ?? [],
-  talkingPoints: profile.talking_points ?? profile.talkingPoints ?? [],
-  demoScript: profile.demo_script ?? profile.demoScript ?? [],
-  starterPrompt: profile.starter_prompt ?? profile.starterPrompt ?? '',
-  editPrompt: profile.edit_prompt ?? profile.editPrompt ?? '',
-  themePrompt: profile.theme_prompt ?? profile.themePrompt ?? '',
-  branchPrompt: profile.branch_prompt ?? profile.branchPrompt ?? ''
-})
 
 export const useChatStore = defineStore('chat', () => {
   // === State (状态) ===
@@ -274,10 +162,14 @@ export const useChatStore = defineStore('chat', () => {
   const selectedParagraphIndex = ref<number | null>(null)
   const composerDraft = ref<string>('')
   const imageAssets = ref<ImageAsset[]>([])
-  const pageData = ref<Record<string, unknown>>({})
-  const styleData = ref<Record<string, unknown>>({})
   const sourceCode = ref<string>('')
-  const nodePrompts = ref<Record<string, string>>({})
+  const nodePrompts = ref<Record<string, unknown>>({})
+  const noteDocument = ref<NoteDocument>({})
+  const plannerOutput = ref<PlannerOutput>({})
+  const plannerPolicy = ref<PlannerPolicy>({})
+  const turnTrace = ref<TurnTrace>({})
+  const agentBackends = ref<AgentBackends>({})
+  const inspectorSummary = ref<InspectorSummary>({})
   const pendingUploadUrls = ref<string[]>([])
   const showcaseProfiles = ref<ShowcaseProfile[]>([])
   const searchedAssets = ref<ImageAsset[]>([])
@@ -289,15 +181,48 @@ export const useChatStore = defineStore('chat', () => {
   const hotTrends = ref<string[]>([]) // ✨ 哨兵新增：热词排行榜
   
   // ✨ 哨兵白盒化：Agent 决策元数据
-  const agentMeta = ref({
+  const agentMeta = ref<AgentMeta>({
     creator_persona: '',
     active_archetype: '',
     intent_route: '',
     retrieved_knowledge: {},
     scenarios: [],
     has_controversy: false,
-    needs_disambiguation: false
+    needs_disambiguation: false,
+    agent_backends: {},
+    turn_trace: {},
+    inspector_summary: {},
   })
+  const pendingFactConflictCount = computed(() =>
+    getPendingFactConflictCount(agentMeta.value.retrieved_knowledge || {})
+  )
+  const documentBlocks = computed(() => getDocumentBlocks(noteDocument.value))
+  const documentAssets = computed(() => {
+    const assets = noteDocument.value?.assets
+    const docAssets = Array.isArray(assets) ? (assets as NoteDocumentAsset[]) : []
+    return dedupeImageAssets([...docAssets, ...imageAssets.value])
+  })
+  const renderPageData = computed(() => getPreferredRenderPageData(noteDocument.value))
+  const renderStyleData = computed(() => getPreferredRenderStyleData(noteDocument.value))
+  const scenarioTags = computed(() => getPreferredScenarioTags(
+    noteDocument.value,
+    plannerOutput.value,
+    plannerPolicy.value,
+  ))
+  const patchTracks = computed(() => getPreferredPatchTracks(noteDocument.value))
+  const currentCoverUrl = computed(() => getPreferredCoverUrl(
+    noteDocument.value,
+    documentAssets.value,
+  ))
+  const selectedBlock = computed(() => {
+    if (!selectedComponentId.value) return null
+    return getPreferredBlockById(noteDocument.value, selectedComponentId.value)
+  })
+  const selectedPayload = computed(() => {
+    if (!selectedComponentId.value) return {}
+    return getPreferredPayloadById(noteDocument.value, selectedComponentId.value)
+  })
+  const hasRenderableDocument = computed(() => documentBlocks.value.length > 0)
 
   let ws: WebSocket | null = null
   let renderRecoveryTimer: number | null = null
@@ -327,12 +252,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  const ensureAssistantResultMessage = (page?: Record<string, any>, previousPage?: Record<string, any> | null) => {
+  const ensureAssistantResultMessage = (
+    doc?: NoteDocument,
+    previousDoc?: NoteDocument | null,
+  ) => {
     const lastMsg = messages.value[messages.value.length - 1]
     if (!lastMsg || lastMsg.role !== 'assistant') return
     if ((lastMsg.content || '').trim()) return
     const lastUserText = [...messages.value].reverse().find(msg => msg.role === 'user')?.content || ''
-    lastMsg.content = buildAssistantResultText(page || (pageData.value as Record<string, any>), previousPage || null, lastUserText)
+    const comparablePage = resolveComparablePage(doc)
+    const comparablePrev = resolveComparablePage(previousDoc)
+    lastMsg.content = buildAssistantResultText(comparablePage, comparablePrev, lastUserText, agentMeta.value.retrieved_knowledge || {})
     lastMsg.streaming = false
   }
 
@@ -341,8 +271,8 @@ export const useChatStore = defineStore('chat', () => {
     options?: { preserveLocalAssistant?: boolean }
   ) => {
     const preserveLocalAssistant = options?.preserveLocalAssistant === true
-    const previousPage = pageData.value as Record<string, any>
-    const nextPage = data.data_dsl || data.pageData || {}
+    const previousNoteDocument = noteDocument.value
+    const nextNoteDocument = pickNoteDocument(data)
     const snapshotMessages = hydrateSnapshotMessages(
       normalizeSnapshotMessages(data.messages?.main || []) as ChatMessage[],
       preserveLocalAssistant ? messages.value : []
@@ -354,26 +284,32 @@ export const useChatStore = defineStore('chat', () => {
     } else if (Array.isArray(snapshotMessages) && snapshotMessages.length > messages.value.length) {
       messages.value = snapshotMessages
     }
-    pageData.value = nextPage
-    styleData.value = data.style_dsl || data.styleData || {}
-    imageAssets.value = dedupeImageAssets(data.image_assets || data.imageAssets || [])
+    imageAssets.value = dedupeImageAssets((data.image_assets || data.imageAssets || nextNoteDocument?.assets || []) as ImageAsset[])
     nodePrompts.value = data.node_prompts || data.nodePrompts || {}
+    noteDocument.value = nextNoteDocument
+    plannerOutput.value = pickPlannerOutput(data)
+    plannerPolicy.value = pickPlannerPolicy(data)
+    turnTrace.value = pickTurnTrace(data)
+    agentBackends.value = pickAgentBackends(data)
+    inspectorSummary.value = pickInspectorSummary(data)
     previewUrl.value = data.oss_url || data.ossUrl || null
     sourceCode.value = data.source_code || data.sourceCode || ''
     activeCheckpointId.value = data.checkpoints?.[0]?.checkpoint_id || data.checkpoint_id || data.checkpointId || activeCheckpointId.value
-    if (!snapshotHasAssistant && (Object.keys(nextPage || {}).length > 0 || sourceCode.value)) {
+    const comparableNextPage = resolveComparablePage(nextNoteDocument)
+    const comparablePrevPage = resolveComparablePage(previousNoteDocument)
+    if (!snapshotHasAssistant && (Object.keys(comparableNextPage || {}).length > 0 || sourceCode.value)) {
       messages.value = [
         ...messages.value,
         {
           id: generateId(),
           role: 'assistant',
-          content: buildAssistantResultText(nextPage, previousPage, [...messages.value].reverse().find(msg => msg.role === 'user')?.content || ''),
+          content: buildAssistantResultText(comparableNextPage, comparablePrevPage, [...messages.value].reverse().find(msg => msg.role === 'user')?.content || '', agentMeta.value.retrieved_knowledge || {}),
           timestamp: Date.now(),
         },
       ]
     }
-    if (Object.keys(pageData.value || {}).length > 0 || sourceCode.value) {
-      ensureAssistantResultMessage(nextPage, previousPage)
+    if (Object.keys(comparableNextPage || {}).length > 0 || sourceCode.value) {
+      ensureAssistantResultMessage(nextNoteDocument, previousNoteDocument)
     }
   }
 
@@ -436,6 +372,12 @@ export const useChatStore = defineStore('chat', () => {
       const data = await res.json()
       if (data.status === 'success') {
         agentMeta.value = data.data
+        noteDocument.value = pickNoteDocument(data.data || {})
+        plannerOutput.value = pickPlannerOutput(data.data || {})
+        plannerPolicy.value = pickPlannerPolicy(data.data || {})
+        turnTrace.value = pickTurnTrace(data.data || {})
+        agentBackends.value = pickAgentBackends(data.data || {})
+        inspectorSummary.value = pickInspectorSummary(data.data || {})
       }
     } catch (e) {
       console.error('获取 Agent 状态失败:', e)
@@ -471,6 +413,7 @@ export const useChatStore = defineStore('chat', () => {
       if (data.status === 'success') {
         // 重新拉取最新状态以同步预览
         await switchSession(threadId.value)
+        reportUiAction(threadId.value, 'workspace_rollback_component', `组件回滚: ${elementId}@${versionIndex}`, { element_id: elementId, version_index: versionIndex })
       }
     } catch (e) {
       console.error('原子回溯失败:', e)
@@ -594,9 +537,12 @@ export const useChatStore = defineStore('chat', () => {
     persistActiveThread(newId)
     wsStatus.value = 'disconnected'
     messages.value = []
-    pageData.value = {}
-    styleData.value = {}
     nodePrompts.value = {}
+    noteDocument.value = {}
+    plannerOutput.value = {}
+    plannerPolicy.value = {}
+    turnTrace.value = {}
+    agentBackends.value = {}
     previewUrl.value = null
     sourceCode.value = ''
     imageAssets.value = []
@@ -676,7 +622,30 @@ export const useChatStore = defineStore('chat', () => {
       if (!imageAssets.value.some(existing => existing.url === asset.url)) {
         imageAssets.value = dedupeImageAssets([...imageAssets.value, asset])
       }
+      const currentDoc = noteDocument.value || {}
+      const docAssets = Array.isArray(currentDoc.assets) ? currentDoc.assets : []
+      if (!docAssets.some((existing: Record<string, any>) => existing?.url === asset.url)) {
+        noteDocument.value = {
+          ...currentDoc,
+          assets: [
+            ...docAssets,
+            {
+              id: asset.url,
+              url: asset.url,
+              desc: asset.desc || '素材图',
+              source_type: asset.source_type,
+              query: asset.query,
+              role: asset.role || 'supporting',
+              locked: !!asset.locked,
+              selection_state: asset.selection_state || 'available',
+              source_reason: asset.source_reason || asset.desc || '素材图',
+              used_by_blocks: asset.used_by_blocks || [],
+            },
+          ],
+        }
+      }
       await switchSession(threadId.value, { force: true })
+      reportUiAction(threadId.value, 'workspace_import_asset', `素材入池: ${asset.desc || asset.url}`, { asset_url: asset.url, role: asset.role || 'supporting' })
       return true
     } catch (e) {
       console.error('加入资产池失败:', e)
@@ -685,31 +654,72 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const applyCoverAssetLocally = (asset: ImageAsset) => {
-    const currentPage = (pageData.value || {}) as Record<string, any>
-    const blocks = Array.isArray(currentPage.blocks) ? [...currentPage.blocks] : []
-    let coverBlock = blocks.find(block => block.component_type === 'CoverSwiper')
-    let nextPage = { ...currentPage }
-
-    if (!coverBlock) {
-      coverBlock = {
-        id: `cover_local_${Math.random().toString(36).slice(2, 8)}`,
-        component_type: 'CoverSwiper',
+    const currentDoc = noteDocument.value || {}
+    const docBlocks = getDocumentBlocks(currentDoc).map(block => ({ ...block }))
+    const legacyBlocks = Array.isArray(currentPage.blocks) ? currentPage.blocks : []
+    const legacyCoverBlock = legacyBlocks.find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')
+    let docCoverBlock = docBlocks.find(block => String(block?.type || '') === 'CoverSwiper')
+    if (!docCoverBlock) {
+      docCoverBlock = {
+        id: String((legacyCoverBlock as Record<string, any> | undefined)?.id || `cover_local_${Math.random().toString(36).slice(2, 8)}`),
+        type: 'CoverSwiper',
+        content_brief: '封面',
         props: {},
+        style: {},
+        asset_refs: [],
+        fact_bindings: [],
+        order: 0,
       }
-      blocks.unshift(coverBlock)
-      nextPage = { ...nextPage, blocks }
+      docBlocks.unshift(docCoverBlock)
     }
 
-    nextPage = {
-      ...nextPage,
-      blocks,
-      [coverBlock.id]: {
-        ...(nextPage[coverBlock.id] || {}),
-        type: 'CoverSwiper',
-        image_urls: [asset.url],
+    docCoverBlock.props = {
+      ...((docCoverBlock.props || {}) as Record<string, any>),
+      type: 'CoverSwiper',
+      image_urls: [asset.url],
+    }
+    docCoverBlock.asset_refs = [asset.url]
+
+    const existingAssets = Array.isArray(currentDoc.assets) ? currentDoc.assets.map((item: Record<string, any>) => ({ ...item })) : []
+    const coverBlockId = String(docCoverBlock.id)
+    const normalizedAssets = existingAssets
+      .filter(item => item?.url)
+      .map((item: Record<string, any>) => ({
+        ...item,
+        role: item.url === asset.url ? 'cover' : (item.role === 'cover' ? 'supporting' : item.role),
+        used_by_blocks: item.url === asset.url
+          ? Array.from(new Set([...(Array.isArray(item.used_by_blocks) ? item.used_by_blocks : []), coverBlockId]))
+          : (Array.isArray(item.used_by_blocks) ? item.used_by_blocks.filter((id: string) => id !== coverBlockId) : []),
+      }))
+
+    if (!normalizedAssets.some((item: Record<string, any>) => item.url === asset.url)) {
+      normalizedAssets.push({
+        id: asset.url,
+        url: asset.url,
+        desc: asset.desc || '封面图',
+        source_type: asset.source_type,
+        query: asset.query,
+        role: 'cover',
+        locked: false,
+        selection_state: 'available',
+        source_reason: asset.source_reason || asset.desc || '封面图',
+        used_by_blocks: [coverBlockId],
+      })
+    }
+
+    noteDocument.value = {
+      ...currentDoc,
+      document_meta: {
+        ...((currentDoc.document_meta || {}) as Record<string, any>),
+        title: (currentDoc.document_meta as any)?.title || 'XHS-Forge Note',
+      },
+      blocks: docBlocks.map((block, index) => ({ ...block, order: index })),
+      assets: normalizedAssets,
+      ui_state: {
+        ...((currentDoc.ui_state || {}) as Record<string, any>),
+        selected_element_id: (currentDoc.ui_state as any)?.selected_element_id || selectedComponentId.value || null,
       },
     }
-    pageData.value = nextPage
   }
 
   const setAssetAsCover = async (asset: ImageAsset) => {
@@ -727,6 +737,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       applyCoverAssetLocally(asset)
       await switchSession(threadId.value, { force: true })
+      reportUiAction(threadId.value, 'workspace_set_cover', `设为封面: ${asset.desc || asset.url}`, { asset_url: asset.url })
       return true
     } catch (e) {
       console.error('设为封面失败:', e)
@@ -753,6 +764,7 @@ export const useChatStore = defineStore('chat', () => {
         content: `已确认 ${field} = ${value}，后续生成会优先沿用这个事实。`,
         timestamp: Date.now(),
       })
+      reportUiAction(threadId.value, 'workspace_confirm_fact', `确认事实: ${field}=${value}`, { field, value, sources })
       return true
     } catch (e) {
       console.error('确认事实失败:', e)
@@ -914,37 +926,48 @@ export const useChatStore = defineStore('chat', () => {
 
       case 'turn_end':
         clearRenderRecoveryTimer()
-        const previousPage = pageData.value as Record<string, any>
+        const previousNoteDocument = noteDocument.value
         currentNode.value = ''
         thoughtText.value = ''
         nodeStreamOutput.value = ''
         const checkpointId = pickCheckpointId(data)
         const ossUrl = pickOssUrl(data)
-        const nextPageData = pickPageData(data)
-        const nextStyleData = pickStyleData(data)
         const nextNodePrompts = pickNodePrompts(data)
         const nextImageAssets = pickImageAssets(data)
         const nextSourceCode = pickSourceCode(data)
+        const nextNoteDocument = pickNoteDocument(data)
+        const nextPlannerOutput = pickPlannerOutput(data)
+        const nextPlannerPolicy = pickPlannerPolicy(data)
+        const nextTurnTrace = pickTurnTrace(data)
+        const nextAgentBackends = pickAgentBackends(data)
         if (isAssistant) {
           lastMsg.streaming = false
           lastMsg.checkpointId = checkpointId ?? undefined
           lastMsg.ossUrl = ossUrl ?? undefined
-          lastMsg.pageData = nextPageData
-          lastMsg.styleData = nextStyleData
           lastMsg.nodePrompts = nextNodePrompts
           lastMsg.imageAssets = nextImageAssets
           lastMsg.sourceCode = nextSourceCode
+          lastMsg.noteDocument = nextNoteDocument
+          lastMsg.plannerOutput = nextPlannerOutput
+          lastMsg.plannerPolicy = nextPlannerPolicy
+          lastMsg.turnTrace = nextTurnTrace
+          lastMsg.agentBackends = nextAgentBackends
           activeCheckpointId.value = checkpointId
         }
         if (ossUrl) previewUrl.value = ossUrl
-        pageData.value = nextPageData
-        styleData.value = nextStyleData
         nodePrompts.value = nextNodePrompts
         imageAssets.value = dedupeImageAssets(nextImageAssets)
         sourceCode.value = nextSourceCode
-        if ((Object.keys(nextPageData || {}).length > 0 || nextSourceCode) && isAssistant && !(lastMsg.content || '').trim()) {
+        noteDocument.value = nextNoteDocument
+        plannerOutput.value = nextPlannerOutput
+        plannerPolicy.value = nextPlannerPolicy
+        turnTrace.value = nextTurnTrace
+        agentBackends.value = nextAgentBackends
+        const comparableNextPage = resolveComparablePage(nextNoteDocument)
+        const comparablePrevPage = resolveComparablePage(previousNoteDocument)
+        if ((Object.keys(comparableNextPage || {}).length > 0 || nextSourceCode) && isAssistant && !(lastMsg.content || '').trim()) {
           const lastUserText = [...messages.value].reverse().find(msg => msg.role === 'user')?.content || ''
-          lastMsg.content = buildAssistantResultText(nextPageData, previousPage, lastUserText)
+          lastMsg.content = buildAssistantResultText(comparableNextPage, comparablePrevPage, lastUserText, agentMeta.value.retrieved_knowledge || {})
         }
         
         // ✨ 哨兵自动化：生成结束后，立即拉取 Agent 脑电图
@@ -983,11 +1006,15 @@ export const useChatStore = defineStore('chat', () => {
     const targetMsg = messages.value[idx]
     activeCheckpointId.value = targetMsg.checkpointId ?? null
     previewUrl.value = targetMsg.ossUrl ?? null
-    pageData.value = targetMsg.pageData ?? {}
-    styleData.value = targetMsg.styleData ?? {}
+    const targetDoc = (targetMsg.noteDocument || {}) as NoteDocument
     nodePrompts.value = targetMsg.nodePrompts ?? {}
-    imageAssets.value = targetMsg.imageAssets ?? []
+    imageAssets.value = (targetMsg.imageAssets && targetMsg.imageAssets.length > 0) ? targetMsg.imageAssets : dedupeImageAssets(((targetDoc.assets || []) as ImageAsset[]))
     sourceCode.value = targetMsg.sourceCode ?? ''
+    noteDocument.value = targetDoc
+    plannerOutput.value = targetMsg.plannerOutput ?? {}
+    plannerPolicy.value = targetMsg.plannerPolicy ?? {}
+    turnTrace.value = targetMsg.turnTrace ?? {}
+    agentBackends.value = targetMsg.agentBackends ?? {}
     messages.value.push({
       id: generateId(),
       role: 'system',
@@ -997,16 +1024,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const sendMessage = (content: string, options?: { imageUrls?: string[] }) => {
-    const assets = imageAssets.value
-    if ((!content.trim() && assets.length === 0) || wsStatus.value !== 'connected') return
-
+    const assets = documentAssets.value
+    const trimmedContent = content.trim()
     const stagedImageUrls = (options?.imageUrls || pendingUploadUrls.value).filter(Boolean)
-    const currentUrls = assets.map(a => a.url)
+
+    if ((!trimmedContent && stagedImageUrls.length === 0) || wsStatus.value !== 'connected') return
 
     messages.value.push({
       id: generateId(),
       role: 'user',
-      content,
+      content: trimmedContent,
       imageUrls: stagedImageUrls,
       timestamp: Date.now()
     })
@@ -1021,7 +1048,7 @@ export const useChatStore = defineStore('chat', () => {
 
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
-        content,
+        content: trimmedContent,
         panel: activePanel.value,
         parent_checkpoint_id: activeCheckpointId.value,
         selected_element_id: selectedComponentId.value,
@@ -1045,9 +1072,23 @@ export const useChatStore = defineStore('chat', () => {
     selectedParagraphIndex,
     composerDraft,
     imageAssets,
-    pageData,
-    styleData,
     nodePrompts,
+    noteDocument,
+    plannerOutput,
+    plannerPolicy,
+    turnTrace,
+    agentBackends,
+    inspectorSummary,
+    documentBlocks,
+    documentAssets,
+    renderPageData,
+    renderStyleData,
+    scenarioTags,
+    patchTracks,
+    currentCoverUrl,
+    selectedBlock,
+    selectedPayload,
+    hasRenderableDocument,
     hoveredComponentId,
     activeCheckpointId,
     sourceCode,
@@ -1062,6 +1103,7 @@ export const useChatStore = defineStore('chat', () => {
     isSidebarOpen,
     sessions,
     agentMeta,
+    pendingFactConflictCount,
     hotTrends,
     setSelectedComponent,
     setComposerDraft,
@@ -1071,6 +1113,15 @@ export const useChatStore = defineStore('chat', () => {
     addPendingUploadAsset,
     removeImageAsset,
     setImageAssets,
+    getDocumentBlockById,
+    getDocumentPayloadById,
+    getPreferredBlockById,
+    getPreferredPayloadById,
+    getPreferredScenarioTags,
+    getPreferredPatchTracks,
+    getPreferredCoverUrl,
+    getPreferredRenderPageData,
+    getPreferredRenderStyleData,
     connectWebSocket,
     rollbackTo,
     sendMessage,
