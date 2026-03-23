@@ -28,14 +28,18 @@
         </svg>
       </div>
     </div>
+
+    <FactBindingFooter :node="node" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import FactBindingFooter from './FactBindingFooter.vue'
 
 const props = defineProps<{
   compId: string
+  node: any
   data: any
   style: any
 }>()

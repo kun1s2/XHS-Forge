@@ -4,29 +4,29 @@
 
       <div class="flex gap-1 bg-[#1e1e1e] p-1 rounded-lg border border-[#333]">
         <button
-          @click="viewMode = 'preview'"
-          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'preview', 'text-gray-500 hover:text-gray-300': viewMode !== 'preview'}"
+          @click="setWorkspaceMode('preview')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'preview', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'preview'}"
           class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
         >
           <span>👁️</span> 预览视图
         </button>
         <button
-          @click="viewMode = 'code'"
-          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'code', 'text-gray-500 hover:text-gray-300': viewMode !== 'code'}"
+          @click="setWorkspaceMode('code')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'code', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'code'}"
           class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
         >
           <span>💻</span> 源码模式
         </button>
         <button
-          @click="viewMode = 'prompts'"
-          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'prompts', 'text-gray-500 hover:text-gray-300': viewMode !== 'prompts'}"
+          @click="setWorkspaceMode('prompts')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'prompts', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'prompts'}"
           class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
         >
           <span>🧪</span> 提示词检查
         </button>
         <button
-          @click="viewMode = 'state'"
-          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'state', 'text-gray-500 hover:text-gray-300': viewMode !== 'state'}"
+          @click="setWorkspaceMode('state')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'state', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'state'}"
           class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
         >
           <span>🧠</span> Agent 状态
@@ -38,24 +38,65 @@
           </span>
         </button>
         <button
-          @click="viewMode = 'assets'"
-          :class="{'bg-[#333] text-gray-100 shadow': viewMode === 'assets', 'text-gray-500 hover:text-gray-300': viewMode !== 'assets'}"
+          @click="setWorkspaceMode('assets')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'assets', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'assets'}"
           class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
         >
           <span>🖼️</span> 素材库
         </button>
+        <button
+          @click="setWorkspaceMode('gallery')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'gallery', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'gallery'}"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
+        >
+          <span>📚</span> 积木大全
+        </button>
+        <button
+          @click="setWorkspaceMode('trends')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'trends', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'trends'}"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
+        >
+          <span>🔥</span> 热点
+        </button>
+        <button
+          v-if="showcaseEnabled"
+          @click="setWorkspaceMode('showcase')"
+          :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'showcase', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'showcase'}"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
+        >
+          <span>🎬</span> Showcase
+        </button>
       </div>
 
-      <div class="flex items-center">
+      <div class="flex items-center gap-3">
+        <div
+          v-if="workspaceMode === 'preview'"
+          class="hidden items-center gap-2 rounded-xl border border-[#333] bg-[#1e1e1e] px-3 py-2 text-[10px] text-gray-400 md:flex"
+        >
+          <button
+            @click="setPreviewInteractionMode(previewInteractionMode === 'select' ? 'browse' : 'select')"
+            class="rounded-full border px-3 py-1 font-bold transition-colors"
+            :class="
+              previewInteractionMode === 'select'
+                ? 'border-emerald-700/40 bg-emerald-950/20 text-emerald-300 hover:border-emerald-500'
+                : 'border-blue-700/40 bg-blue-950/20 text-blue-300 hover:border-blue-500'
+            "
+          >
+            {{ previewInteractionMode === 'select' ? '退出选择模式' : '开启选择模式' }}
+          </button>
+          <span>
+            {{ previewInteractionMode === 'select' ? '当前点击积木会直接选中并高亮' : '当前是浏览模式，组件原生交互优先' }}
+          </span>
+        </div>
         <button
-          v-if="viewMode === 'code' && sourceCode"
+          v-if="workspaceMode === 'code' && sourceCode"
           @click="copyCode"
           class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-blue-600/20 text-blue-400 border border-blue-900/50 hover:bg-blue-600/40 transition-colors"
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
           {{ isCopied ? '已复制！' : '复制代码' }}
         </button>
-        <div v-else-if="viewMode === 'preview'" class="text-xs text-gray-500 max-w-[300px] truncate bg-[#1e1e1e] px-3 py-1.5 rounded border border-[#333]">
+        <div v-else-if="workspaceMode === 'preview'" class="text-xs text-gray-500 max-w-[300px] truncate bg-[#1e1e1e] px-3 py-1.5 rounded border border-[#333]">
           🔒 {{ previewUrl ? 'Dynamic JSON Renderer' : '等待渲染...' }}
         </div>
       </div>
@@ -63,7 +104,7 @@
 
     <div class="flex-1 relative overflow-hidden bg-[#141414] flex">
 
-      <div v-show="viewMode === 'preview'" class="w-full h-full overflow-y-auto bg-[#141414] p-3 lg:p-4 custom-scrollbar">
+      <div v-show="workspaceMode === 'preview'" class="w-full h-full overflow-y-auto bg-[#141414] p-3 lg:p-4 custom-scrollbar">
         <div class="mx-auto w-full max-w-6xl">
           <div v-if="hasRenderableDocument" class="rounded-[28px] border border-[#333] bg-[#1b1b1d] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:p-4">
             <!-- ✨ 4.0 重构修复：依赖 blocks 列表而非旧的 root 树 -->
@@ -82,7 +123,7 @@
       </div>
 
       <div
-        v-show="viewMode === 'code'"
+        v-show="workspaceMode === 'code'"
         class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
       >
         <div v-if="sourceCode" class="mx-auto h-full w-full max-w-6xl rounded-[26px] border border-[#333] bg-[#1e1e1e] p-5 text-gray-300 font-mono text-sm leading-relaxed shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:p-6">
@@ -94,7 +135,7 @@
       </div>
 
       <div
-        v-show="viewMode === 'prompts'"
+        v-show="workspaceMode === 'prompts'"
         class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
       >
         <div class="mx-auto w-full max-w-6xl rounded-[26px] border border-[#333] bg-[#1e1e1e] p-5 text-gray-300 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:p-6">
@@ -209,7 +250,7 @@
       </div>
 
       <div
-        v-show="viewMode === 'state'"
+        v-show="workspaceMode === 'state'"
         class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
       >
         <div class="mx-auto w-full max-w-6xl min-h-full">
@@ -218,7 +259,7 @@
       </div>
 
       <div
-        v-show="viewMode === 'assets'"
+        v-show="workspaceMode === 'assets'"
         class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
       >
         <div class="mx-auto w-full max-w-6xl min-h-full">
@@ -231,12 +272,72 @@
             @search="searchAssets"
             @import="importAsset"
             @cover="setAsCover"
+            @preference="updateAssetPreference"
+            @delete="deleteAsset"
           />
         </div>
       </div>
 
       <div
-        v-if="viewMode === 'preview' && hoveredComponentId && hoveredComponentPayload"
+        v-show="workspaceMode === 'gallery'"
+        class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
+      >
+        <div class="mx-auto w-full max-w-6xl min-h-full">
+          <BlockGalleryPanel />
+        </div>
+      </div>
+
+      <div
+        v-show="workspaceMode === 'trends'"
+        class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
+      >
+        <div class="mx-auto w-full max-w-6xl min-h-full">
+          <TrendPanel />
+        </div>
+      </div>
+
+      <div
+        v-show="workspaceMode === 'showcase'"
+        class="w-full h-full bg-[#141414] overflow-auto p-3 lg:p-4"
+      >
+        <div class="mx-auto w-full max-w-6xl min-h-full">
+          <div class="rounded-[26px] border border-[#333] bg-[#1e1e1e] shadow-[0_18px_40px_rgba(0,0,0,0.22)] overflow-hidden">
+            <div class="border-b border-[#333] bg-[radial-gradient(circle_at_top_left,_rgba(255,138,101,0.10),_transparent_35%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] px-5 py-4 lg:px-6">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2">
+                    <span class="rounded-full border border-[#5d3b31] bg-[#2a1d1a] px-2 py-0.5 text-[9px] font-bold text-[#ffb29b]">Demo Control</span>
+                    <span class="text-[10px] uppercase tracking-[0.16em] text-gray-500">右侧工作台演示入口</span>
+                  </div>
+                  <div class="text-[14px] font-bold text-gray-100">把演示脚本放在工作台，不再占聊天面板空间</div>
+                  <p class="max-w-3xl text-[11px] leading-relaxed text-gray-500">这里适合现场切场景、复制脚本和一键启动。左侧聊天区保持专注，右侧负责演示控制和状态讲解。</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-if="showcaseProfiles.length > 0"
+                    class="rounded-full border border-[#454545] bg-[#171719] px-3 py-1.5 text-[10px] font-bold text-gray-300 transition-all hover:border-blue-500 hover:text-blue-300"
+                    @click="refreshShowcaseProfiles"
+                  >
+                    刷新场景
+                  </button>
+                  <span class="rounded-full border border-[#3a3a3a] bg-black/10 px-3 py-1.5 text-[10px] text-gray-400">
+                    {{ showcaseProfiles.length }} 条演示业务线
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <ShowcaseRail
+              :profiles="showcaseProfiles"
+              @start="startShowcase"
+              @use-prompt="applyPrompt"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="workspaceMode === 'preview' && hoveredComponentId && hoveredComponentPayload"
         class="absolute right-4 top-4 w-72 bg-[#1e1e1e]/95 backdrop-blur shadow-2xl rounded-xl border border-[#333] p-4 z-50 pointer-events-none transition-all"
       >
         <div class="text-xs font-bold text-blue-400 mb-2 pb-2 border-b border-[#333] flex items-center justify-between">
@@ -257,7 +358,10 @@ import { useChatStore } from '../../stores/useChatStore'
 import DynamicRenderer from '../renderers/DynamicRenderer.vue'
 import AgentInspector from '../chat/AgentInspector.vue'
 import AssetLibrary from '../chat/AssetLibrary.vue'
-import type { NoteDocument } from '../../types/chat'
+import BlockGalleryPanel from '../chat/BlockGalleryPanel.vue'
+import TrendPanel from '../chat/TrendPanel.vue'
+import ShowcaseRail from '../chat/ShowcaseRail.vue'
+import type { NoteDocument, ShowcaseProfile } from '../../types/chat'
 
 type PromptMessage = {
   role?: string
@@ -267,10 +371,9 @@ type PromptMessage = {
 
 const chatStore = useChatStore()
 const { getPreferredPayloadById } = chatStore
-const { previewUrl, renderPageData, nodePrompts, hoveredComponentId, sourceCode, searchedAssets, assetSearchLoading, pendingFactConflictCount, noteDocument, documentAssets, currentCoverUrl, hasRenderableDocument } = storeToRefs(chatStore)
+const { previewUrl, renderPageData, nodePrompts, hoveredComponentId, sourceCode, searchedAssets, assetSearchLoading, pendingFactConflictCount, noteDocument, documentAssets, currentCoverUrl, hasRenderableDocument, showcaseProfiles, composerDraft, blockGalleryOverview, workspaceMode, previewInteractionMode } = storeToRefs(chatStore)
+const showcaseEnabled = chatStore.showcaseEnabled
 
-// 控制当前视图是预览、代码、提示词检查器还是 Agent 状态
-const viewMode = ref<'preview' | 'code' | 'prompts' | 'state' | 'assets'>('preview')
 const isCopied = ref(false)
 const copiedSubNode = ref<string | null>(null) // 追踪当前被复制的单条提示词 ID
 const copiedPromptBundle = ref(false)
@@ -323,6 +426,34 @@ const setAsCover = async (asset: { url: string; desc: string; source_type?: stri
   await chatStore.setAssetAsCover(asset)
 }
 
+const updateAssetPreference = async (
+  asset: { url: string; desc: string; source_type?: string; query?: string },
+  updates: { role?: string; locked?: boolean; selection_state?: string },
+) => {
+  await chatStore.updateAssetPreferences(asset, updates)
+}
+
+const deleteAsset = async (asset: { url: string; desc: string; source_type?: string; query?: string }) => {
+  const confirmed = window.confirm(`确认删除这张素材吗？\n${asset.desc || asset.url}`)
+  if (!confirmed) return
+  await chatStore.deleteAssetFromLibrary(asset)
+}
+
+const applyPrompt = (prompt: string, persona?: string) => {
+  if (persona) chatStore.setCreatorPersona(persona)
+  composerDraft.value = prompt
+}
+
+const startShowcase = async (profile: ShowcaseProfile) => {
+  composerDraft.value = ''
+  await chatStore.startShowcaseDemo(profile)
+}
+
+const refreshShowcaseProfiles = async () => {
+  await chatStore.fetchShowcaseProfiles()
+}
+const { setWorkspaceMode, setPreviewInteractionMode } = chatStore
+
 
 const hoveredComponentPayload = computed(() => {
   if (!hoveredComponentId.value) return null
@@ -348,7 +479,7 @@ const promptEntries = computed(() =>
     messages: normalizePromptMessages(messages),
   }))
 )
-const promptExpectedNodes = ['planner_agent', 'note_editor', 'intent_agent', 'structure_node', 'component_builder', 'patch_doctor', 'enrichment_agent']
+const promptExpectedNodes = ['planner_agent', 'note_editor', 'intent_agent', 'structure_node', 'component_builder', 'patch_doctor']
 const promptCoverage = computed(() => {
   const present = new Set(promptEntries.value.map(entry => entry.node))
   return promptExpectedNodes.map((node) => ({
@@ -397,6 +528,14 @@ const handleMessage = (event: MessageEvent) => {
   }
 }
 
-onMounted(() => window.addEventListener('message', handleMessage))
+onMounted(() => {
+  window.addEventListener('message', handleMessage)
+  if ((blockGalleryOverview.value.components || []).length === 0 && (blockGalleryOverview.value.scenarios || []).length === 0) {
+    void chatStore.fetchBlockGalleryOverview()
+  }
+  if (showcaseEnabled && showcaseProfiles.value.length === 0) {
+    void chatStore.fetchShowcaseProfiles()
+  }
+})
 onUnmounted(() => window.removeEventListener('message', handleMessage))
 </script>

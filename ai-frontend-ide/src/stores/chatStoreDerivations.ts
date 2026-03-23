@@ -17,6 +17,41 @@ import type {
 
 type WsData = Record<string, unknown>
 
+const isPlaceholderImageUrl = (value: unknown) => {
+  const url = String(value || '').trim().toLowerCase()
+  if (!url) return false
+  return ['example.com', 'picsum.photos', 'placeholder'].some(token => url.includes(token))
+}
+
+const sanitizeNoteDocumentPayload = (doc: NoteDocument | null | undefined): NoteDocument => {
+  const safeDoc = (doc || {}) as NoteDocument
+  const blocks = getDocumentBlocks(safeDoc).map((block) => {
+    const props = { ...((block?.props || {}) as Record<string, unknown>) }
+    const rawImageUrls = Array.isArray(props.image_urls) ? props.image_urls : []
+    props.image_urls = rawImageUrls.filter((item) => String(item || '').trim() && !isPlaceholderImageUrl(item))
+    if (isPlaceholderImageUrl(props.image_url)) {
+      delete props.image_url
+    }
+    const rawAssetRefs = Array.isArray(props.asset_refs) ? props.asset_refs : []
+    props.asset_refs = rawAssetRefs.filter((item) => String(item || '').trim() && !isPlaceholderImageUrl(item))
+    return {
+      ...block,
+      props,
+    }
+  })
+  const assets = (Array.isArray(safeDoc.assets) ? safeDoc.assets : []).filter((asset) => !isPlaceholderImageUrl(asset?.url))
+  const coverAssetUrl = isPlaceholderImageUrl(safeDoc.ui_state?.cover_asset_url) ? '' : String(safeDoc.ui_state?.cover_asset_url || '')
+  return {
+    ...safeDoc,
+    blocks,
+    assets,
+    ui_state: {
+      ...(safeDoc.ui_state || {}),
+      cover_asset_url: coverAssetUrl,
+    },
+  } as NoteDocument
+}
+
 const componentLabelMap: Record<string, string> = {
   CoverSwiper: '封面轮播',
   VersusCard: '对比卡',
@@ -34,7 +69,8 @@ export const pickOssUrl = (data: WsData) => data.oss_url ?? data.ossUrl ?? null
 export const pickNodePrompts = (data: WsData) => data.node_prompts ?? data.nodePrompts ?? {}
 export const pickImageAssets = (data: WsData) => data.image_assets ?? data.imageAssets ?? []
 export const pickSourceCode = (data: WsData) => data.source_code ?? data.sourceCode ?? data.htmlPreview ?? ''
-export const pickNoteDocument = (data: WsData): NoteDocument => (data.note_document ?? data.noteDocument ?? {}) as NoteDocument
+export const pickNoteDocument = (data: WsData): NoteDocument =>
+  sanitizeNoteDocumentPayload((data.note_document ?? data.noteDocument ?? {}) as NoteDocument)
 export const pickPlannerOutput = (data: WsData): PlannerOutput => (data.planner_output ?? data.plannerOutput ?? {}) as PlannerOutput
 export const pickPlannerPolicy = (data: WsData): PlannerPolicy => (data.planner_policy ?? data.plannerPolicy ?? {}) as PlannerPolicy
 export const pickAgentBackends = (data: WsData): AgentBackends => (data.agent_backends ?? data.agentBackends ?? {}) as AgentBackends
@@ -50,6 +86,15 @@ export const dedupeImageAssets = (assets: ImageAsset[]) => {
       ...(existing || {}),
       ...asset,
       desc: asset.desc || existing?.desc || '素材图',
+      role: existing?.role === 'cover' || asset.role === 'cover'
+        ? 'cover'
+        : (asset.role || existing?.role),
+      used_by_blocks: Array.from(
+        new Set([
+          ...((existing?.used_by_blocks || []) as string[]),
+          ...((asset.used_by_blocks || []) as string[]),
+        ]),
+      ),
     })
   }
   return Array.from(deduped.values())
@@ -67,6 +112,8 @@ export const getDocumentBlockById = (doc: NoteDocument | null | undefined, block
   getDocumentBlocks(doc).find(item => String(item?.id || '') === blockId) || null
 
 export const getDocumentCoverUrl = (doc?: NoteDocument | null) => {
+  const preferredCoverUrl = String(doc?.ui_state?.cover_asset_url || '')
+  if (preferredCoverUrl) return preferredCoverUrl
   const coverBlock = getDocumentBlocks(doc).find(block => String(block?.type || '') === 'CoverSwiper')
   if (!coverBlock?.id) return ''
   const payload = (coverBlock?.props || {}) as { image_urls?: string[]; image_url?: string }
@@ -128,6 +175,9 @@ export const getPreferredCoverUrl = (
   if (assetCover?.url) return assetCover.url
   return null
 }
+
+const pickCoverUrlFromAssets = (assets: Array<Record<string, any>> | null | undefined) =>
+  String((assets || []).find((asset: Record<string, any>) => asset?.role === 'cover')?.url || '')
 
 export const hasDocumentBlockType = (doc: NoteDocument | null | undefined, componentType: string) =>
   getDocumentBlocks(doc).some(block => String(block?.type || '') === componentType)
@@ -209,6 +259,13 @@ const pickContentSignature = (payload: Record<string, any> | null | undefined) =
   if (!payload) return ''
   if (Array.isArray(payload.paragraphs)) return JSON.stringify(payload.paragraphs)
   if (typeof payload.question === 'string') return `${payload.question}|${payload.option_a || ''}|${payload.option_b || ''}`
+  if (payload.pros || payload.cons) {
+    return JSON.stringify({
+      pros: payload.pros || {},
+      cons: payload.cons || {},
+      decision_hint: payload.decision_hint || '',
+    })
+  }
   if (typeof payload.proText === 'string' || typeof payload.conText === 'string') return `${payload.proText || ''}|${payload.conText || ''}`
   if (typeof payload.title === 'string') return payload.title
   return ''
@@ -258,9 +315,11 @@ export const buildAssistantResultText = (
     }
   }
 
-  const previousCoverUrl = String((previousPage?.blocks || []).find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')?.props?.image_urls?.[0]
+  const previousCoverUrl = String(previousPage?.ui_state?.cover_asset_url || pickCoverUrlFromAssets(previousPage?.assets as Array<Record<string, any>> | undefined)
+    || (previousPage?.blocks || []).find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')?.props?.image_urls?.[0]
     || (previousPage?.blocks || []).find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')?.props?.image_url || '')
-  const currentCoverUrl = String((page?.blocks || []).find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')?.props?.image_urls?.[0]
+  const currentCoverUrl = String(page?.ui_state?.cover_asset_url || pickCoverUrlFromAssets(page?.assets as Array<Record<string, any>> | undefined)
+    || (page?.blocks || []).find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')?.props?.image_urls?.[0]
     || (page?.blocks || []).find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')?.props?.image_url || '')
   if (currentCoverUrl && currentCoverUrl !== previousCoverUrl) {
     return appendPendingFactHint(

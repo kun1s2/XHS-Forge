@@ -2,8 +2,8 @@ import asyncio
 import json
 import os
 from app.agents.nodes.intent_node import intent_agent
-from app.agents.nodes.outline_node import outline_agent
-from app.agents.nodes.render_node import render_node
+from app.agents.nodes.outline_resolver_node import outline_resolver_preview
+from app.agents.nodes.document_renderer_node import document_renderer
 from app.agents.state import UIProjectState
 from langchain_core.messages import HumanMessage
 
@@ -43,7 +43,7 @@ async def run_xiaomi_ignition_test():
     # 3. 执行大纲解析 (验证现代 resolver)
     print("\nStep 2: 启动大纲解析...")
     state.update(intent_res)
-    outline_res = await outline_agent(state)
+    outline_res = await outline_resolver_preview(state)
     
     ast_json = json.dumps(outline_res["page_outline"], ensure_ascii=False)
     print(f"🌲 [AST 变异预览]: {ast_json[:200]}...")
@@ -64,13 +64,13 @@ async def run_xiaomi_ignition_test():
         }
     })
     
-    render_res = await render_node(state)
+    render_res = await document_renderer(state)
     html = render_res.get("final_html", "")
     
     assert "VersusCard" in html or "VS" in html, "❌ [渲染错误]: HTML 中缺失红蓝对峙组件！"
     print("✅ [渲染校验通过]: 物理源码已包含 VersusCard。")
 
-    print("\n🏆 [演习大捷]: 现代 gateway -> resolver -> render 闭环验证成功！")
+    print("\n🏆 [演习大捷]: 现代 gateway -> resolver -> document_renderer 闭环验证成功！")
 
 if __name__ == "__main__":
     # 需要设置环境变量才能运行（由于脚本中包含了 intent_agent 调用）

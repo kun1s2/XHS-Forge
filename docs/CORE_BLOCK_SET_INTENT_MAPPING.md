@@ -10,9 +10,9 @@
 它是“业务语义 -> planner -> manifest -> component”的中间桥梁。
 
 配套文档：
-- [`CORE_BLOCK_SET.md`](/root/XHS-Forge/docs/CORE_BLOCK_SET.md)
-- [`BLOCK_SEMANTIC_ROLES.md`](/root/XHS-Forge/docs/BLOCK_SEMANTIC_ROLES.md)
-- [`COMPONENT_MANIFEST_SEMANTIC_MAPPING.md`](/root/XHS-Forge/docs/COMPONENT_MANIFEST_SEMANTIC_MAPPING.md)
+- [`CORE_BLOCK_SET.md`](./CORE_BLOCK_SET.md)
+- [`BLOCK_SEMANTIC_ROLES.md`](./BLOCK_SEMANTIC_ROLES.md)
+- [`COMPONENT_MANIFEST_SEMANTIC_MAPPING.md`](./COMPONENT_MANIFEST_SEMANTIC_MAPPING.md)
 
 ## Mapping Table
 

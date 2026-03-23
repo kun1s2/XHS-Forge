@@ -28,12 +28,12 @@
 
 对应代码：
 
-- [`rag_service.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/rag_service.py)
-- [`vector_db.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/vector_db.py)
-- [`research_agent.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/research_agent.py)
-- [`search_enricher.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/search_enricher.py)
-- [`trend_pipeline.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/trend_pipeline.py)
-- [`test_rag_pipeline.py`](/root/XHS-Forge/tests/test_rag_pipeline.py)
+- [`rag_service.py`](../AI_Frontend_IDE/app/services/rag_service.py)
+- [`vector_db.py`](../AI_Frontend_IDE/app/services/vector_db.py)
+- [`research_agent.py`](../AI_Frontend_IDE/app/agents/nodes/research_agent.py)
+- [`search_enricher.py`](../AI_Frontend_IDE/app/services/search_enricher.py)
+- [`trend_pipeline.py`](../AI_Frontend_IDE/app/services/trend_pipeline.py)
+- [`test_rag_pipeline.py`](../tests/test_rag_pipeline.py)
 
 ---
 

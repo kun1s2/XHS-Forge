@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { resolveNodeStyles } from '../../utils/StyleDictionary';
 import { resolveResponsiveLayout, getCurrentBreakpoint } from '../../utils/LayoutSolver';
@@ -58,13 +58,37 @@ const supportedTypes = new Set(componentManifest.map((item) => String(item.type 
 const props = defineProps<{
   node: { id: string; component_type: string; props?: Record<string, any>; style?: Record<string, any> };
   index: number;
+  interactive?: boolean;
+  selectionEnabled?: boolean;
 }>();
 
 const chatStore = useChatStore();
 const { selectedComponentId, selectedParagraphIndex } = storeToRefs(chatStore);
 
-const windowWidth = window.innerWidth;
-const breakpoint = getCurrentBreakpoint(windowWidth);
+const wrapperRef = ref<HTMLElement | null>(null);
+const containerWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280);
+let resizeObserver: ResizeObserver | null = null;
+
+const syncContainerWidth = () => {
+  const measuredWidth = wrapperRef.value?.getBoundingClientRect().width || window.innerWidth || 1280;
+  containerWidth.value = Math.max(320, Math.round(measuredWidth));
+};
+
+onMounted(() => {
+  syncContainerWidth();
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => syncContainerWidth());
+    if (wrapperRef.value) resizeObserver.observe(wrapperRef.value);
+  }
+  window.addEventListener('resize', syncContainerWidth);
+});
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  window.removeEventListener('resize', syncContainerWidth);
+});
+
+const breakpoint = computed(() => getCurrentBreakpoint(containerWidth.value));
 
 // 语义样式解析
 const componentStyle = computed(() => {
@@ -79,7 +103,7 @@ const computedClasses = computed(() => {
   try {
     const nodeProps = props.node?.props || {};
     const baseStyles = resolveNodeStyles(nodeProps);
-    const layoutStyles = resolveResponsiveLayout(nodeProps.col_span || 1, breakpoint);
+    const layoutStyles = resolveResponsiveLayout(nodeProps.col_span || 1, breakpoint.value);
     const authoredStyles = componentStyle.value?.css_classes || '';
     return `${baseStyles} ${layoutStyles} ${authoredStyles}`.trim();
   } catch (e) {
@@ -89,20 +113,24 @@ const computedClasses = computed(() => {
 });
 
 const transitionDelay = computed(() => `${(props.index || 0) * 50}ms`); 
-const isSelected = computed(() => selectedComponentId.value === props.node?.id);
+const isInteractive = computed(() => props.interactive !== false);
+const isSelectionEnabled = computed(() => props.selectionEnabled === true);
+const isSelected = computed(() => isSelectionEnabled.value && selectedComponentId.value === props.node?.id);
 const selectedParagraph = computed(() => {
-  if (props.node?.component_type !== 'StoryText' || selectedComponentId.value !== props.node?.id) {
+  if (!isSelectionEnabled.value || props.node?.component_type !== 'StoryText' || selectedComponentId.value !== props.node?.id) {
     return null;
   }
   return typeof selectedParagraphIndex.value === 'number' ? selectedParagraphIndex.value : null;
 });
 const wrapperClasses = computed(() => [
-  'w-full transition-all duration-700 animate-fade-up cursor-pointer',
+  'w-full transition-all duration-700 animate-fade-up',
+  isSelectionEnabled.value ? 'cursor-crosshair' : 'cursor-default',
   computedClasses.value,
-  isSelected.value ? 'ring-2 ring-[var(--primary-vibe)] ring-offset-2 ring-offset-white/60 rounded-[28px]' : '',
+  isSelected.value ? 'ring-2 ring-[var(--primary-vibe)] ring-offset-2 ring-offset-white/60 rounded-[28px] shadow-[0_0_0_1px_rgba(255,36,66,0.12)]' : '',
 ]);
 
 const handleSelect = (event?: MouseEvent) => {
+  if (!isSelectionEnabled.value) return;
   event?.stopPropagation();
   if (props.node?.id) {
     chatStore.setSelectedComponent(props.node.id, null);
@@ -110,6 +138,7 @@ const handleSelect = (event?: MouseEvent) => {
 };
 
 const handleSelectPayload = (payload?: string | { compId?: string; paragraphIndex?: number | null }, event?: MouseEvent) => {
+  if (!isSelectionEnabled.value) return;
   event?.stopPropagation();
   if (typeof payload === 'string') {
     chatStore.setSelectedComponent(payload, null);
@@ -122,6 +151,7 @@ const handleSelectPayload = (payload?: string | { compId?: string; paragraphInde
 };
 
 const handleQuickAction = (payload?: { compId?: string; paragraphIndex?: number | null; prompt?: string }) => {
+  if (!isSelectionEnabled.value) return;
   const compId = payload?.compId || props.node?.id;
   if (compId) {
     chatStore.setSelectedComponent(compId, typeof payload?.paragraphIndex === 'number' ? payload.paragraphIndex : null);
@@ -132,12 +162,14 @@ const handleQuickAction = (payload?: { compId?: string; paragraphIndex?: number 
 };
 
 const handleHover = () => {
+  if (!isSelectionEnabled.value) return;
   if (props.node?.id) {
     chatStore.setHoveredComponent(props.node.id);
   }
 };
 
 const handleUnhover = () => {
+  if (!isSelectionEnabled.value) return;
   if (selectedComponentId.value !== props.node?.id) {
     chatStore.setHoveredComponent(null);
   }
@@ -179,14 +211,35 @@ const resolveComp = (type: string) => {
 
 <template>
   <div 
+    ref="wrapperRef"
     :id="node.id"
     :data-comp-id="node.id"
-    :class="wrapperClasses"
+    :class="['relative', wrapperClasses]"
     :style="{ transitionDelay, ...(componentStyle.inline_styles || {}) }"
-    @click.capture="handleSelect"
+    @click="handleSelect"
     @mouseenter="handleHover"
     @mouseleave="handleUnhover"
   >
+    <button
+      v-if="isSelectionEnabled"
+      type="button"
+      data-selection-overlay
+      class="absolute inset-0 z-10 rounded-[28px] border border-transparent bg-transparent transition-all hover:border-[var(--primary-vibe)]/40 hover:bg-[var(--primary-vibe)]/5"
+      :class="isSelected ? 'border-[var(--primary-vibe)]/50 bg-[var(--primary-vibe)]/5' : ''"
+      @click.stop="handleSelect"
+      aria-label="选择当前积木"
+    />
+    <div
+      v-if="isSelectionEnabled"
+      class="pointer-events-none absolute left-3 top-3 z-20 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em]"
+      :style="{
+        borderColor: isSelected ? 'color-mix(in srgb, var(--primary-vibe) 60%, white 40%)' : 'rgba(148,163,184,0.28)',
+        background: isSelected ? 'color-mix(in srgb, var(--primary-vibe) 12%, white 88%)' : 'rgba(255,255,255,0.82)',
+        color: isSelected ? 'var(--primary-vibe)' : 'var(--text-muted)',
+      }"
+    >
+      {{ isSelected ? '已选中' : '点击选择' }}
+    </div>
     <template v-if="resolveComp(node.component_type)">
       <component 
         :is="resolveComp(node.component_type)"

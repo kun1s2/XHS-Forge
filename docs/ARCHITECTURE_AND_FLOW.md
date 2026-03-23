@@ -44,7 +44,7 @@ flowchart LR
   - 在 manifest contract 下生成区块 payload
 - `note_editor_agent`
   - 负责已有页面的开放式编辑决策
-- `theme_compiler / verifier / renderer`
+- `theme_compiler / verifier / document_renderer`
   - 属于确定性执行层
 
 ## 3. Single Source Of Truth
@@ -195,13 +195,13 @@ sequenceDiagram
 
 ## 9. 阅读代码的推荐顺序
 
-1. [`README.md`](/root/XHS-Forge/README.md)
-2. [`AI_Frontend_IDE/app/agents/graph.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/graph.py)
-3. [`AI_Frontend_IDE/app/core/note_document.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/note_document.py)
-4. [`AI_Frontend_IDE/app/core/component_manifest.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/component_manifest.py)
-5. [`AI_Frontend_IDE/app/core/context_engineering.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/context_engineering.py)
-6. [`AI_Frontend_IDE/app/core/prompt_engineering.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/prompt_engineering.py)
-7. [`AI_Frontend_IDE/app/agents/nodes/note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
-8. [`AI_Frontend_IDE/app/services/rag_policy.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/rag_policy.py)
-9. [`AI_Frontend_IDE/app/services/cache_service.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/cache_service.py)
-10. [`ai-frontend-ide/src/components/chat/AgentInspector.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/AgentInspector.vue)
+1. [`README.md`](../README.md)
+2. [`AI_Frontend_IDE/app/agents/graph.py`](../AI_Frontend_IDE/app/agents/graph.py)
+3. [`AI_Frontend_IDE/app/core/note_document.py`](../AI_Frontend_IDE/app/core/note_document.py)
+4. [`AI_Frontend_IDE/app/core/component_manifest.py`](../AI_Frontend_IDE/app/core/component_manifest.py)
+5. [`AI_Frontend_IDE/app/core/context_engineering.py`](../AI_Frontend_IDE/app/core/context_engineering.py)
+6. [`AI_Frontend_IDE/app/core/prompt_engineering.py`](../AI_Frontend_IDE/app/core/prompt_engineering.py)
+7. [`AI_Frontend_IDE/app/agents/nodes/note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+8. [`AI_Frontend_IDE/app/services/rag_policy.py`](../AI_Frontend_IDE/app/services/rag_policy.py)
+9. [`AI_Frontend_IDE/app/services/cache_service.py`](../AI_Frontend_IDE/app/services/cache_service.py)
+10. [`ai-frontend-ide/src/components/chat/AgentInspector.vue`](../ai-frontend-ide/src/components/chat/AgentInspector.vue)

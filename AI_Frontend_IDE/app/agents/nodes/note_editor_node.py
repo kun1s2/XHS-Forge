@@ -1,12 +1,12 @@
-"""Main editing node for long-lived NoteDocument canvases.
+"""长期 NoteDocument 画布的主编辑节点。
 
-This file keeps the top-level edit pipeline readable:
-- gather the current document and user intent
-- choose a structured editing action whenever possible
-- apply the action and emit updated state/trace output
+这个文件只保留顶层编辑编排：
+- 读取当前文档和用户请求
+- 尽量选择结构化编辑动作
+- 把动作落成确定性 patch，并输出新的文档与 trace
 
-Heavier semantic targeting and scoring helpers live in `note_editor_support.py`
-so this file can stay focused on orchestration instead of token-map sprawl.
+更重的语义命中、评分和规则细节下沉到 `note_editor_support.py`，
+避免这里重新堆成 token-map 大杂烩。
 """
 
 import json
@@ -73,6 +73,7 @@ from app.agents.nodes.note_editor_prompts import (
 
 
 class NoteEditorAgentState(TypedDict):
+    """编辑节点在提示词与结构化输出阶段使用的最小状态。"""
     messages: Annotated[list[BaseMessage], add_messages]
     remaining_steps: NotRequired[int]
     note_document: Annotated[dict, merge_state_patch]
@@ -83,6 +84,7 @@ class NoteEditorAgentState(TypedDict):
 
 
 class LocalNoteEditOutput(BaseModel):
+    """局部区块编辑的结构化输出模型。"""
     thought_process: str | None = Field(default=None, description="局部编辑的推理过程")
     reason: str = Field(default="按用户要求完成局部编辑", description="本次局部编辑理由")
     action: Literal["update_block", "replace_block", "move_block", "remove_block", "append_block", "noop"] = Field(
@@ -107,11 +109,13 @@ class LocalNoteEditOutput(BaseModel):
 
 
 class LocalTextRewriteOutput(BaseModel):
+    """局部文案补写的结构化输出模型。"""
     reason: str = Field(default="已补全文案补丁", description="补全文案补丁的理由")
     payload_patch: dict[str, Any] = Field(default_factory=dict, description="需要回写到组件中的文案字段补丁")
 
 
 class GlobalCanvasEditOutput(BaseModel):
+    """整页编辑动作的结构化输出模型。"""
     reason: str = Field(default="已按要求完成整页编辑", description="本次整页编辑理由")
     action: Literal[
         "update_page_title",
@@ -178,6 +182,7 @@ class GlobalCanvasEditOutput(BaseModel):
 
 
 class CanvasCreationBlockOutput(BaseModel):
+    """新建画布时单个区块的结构化输出模型。"""
     component_type: str = Field(..., description="创建的组件类型")
     content_brief: str = Field(default="", description="区块职责描述")
     payload: dict[str, Any] = Field(default_factory=dict, description="组件初始数据")
@@ -191,6 +196,7 @@ class CanvasCreationBlockOutput(BaseModel):
 
 
 class CanvasCreationOutput(BaseModel):
+    """新建整页画布时的结构化输出模型。"""
     reason: str = Field(default="已根据页面策略创建首版笔记", description="创建理由")
     page_title: str | None = Field(default=None, description="页面标题")
     blocks: list[CanvasCreationBlockOutput] = Field(default_factory=list, description="首版区块列表")
@@ -198,14 +204,17 @@ class CanvasCreationOutput(BaseModel):
 
 
 def _has_local_selection(selected_element_id: str | None) -> bool:
+    """判断当前是否处于局部编辑模式。"""
     return selected_element_id not in [None, "", "无", "无 (全局修改)", "none"]
 
 
 def _select_note_editor_tools(selected_element_id: str | None):
+    """按编辑范围选择 note_editor 可用工具集。"""
     return LOCAL_NOTE_EDITOR_TOOLS if _has_local_selection(selected_element_id) else NOTE_EDITOR_TOOLS
 
 
 def _build_note_editor_prompt_snapshot(mode: str, prompt_text: str, plan: Any | None = None) -> dict[str, Any]:
+    """构造编辑节点在 Prompt Lab 中展示的快照。"""
     return _prompt_build_note_editor_prompt_snapshot(mode, prompt_text, plan)
 
 
@@ -214,34 +223,42 @@ def _build_next_note_document_from_execution(
     updated_document_view: dict[str, Any],
     updated_block_style_map: dict[str, Any],
 ) -> dict[str, Any]:
+    """把执行视图与样式映射重新折叠回正式 NoteDocument。"""
     return _prompt_build_next_note_document_from_execution(state, updated_document_view, updated_block_style_map)
 
 
 def _build_note_editor_prompt(state: NoteEditorAgentState) -> str:
+    """构造通用编辑提示词。"""
     return _prompt_build_note_editor_prompt(state)
 
 
 def _build_local_edit_prompt(state: NoteEditorAgentState, user_query: str) -> str:
+    """构造局部编辑模式的提示词。"""
     return _prompt_build_local_edit_prompt(state, user_query)
 
 
 def _infer_append_insert_index(user_query: str, target_index: int | None, block_count: int) -> int:
+    """推断 append 动作最终应插入的位置。"""
     return _prompt_infer_append_insert_index(user_query, target_index, block_count)
 
 
 def _default_canvas_block_intents(state: UIProjectState) -> list[dict[str, Any]]:
+    """在缺少 planner block intents 时给出一套保守默认结构。"""
     return _prompt_default_canvas_block_intents(state)
 
 
 def _build_canvas_creation_prompt(state: NoteEditorAgentState, user_query: str) -> str:
+    """构造新建整页画布的提示词。"""
     return _prompt_build_canvas_creation_prompt(state, user_query)
 
 
 def _guess_block_prefix(component_type: str) -> str:
+    """根据组件类型猜一个更自然的 block id 前缀。"""
     return _prompt_guess_block_prefix(component_type)
 
 
 def _build_canvas_creation_fallback(state: UIProjectState, user_query: str) -> CanvasCreationOutput:
+    """在模型无法稳定产出首版画布时生成保守 fallback。"""
     return _prompt_build_canvas_creation_fallback(state, user_query, CanvasCreationOutput)
 
 
@@ -253,6 +270,7 @@ def _apply_canvas_creation_plan(
     retrieved_knowledge: dict[str, Any] | None = None,
     image_assets: list[dict[str, Any]] | None = None,
 ) -> tuple[dict, dict]:
+    """把新建画布计划落成初始 document_view 与样式映射。"""
     final_document_view = deepcopy(original_document_view or {})
     final_block_style_map = deepcopy(original_block_style_map or {})
     knowledge = retrieved_knowledge or {}
@@ -299,6 +317,7 @@ def _apply_canvas_creation_plan(
 
 
 def _build_global_edit_prompt(state: NoteEditorAgentState, user_query: str) -> str:
+    """构造整页编辑模式的提示词。"""
     return _prompt_build_global_edit_prompt(state, user_query)
 
 
@@ -732,6 +751,7 @@ def _apply_global_edit_plan(
     retrieved_knowledge: dict[str, Any] | None = None,
     image_assets: list[dict[str, Any]] | None = None,
 ) -> tuple[dict, dict]:
+    """把整页结构化编辑计划应用到紧凑执行视图。"""
     final_document_view = deepcopy(original_document_view or {})
     final_block_style_map = deepcopy(original_block_style_map or {})
     blocks = list(final_document_view.get("blocks", []))
@@ -1023,8 +1043,13 @@ def _restrict_local_edit_scope(
 
 async def note_editor_node(state: UIProjectState) -> dict:
     """
-    Note Editor V2：统一处理自然语言的新建/全局修改请求。
-    核心思想：直接编辑 Note DSL，而不是把请求拆成过多下游创意节点。
+    Unified editor node for long-lived NoteDocument canvases.
+
+    Flow:
+    1. build compact editing context
+    2. prefer structured edit actions
+    3. apply deterministic patches
+    4. fall back only when the structured path cannot cover the request
     """
     main_msgs = state.get("main_messages", [])
     raw_user_content = getattr(main_msgs[-1], "content", "") if main_msgs else "请整理当前笔记"

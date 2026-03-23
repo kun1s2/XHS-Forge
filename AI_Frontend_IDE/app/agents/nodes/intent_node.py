@@ -81,8 +81,8 @@ def _build_fast_path_result(*, user_query: str, selected_id: str | None, active_
 def _build_panel_edit_fast_path(*, user_query: str, active_panel: str, active_archetype: str, selected_id: str | None) -> dict:
     scenario = str(active_archetype or "general")
     route_by_panel = {
-        "content": "content_node",
-        "style": "style_node",
+        "content": "note_editor",
+        "style": "theme_compiler",
         "structure": "structure_node",
     }
     route = route_by_panel.get(str(active_panel or ""))
@@ -168,14 +168,14 @@ def _derive_route_from_intent_v2(intent_v2: dict, *, user_query: str, selected_i
     if edit_scope in {"selected_block", "selected_paragraph"} and _has_valid_selection(selected_id):
         return "patch_node"
     if task_type == "edit":
-        return _infer_existing_canvas_edit_route(user_query)
+        return infer_existing_canvas_edit_route(user_query)
     if task_type == "inspect":
         return "patch_node"
     if task_type == "confirm_fact":
         return "patch_node"
     if needs_assets == "search" or needs_research:
-        return "content_node"
-    return "content_node"
+        return "research_agent"
+    return "research_agent"
 
 async def intent_agent(state: UIProjectState) -> dict:
     """

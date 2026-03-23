@@ -30,7 +30,7 @@ from app.agents.nodes.note_editor_node import (
     _summarize_blocks,
     note_editor_node,
 )
-from app.agents.nodes.style_node import style_agent
+from app.agents.nodes.theme_compiler_node import theme_compiler
 from app.agents.nodes.verify_note_node import verify_note_node
 from app.agents.tools_registry import NOTE_EDITOR_TOOLS
 from app.tools.note_tools import move_note_block, replace_note_block
@@ -38,7 +38,7 @@ from app.tools.note_tools import move_note_block, replace_note_block
 
 def test_route_intent_prefers_note_editor_for_structure_and_style():
     assert route_intent({"intent_route": "structure_node"}) == "note_editor"
-    assert route_intent({"intent_route": "style_node"}) == "note_editor"
+    assert route_intent({"intent_route": "theme_compiler"}) == "note_editor"
 
 
 def test_build_component_contract_text_surfaces_semantic_role_and_quick_actions():
@@ -49,8 +49,8 @@ def test_build_component_contract_text_surfaces_semantic_role_and_quick_actions(
 
 def test_route_intent_prefers_note_editor_for_local_selected_edits():
     assert route_intent({"intent_route": "patch_node", "selected_element_id": "poll_1"}) == "note_editor"
-    assert route_intent({"intent_route": "content_node", "selected_element_id": "story_1"}) == "note_editor"
-    assert route_intent({"intent_route": "style_node", "selected_element_id": "title_1"}) == "note_editor"
+    assert route_intent({"intent_route": "research_agent", "selected_element_id": "story_1"}) == "note_editor"
+    assert route_intent({"intent_route": "theme_compiler", "selected_element_id": "title_1"}) == "note_editor"
 
 
 def test_route_intent_keeps_patch_node_when_no_local_selection():
@@ -60,7 +60,7 @@ def test_route_intent_keeps_patch_node_when_no_local_selection():
 
 def test_route_intent_prefers_note_editor_for_existing_canvas_global_edit():
     state = {
-        "intent_route": "content_node",
+        "intent_route": "research_agent",
         "selected_element_id": "无 (全局修改)",
         "main_messages": [type("Msg", (), {"content": "保留标题，重写第二段"})()],
         "document_view": {
@@ -75,7 +75,7 @@ def test_route_intent_prefers_note_editor_for_existing_canvas_global_edit():
 
 def test_route_intent_prefers_note_editor_for_existing_canvas_brief_edit_commands():
     state = {
-        "intent_route": "content_node",
+        "intent_route": "research_agent",
         "selected_element_id": "无 (全局修改)",
         "main_messages": [type("Msg", (), {"content": "文本简短一点"})()],
         "document_view": {
@@ -1175,8 +1175,8 @@ def test_resolve_global_target_id_prefers_passed_note_document_metadata():
 
 
 @pytest.mark.asyncio
-async def test_style_agent_respects_page_theme_over_vibe_defaults():
-    result = await style_agent(
+async def test_theme_compiler_respects_page_theme_over_vibe_defaults():
+    result = await theme_compiler(
         {
             "document_view": {
                 "page_theme": {"--bg-color": "#e2e8f0", "--primary-vibe": "#0f172a"},

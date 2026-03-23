@@ -39,14 +39,15 @@ async def test_intent_gateway_global_evaluation():
         mock_ainvoke.assert_called_once()
 
     # 断言 1: 正确路由与 archetype
-    assert result["intent_route"] == "content_node"
+    assert result["intent_route"] == "research_agent"
     assert result["active_archetype"] == "seeding"
     assert result["intent_result_v2"]["task_type"] == "create"
     assert result["intent_result_v2"]["edit_scope"] == "none"
     # 断言 2: Token 防御 — 防止意图网关 Token 泄露；若有人误传全量 document_view，CI 将熔断
     if result.get("node_prompts", {}).get("intent_agent"):
         human_content = str(result["node_prompts"]["intent_agent"])
-        assert "Gateway V2" in human_content
+        assert "可用场景池" in human_content
+        assert "富士 X100VI" in human_content
 
 @pytest.mark.asyncio
 async def test_intent_gateway_fast_path():

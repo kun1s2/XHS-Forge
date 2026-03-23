@@ -19,11 +19,34 @@ def build_query_variants(*, user_query: str, entity_name: str) -> list[dict[str,
     ]
 
 
+def build_query_variants_for_profile(
+    *,
+    user_query: str,
+    entity_name: str,
+    retrieval_profile: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    if retrieval_profile and isinstance(retrieval_profile.get("query_variants"), list) and retrieval_profile["query_variants"]:
+        return [
+            {
+                "scope": str(item.get("scope") or "general"),
+                "query": str(item.get("query") or "").strip(),
+            }
+            for item in retrieval_profile["query_variants"]
+            if str(item.get("query") or "").strip()
+        ]
+    subject = str(entity_name or user_query or "").strip() or "当前主题"
+    return [
+        {"scope": "official", "query": f"{subject} 核心参数 价格 官方"},
+        {"scope": "review", "query": f"{subject} 用户评价 真实体验"},
+    ]
+
+
 def choose_retrieval_policy(
     *,
     user_query: str,
     cache_keywords: list[str] | None,
     needs_assets: str,
+    retrieval_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cache_hit_candidate = bool(cache_keywords)
     asset_mode = "search" if str(needs_assets or "").lower() == "search" else "none"
@@ -34,6 +57,8 @@ def choose_retrieval_policy(
         "enable_live_search": True,
         "enable_image_search": asset_mode == "search",
         "asset_mode": asset_mode,
+        "retrieval_profile": str((retrieval_profile or {}).get("profile_name") or "general_grounded"),
+        "retrieval_domain": str((retrieval_profile or {}).get("domain") or "general"),
         "reason": "优先复用热点知识底座，对长尾或未命中主题再做在线 grounded search。",
         "user_query": user_query,
     }

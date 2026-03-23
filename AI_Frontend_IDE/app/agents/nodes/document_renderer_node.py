@@ -47,7 +47,7 @@ def render_block(block: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
         
         img_tags = "".join([f'<img src="{u}" class="w-full h-full object-cover shrink-0 snap-center" />' for u in urls if u])
         return f'''
-        <div id="{comp_id}" data-comp-id="{comp_id}" class="w-full aspect-[4/5] relative overflow-hidden bg-gray-100 {css_classes}">
+        <div id="{comp_id}" data-comp-id="{comp_id}" class="w-full relative overflow-hidden bg-gray-100 aspect-[4/5] md:aspect-[5/4] xl:aspect-[16/10] max-h-[460px] {css_classes}">
             <div class="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">
                 {img_tags}
             </div>
@@ -156,7 +156,7 @@ def render_block(block: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
         temperature = comp_data.get("temperature") or ""
         time = comp_data.get("time") or ""
         if not image_url and not desc: return ""
-        image_html = f'<img src="{image_url}" class="w-full aspect-[4/5] object-cover" />' if image_url else ""
+        image_html = f'<img src="{image_url}" class="w-full object-cover aspect-[4/5] md:aspect-[5/6] xl:aspect-[6/7] max-h-[440px]" />' if image_url else ""
         meta = " ".join(part for part in [weather, temperature, time] if part)
         return f'''
         <div id="{comp_id}" data-comp-id="{comp_id}" class="mx-4 overflow-hidden {css_classes}">
@@ -170,7 +170,7 @@ def render_block(block: Dict[str, Any], global_vars: Dict[str, Any]) -> str:
 
     return ""
 
-async def render_node(state: UIProjectState) -> dict:
+async def document_renderer(state: UIProjectState) -> dict:
     """
     【后端物理渲染器 5.6】：物理级数据校验，严禁占位符。
     """
@@ -204,11 +204,13 @@ async def render_node(state: UIProjectState) -> dict:
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {{ {css_vars_str} }}
-        body {{ background-color: var(--bg-color); margin: 0; padding: 0; display: flex; justify-content: center; }}
+        body {{ background-color: var(--bg-color); margin: 0; padding: 24px 16px; display: flex; justify-content: center; }}
         .mobile-viewport {{
-            width: 100%; max-width: 420px; min-height: 100vh;
+            width: 100%; max-width: 580px; min-height: calc(100vh - 48px);
             background-color: var(--bg-color);
             box-shadow: 0 40px 120px rgba(0,0,0,0.08);
+            border-radius: 28px;
+            overflow: hidden;
             display: flex; flex-direction: column; gap: 28px;
             padding-bottom: 100px; position: relative;
         }}
@@ -246,6 +248,3 @@ async def render_node(state: UIProjectState) -> dict:
         "final_oss_url": oss_url,
         "note_document": build_note_document_from_state(merged_state)
     }
-
-
-document_renderer_node = render_node

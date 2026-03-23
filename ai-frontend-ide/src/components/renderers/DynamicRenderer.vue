@@ -1,5 +1,5 @@
 <template>
-  <div class="mobile-container pb-20" :style="globalStyles">
+  <div class="preview-shell pb-[92px]" :style="globalStyles">
     <div class="sticky top-0 z-50 px-4 py-3 flex justify-between items-center border-b backdrop-blur-md" :style="topBarStyle">
       <div class="text-xl font-bold cursor-pointer w-8 h-8 flex items-center justify-center rounded-full transition-colors" :style="iconButtonStyle">←</div>
       <div class="flex gap-5 text-[15px]">
@@ -17,6 +17,8 @@
           :key="block.id" 
           :node="block" 
           :index="idx" 
+          :interactive="true"
+          :selection-enabled="previewInteractionMode === 'select'"
         />
       </template>
       
@@ -31,7 +33,7 @@
       </div>
     </div>
 
-    <div class="fixed bottom-0 w-full max-w-[420px] px-4 py-2.5 flex justify-between items-center z-50 border-t backdrop-blur-md" :style="bottomBarStyle">
+    <div class="absolute inset-x-0 bottom-0 px-4 py-2.5 flex justify-between items-center z-50 border-t backdrop-blur-md" :style="bottomBarStyle">
       <div class="rounded-full px-4 py-2 text-[13px] flex-1 mr-4 cursor-text border" :style="composerStyle">说点什么...</div>
       <div class="flex gap-5 text-xl" :style="actionBarStyle">
         <span>🤍</span>
@@ -49,7 +51,7 @@ import { useChatStore } from '../../stores/useChatStore'
 import { storeToRefs } from 'pinia'
 
 const chatStore = useChatStore()
-const { currentNode, renderPageData, renderStyleData } = storeToRefs(chatStore)
+const { currentNode, renderPageData, renderStyleData, previewInteractionMode } = storeToRefs(chatStore)
 
 const blocks = computed(() => {
   return (renderPageData.value as any)?.blocks || []
@@ -128,16 +130,24 @@ const emptyStateStyle = computed(() => ({
 </script>
 
 <style scoped>
-.mobile-container {
+.preview-shell {
   width: 100%;
-  max-width: 420px;
+  max-width: min(100%, 580px);
   background-color: var(--bg-color);
   background-image: var(--bg-gradient);
-  min-height: 100vh;
+  min-height: 100%;
   box-shadow: 0 10px 50px rgba(0,0,0,0.1);
+  border-radius: 24px;
   position: relative;
   overflow-x: hidden;
   margin: 0 auto;
+}
+
+@media (max-width: 767px) {
+  .preview-shell {
+    max-width: 100%;
+    border-radius: 0;
+  }
 }
 
 .list-enter-active,

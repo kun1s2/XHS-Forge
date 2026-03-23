@@ -5,6 +5,23 @@ from langgraph.graph.message import add_messages
 from app.core.note_document import build_note_document_from_state, update_note_document_block
 
 
+def merge_image_assets(left: list[dict[str, Any]] | None, right: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """
+    图片资产的状态合并器。
+
+    默认行为仍然是 append，兼容“新增一张图”的轻量 patch；
+    当右侧列表首项带有 `__replace__` 标记时，改为整表替换，供工作台删除/重排资产使用。
+    """
+    safe_left = [item for item in (left or []) if isinstance(item, dict)]
+    safe_right = [item for item in (right or []) if isinstance(item, dict)]
+    if safe_right and safe_right[0].get("__replace__"):
+        return [
+            {k: v for k, v in item.items() if k != "__replace__"}
+            for item in safe_right[1:]
+        ]
+    return safe_left + safe_right
+
+
 def merge_state_patch(left: dict, right: dict) -> dict:
     """
     深度合并字典（增加防御性编程与列表覆盖机制）
@@ -78,6 +95,38 @@ def merge_patch_tracks(left: dict, right: dict) -> dict:
                 merged[k] = v
     return merged
 
+
+def merge_turn_anchors(
+    left: list[dict[str, Any]] | None,
+    right: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """
+    对话历史锚点合并器。
+
+    每个锚点对应某个消息面板里的一个用户轮次，记录“这一轮最终可回退/可分支的历史点”。
+    这里按 `(panel, turn_index)` 做 upsert，确保同一轮不会无限追加重复锚点。
+    """
+    merged: list[dict[str, Any]] = [
+        dict(item)
+        for item in (left or [])
+        if isinstance(item, dict)
+    ]
+
+    for candidate in right or []:
+        if not isinstance(candidate, dict):
+            continue
+        panel = str(candidate.get("panel") or "main")
+        turn_index = int(candidate.get("turn_index") or 0)
+        replaced = False
+        for idx, existing in enumerate(merged):
+            if str(existing.get("panel") or "main") == panel and int(existing.get("turn_index") or 0) == turn_index:
+                merged[idx] = dict(candidate)
+                replaced = True
+                break
+        if not replaced:
+            merged.append(dict(candidate))
+    return merged
+
 def restore_component_version(state: Any, element_id: str, version_index: int) -> dict:
     """
     【局部回溯逻辑】：从 patch_tracks 提取快照，并构造绝对覆盖的补丁，消除幽灵数据。
@@ -132,6 +181,9 @@ class UIProjectState(TypedDict):
     planner_output: Optional[Any]
     planner_policy: Annotated[dict, merge_state_patch]
     scenario_scores: Annotated[dict, merge_state_patch]
+    conversation_checkpoint: Annotated[dict, merge_state_patch]
+    checkpoint_progress: Annotated[dict, merge_state_patch]
+    checkpoint_decision: Annotated[dict, merge_state_patch]
     note_document: Annotated[dict, merge_state_patch]
     turn_trace: Annotated[dict, merge_state_patch]
     agent_backends: Annotated[dict, merge_state_patch]
@@ -140,7 +192,7 @@ class UIProjectState(TypedDict):
     # 全局图库资产池 [{"url": "...", "desc": "..."}]
     # 加上 operator.add 后，asset_node 只需要 return {"image_assets": [新图]}
     # LangGraph 底层会自动把新图 append 到老数组后面，绝对不会再发生覆盖丢失了！
-    image_assets: Annotated[List[Dict[str, Any]], operator.add]
+    image_assets: Annotated[List[Dict[str, Any]], merge_image_assets]
     
     # 待打标的图片队列（本轮新上传的 URL，asset_node 处理完会清空）
     pending_images: List[str]
@@ -150,6 +202,7 @@ class UIProjectState(TypedDict):
     
     # ✨ 核心新增：组件级生长档案
     patch_tracks: Annotated[dict, merge_patch_tracks]
+    turn_anchors: Annotated[List[Dict[str, Any]], merge_turn_anchors]
     
     # ✨ 新增：用于调试的提示词检查槽位 { "node_name": "full_prompt_text" }
     node_prompts: Annotated[dict, merge_state_patch]

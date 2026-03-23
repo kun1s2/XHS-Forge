@@ -1,5 +1,5 @@
 [DEBUG] 最新工作台动作 thread=thread-1
-[2026-03-21 23:38:36] ========== WORKSPACE ACTION ==========
-[2026-03-21 23:38:36] 🧭 [WORKSPACE] action=workspace_import_asset | selected=global | reason=素材入池: 图库图
-[2026-03-21 23:38:36] ========== TURN END ==========
-[2026-03-21 23:38:36] 🏁 [TURN END]: action=workspace_import_asset | target=global | blocks=0 | changed=0 | warnings=0
+[2026-03-23 10:10:12] ========== WORKSPACE ACTION ==========
+[2026-03-23 10:10:12] 🧭 [WORKSPACE] action=workspace_update_asset_preferences | selected=global | reason=更新素材偏好: 正文图
+[2026-03-23 10:10:12] ========== TURN END ==========
+[2026-03-23 10:10:12] 🏁 [TURN END]: action=workspace_update_asset_preferences | target=global | blocks=0 | changed=0 | warnings=0

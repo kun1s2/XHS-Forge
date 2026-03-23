@@ -148,7 +148,7 @@
 - 从 `block_intents` 映射具体组件
 - 决定大纲结构的稳定落地方式
 
-它是对早期 `outline_node` / ReAct 大纲脑的替代方向。
+它是对早期 `outline_resolver` / ReAct 大纲脑的替代方向。
 
 #### `component_builder_contract_layer`
 职责：
@@ -264,7 +264,7 @@
 - `checkpoint/fork/rollback runtime`
 
 ### 最终应该被弱化或删除的旧形态
-- 重 ReAct 的 `outline_node`
+- 重 ReAct 的 `outline_resolver`
 - 让模型漫游画布工具的老式布局脑
 - 纯 prompt 驱动、职责与其他层重叠的历史节点
 
@@ -363,7 +363,7 @@
 如果继续往这个目标推进，最值得的后续方向是：
 
 ### 1. 继续去 ReAct 化
-- 把 `outline_node` 彻底收成 `outline_resolver`
+- 把 `outline_resolver` 彻底收成确定性大纲解析器
 - 让大纲层完全围绕 `block_intents + manifest`
 
 ### 2. 继续强化 builder contract

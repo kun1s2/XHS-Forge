@@ -1,8 +1,8 @@
-"""Formal NoteDocument bridge layer.
+"""正式的 NoteDocument 桥接层。
 
-This module is the single place where the workspace folds runtime state into
-the canonical document protocol and, when a node needs a compact editing view,
-projects the document into a normalized read-only layout snapshot.
+这个文件是运行时状态折叠成 `NoteDocument` 的唯一入口。主链节点如果需要
+正式文档协议、紧凑编辑视图、布局投影或文档级 patch，都应该优先复用这里
+的函数，而不是在各自文件里重新拼装。
 """
 
 from copy import deepcopy
@@ -13,6 +13,7 @@ from app.agents.utils.fact_utils import FACT_FIELD_LABELS
 
 
 def _label_fact_fields(fields: list[str]) -> list[str]:
+    """把事实字段名转换成人类可读标签。"""
     labels: list[str] = []
     for field in fields:
         field_key = str(field).strip()
@@ -23,66 +24,284 @@ def _label_fact_fields(fields: list[str]) -> list[str]:
 
 
 def _extract_asset_urls(payload: dict[str, Any]) -> list[str]:
+    """从组件 payload 中提取直接引用的图片 URL。"""
     urls: list[str] = []
     if not isinstance(payload, dict):
         return urls
     image_url = payload.get("image_url")
-    if isinstance(image_url, str) and image_url.strip():
+    if isinstance(image_url, str) and image_url.strip() and "example.com" not in image_url and "picsum.photos" not in image_url and "placeholder" not in image_url:
         urls.append(image_url.strip())
     for item in payload.get("image_urls") or []:
-        if isinstance(item, str) and item.strip():
+        if isinstance(item, str) and item.strip() and "example.com" not in item and "picsum.photos" not in item and "placeholder" not in item:
             urls.append(item.strip())
     return urls
+
+
+def _is_placeholder_image_url(value: Any) -> bool:
+    """过滤运行时遗留的假图链接。"""
+    url = str(value or "").strip().lower()
+    if not url:
+        return False
+    return any(token in url for token in ("example.com", "picsum.photos", "placeholder"))
+
+
+def _sanitize_block_media_props(props: dict[str, Any] | None) -> dict[str, Any]:
+    """统一清洗区块 props 里的图片字段。"""
+    cleaned = deepcopy(props or {})
+    if not isinstance(cleaned, dict):
+        return {}
+    if isinstance(cleaned.get("image_urls"), list):
+        cleaned["image_urls"] = [
+            str(item).strip()
+            for item in (cleaned.get("image_urls") or [])
+            if str(item or "").strip() and not _is_placeholder_image_url(item)
+        ]
+    if _is_placeholder_image_url(cleaned.get("image_url")):
+        cleaned.pop("image_url", None)
+    return cleaned
 
 
 def _normalize_document_assets(
     image_assets: list[dict[str, Any]] | None,
     blocks: list[dict[str, Any]] | None,
+    *,
+    preferred_cover_url: str | None = None,
+    existing_assets: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    """把运行时素材列表归一化成文档级资产结构。"""
     normalized_assets = []
     normalized_blocks = [block for block in (blocks or []) if isinstance(block, dict)]
+    existing_by_url = {
+        str(asset.get("url") or ""): deepcopy(asset)
+        for asset in (existing_assets or [])
+        if isinstance(asset, dict) and asset.get("url")
+    }
     for asset in deepcopy(image_assets or []):
         if not isinstance(asset, dict) or not asset.get("url"):
             continue
+        asset_url = str(asset["url"])
         used_by_blocks = []
         for block in normalized_blocks:
             asset_refs = list(block.get("asset_refs") or [])
             props = block.get("props") or {}
             if not asset_refs:
                 asset_refs = _extract_asset_urls(props)
-            if asset["url"] in asset_refs:
+            if asset_url in asset_refs:
                 used_by_blocks.append(str(block.get("id") or ""))
+        previous_asset = existing_by_url.get(asset_url, {})
+        previous_role = str(previous_asset.get("role") or asset.get("role") or "supporting")
+        if preferred_cover_url and asset_url == preferred_cover_url:
+            normalized_role = "cover"
+        elif previous_role == "cover":
+            normalized_role = "supporting"
+        else:
+            normalized_role = previous_role
         normalized_assets.append({
-            "id": asset.get("id") or asset["url"],
-            "url": asset["url"],
-            "desc": asset.get("desc", ""),
-            "source_type": asset.get("source_type", "unknown"),
-            "query": asset.get("query"),
-            "role": asset.get("role") or "supporting",
-            "locked": bool(asset.get("locked", False)),
-            "selection_state": asset.get("selection_state", "available"),
-            "source_reason": asset.get("source_reason") or asset.get("desc", ""),
+            "id": asset.get("id") or previous_asset.get("id") or asset_url,
+            "url": asset_url,
+            "desc": asset.get("desc") or previous_asset.get("desc", ""),
+            "source_type": asset.get("source_type") or previous_asset.get("source_type", "unknown"),
+            "query": asset.get("query") or previous_asset.get("query"),
+            "role": normalized_role,
+            "locked": bool(asset.get("locked", previous_asset.get("locked", False))),
+            "selection_state": asset.get("selection_state") or previous_asset.get("selection_state", "available"),
+            "source_reason": asset.get("source_reason") or previous_asset.get("source_reason") or asset.get("desc", ""),
             "used_by_blocks": [block_id for block_id in used_by_blocks if block_id],
         })
     return normalized_assets
 
 
-def _pick_grounding_sources(knowledge: dict[str, Any], preferred_scope: str | None = None, limit: int = 3) -> list[str]:
+def _normalize_cover_asset_roles(
+    assets: list[dict[str, Any]] | None,
+    preferred_cover_url: str | None,
+) -> list[dict[str, Any]]:
+    """根据封面偏好统一资产角色，避免“选封面”等于提前生成封面块。"""
+    normalized_assets: list[dict[str, Any]] = []
+    for asset in deepcopy(assets or []):
+        if not isinstance(asset, dict) or not asset.get("url"):
+            continue
+        next_asset = deepcopy(asset)
+        if preferred_cover_url and str(next_asset.get("url") or "") == preferred_cover_url:
+            next_asset["role"] = "cover"
+        elif str(next_asset.get("role") or "") == "cover":
+            next_asset["role"] = "supporting"
+        normalized_assets.append(next_asset)
+    return normalized_assets
+
+
+def _pick_grounding_source_items(
+    knowledge: dict[str, Any],
+    preferred_scope: str | None = None,
+    limit: int = 3,
+) -> list[dict[str, str]]:
+    """按来源范围挑选最适合展示的 grounding 引用，并保留标题与链接。"""
     sources = [item for item in (knowledge.get("fact_sources") or []) if isinstance(item, dict)]
+    picked: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _collect(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+        collected: list[dict[str, str]] = []
+        for item in rows:
+            label = str(item.get("title") or item.get("url") or "").strip()
+            url = str(item.get("url") or "").strip()
+            if not label:
+                continue
+            key = (label, url)
+            if key in seen:
+                continue
+            seen.add(key)
+            collected.append({
+                "label": label,
+                "url": url,
+                "source_scope": str(item.get("source_scope") or "").strip(),
+            })
+            if len(collected) >= limit:
+                break
+        return collected
+
     if preferred_scope:
-        scoped = [
-            str(item.get("title") or item.get("url") or "").strip()
-            for item in sources
-            if str(item.get("source_scope") or "").strip() == preferred_scope and str(item.get("title") or item.get("url") or "").strip()
+        scoped_rows = [
+            item for item in sources
+            if str(item.get("source_scope") or "").strip() == preferred_scope
         ]
-        if scoped:
-            return scoped[:limit]
-    fallback = [
-        str(item.get("title") or item.get("url") or "").strip()
-        for item in sources
-        if str(item.get("title") or item.get("url") or "").strip()
+        picked = _collect(scoped_rows)
+        if picked:
+            return picked[:limit]
+
+    return _collect(sources)[:limit]
+
+
+def _pick_grounding_sources(knowledge: dict[str, Any], preferred_scope: str | None = None, limit: int = 3) -> list[str]:
+    """按来源范围挑选最适合展示的 grounding 引用。"""
+    return [item["label"] for item in _pick_grounding_source_items(knowledge, preferred_scope=preferred_scope, limit=limit)]
+
+
+def _merge_binding_into_meta(meta: dict[str, Any] | None, binding: dict[str, Any] | None) -> dict[str, Any]:
+    """把块级或字段级 binding 投影回 props 元数据。"""
+    next_meta = deepcopy(meta or {})
+    safe_binding = binding if isinstance(binding, dict) else {}
+
+    sources = list(next_meta.get("sources") or [])
+    for source in safe_binding.get("sources") or []:
+        source_text = str(source or "").strip()
+        if source_text and source_text not in sources:
+            sources.append(source_text)
+    if sources:
+        next_meta["sources"] = sources
+
+    source_items = [
+        item
+        for item in (next_meta.get("source_items") or [])
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
     ]
-    return fallback[:limit]
+    seen_source_items = {
+        f'{str(item.get("label") or "").strip()}::{str(item.get("url") or "").strip()}'
+        for item in source_items
+    }
+    for item in safe_binding.get("source_items") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        url = str(item.get("url") or "").strip()
+        if not label:
+            continue
+        key = f"{label}::{url}"
+        if key in seen_source_items:
+            continue
+        seen_source_items.add(key)
+        source_items.append(
+            {
+                "label": label,
+                "url": url,
+                "source_scope": str(item.get("source_scope") or "").strip(),
+            }
+        )
+    if source_items:
+        next_meta["source_items"] = source_items
+
+    if safe_binding.get("confidence"):
+        next_meta["confidence"] = safe_binding.get("confidence")
+    if safe_binding.get("hint") and not next_meta.get("hint"):
+        next_meta["hint"] = safe_binding.get("hint")
+    if safe_binding.get("kind") and not next_meta.get("kind"):
+        next_meta["kind"] = safe_binding.get("kind")
+    if safe_binding.get("fact_fields"):
+        next_meta["fields"] = [str(field) for field in (safe_binding.get("fact_fields") or []) if str(field).strip()]
+    return next_meta
+
+
+def _project_fact_bindings_into_props(
+    *,
+    block_type: str,
+    props: dict[str, Any],
+    bindings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """把绑定信息继续投影到 props 的段落/字段元数据，供前端按项展示来源。"""
+    next_props = deepcopy(props or {})
+    if not bindings:
+        return next_props
+
+    if block_type == "StoryText":
+        paragraph_meta = list(next_props.get("paragraph_meta") or [])
+        paragraphs = list(next_props.get("paragraphs") or [])
+        while len(paragraph_meta) < len(paragraphs):
+            paragraph_meta.append({})
+
+        sections = list(next_props.get("sections") or [])
+        for binding in bindings:
+            field = str(binding.get("field") or "")
+            if field.startswith("paragraphs[") and field.endswith("]"):
+                try:
+                    paragraph_index = int(field[len("paragraphs[") : -1])
+                except ValueError:
+                    continue
+                if 0 <= paragraph_index < len(paragraph_meta):
+                    paragraph_meta[paragraph_index] = _merge_binding_into_meta(paragraph_meta[paragraph_index], binding)
+                if 0 <= paragraph_index < len(sections):
+                    sections[paragraph_index] = _merge_binding_into_meta(sections[paragraph_index], binding)
+
+        if paragraph_meta:
+            next_props["paragraph_meta"] = paragraph_meta
+        if sections:
+            next_props["sections"] = sections
+        return next_props
+
+    if block_type == "ProductSpecCard":
+        feature_meta = list(next_props.get("feature_meta") or [])
+        core_features = list(next_props.get("core_features") or [])
+        while len(feature_meta) < len(core_features):
+            feature_meta.append({})
+
+        spec_items = list(next_props.get("spec_items") or [])
+        for binding in bindings:
+            field = str(binding.get("field") or "")
+            if field.startswith("core_features[") and field.endswith("]"):
+                try:
+                    feature_index = int(field[len("core_features[") : -1])
+                except ValueError:
+                    continue
+                if 0 <= feature_index < len(feature_meta):
+                    feature_meta[feature_index] = _merge_binding_into_meta(feature_meta[feature_index], binding)
+                if 0 <= feature_index < len(spec_items) and isinstance(spec_items[feature_index], dict):
+                    spec_items[feature_index] = _merge_binding_into_meta(spec_items[feature_index], binding)
+
+        if feature_meta:
+            next_props["feature_meta"] = feature_meta
+        if spec_items:
+            next_props["spec_items"] = spec_items
+        return next_props
+
+    if block_type == "RadarChartBlock":
+        metrics = list(next_props.get("metrics") or [])
+        score_binding = next((item for item in bindings if str(item.get("field") or "") == "scores"), None)
+        if score_binding and metrics:
+            next_props["metrics"] = [
+                _merge_binding_into_meta(metric if isinstance(metric, dict) else {}, score_binding)
+                for metric in metrics
+            ]
+        return next_props
+
+    return next_props
 
 
 def _build_retrieval_fact_bindings(
@@ -91,6 +310,7 @@ def _build_retrieval_fact_bindings(
     props: dict[str, Any],
     knowledge: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    """按组件类型生成 block 级 retrieval grounding 绑定。"""
     if not isinstance(knowledge, dict) or not (knowledge.get("fact_sources") or knowledge.get("confirmed_facts")):
         return []
 
@@ -101,7 +321,9 @@ def _build_retrieval_fact_bindings(
             "fact_fields": [str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()],
             "fact_field_labels": _label_fact_fields([str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()]),
             "kind": "retrieval_grounded",
+            "confidence": str(knowledge.get("fact_confidence") or "medium"),
             "sources": _pick_grounding_sources(knowledge, preferred_scope="official"),
+            "source_items": _pick_grounding_source_items(knowledge, preferred_scope="official"),
             "hint": "该参数卡引用了本轮检索到的官方/高可信资料",
         })
     elif block_type == "StoryText" and props.get("paragraphs"):
@@ -110,7 +332,9 @@ def _build_retrieval_fact_bindings(
             "fact_fields": [str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()],
             "fact_field_labels": _label_fact_fields([str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()]),
             "kind": "retrieval_grounded",
+            "confidence": str(knowledge.get("fact_confidence") or "medium"),
             "sources": _pick_grounding_sources(knowledge, preferred_scope="review"),
+            "source_items": _pick_grounding_source_items(knowledge, preferred_scope="review"),
             "hint": "该段正文引用了本轮检索证据或已确认事实",
         })
     elif block_type == "LocationBlock":
@@ -119,7 +343,9 @@ def _build_retrieval_fact_bindings(
             "fact_fields": [],
             "fact_field_labels": [],
             "kind": "retrieval_grounded",
+            "confidence": str(knowledge.get("fact_confidence") or "medium"),
             "sources": _pick_grounding_sources(knowledge, preferred_scope="official"),
+            "source_items": _pick_grounding_source_items(knowledge, preferred_scope="official"),
             "hint": "该地点信息引用了本轮检索资料",
         })
     elif block_type == "RadarChartBlock" and props.get("scores"):
@@ -128,22 +354,27 @@ def _build_retrieval_fact_bindings(
             "fact_fields": [str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()],
             "fact_field_labels": _label_fact_fields([str(field) for field in (knowledge.get("confirmed_facts") or {}).keys()]),
             "kind": "retrieval_grounded",
+            "confidence": str(knowledge.get("fact_confidence") or "medium"),
             "sources": _pick_grounding_sources(knowledge, preferred_scope="official"),
+            "source_items": _pick_grounding_source_items(knowledge, preferred_scope="official"),
             "hint": "该评分概览由本轮检索证据支撑",
         })
-    elif block_type == "VersusCard" and (props.get("proText") or props.get("conText")):
+    elif block_type == "VersusCard" and (props.get("pros") or props.get("cons") or props.get("proText") or props.get("conText")):
         bindings.append({
             "field": "comparison_copy",
             "fact_fields": [],
             "fact_field_labels": [],
             "kind": "retrieval_grounded",
+            "confidence": str(knowledge.get("fact_confidence") or "medium"),
             "sources": _pick_grounding_sources(knowledge, preferred_scope="review"),
+            "source_items": _pick_grounding_source_items(knowledge, preferred_scope="review"),
             "hint": "该对比结论综合了本轮检索到的口碑/评价来源",
         })
     return [item for item in bindings if item.get("sources")]
 
 
 def _apply_retrieval_grounding_to_document(note_document: dict[str, Any] | None, knowledge: dict[str, Any] | None) -> dict[str, Any]:
+    """把检索到的 grounding 绑定应用到整份文档。"""
     document = deepcopy(note_document or {})
     safe_knowledge = knowledge if isinstance(knowledge, dict) else {}
     if not safe_knowledge:
@@ -166,6 +397,11 @@ def _apply_retrieval_grounding_to_document(note_document: dict[str, Any] | None,
         for item in derived_bindings:
             if str(item.get("field") or "") not in existing_fields:
                 merged_bindings.append(item)
+        next_block["props"] = _project_fact_bindings_into_props(
+            block_type=str(next_block.get("type") or ""),
+            props=deepcopy(next_block.get("props") or {}),
+            bindings=merged_bindings,
+        )
         next_block["fact_bindings"] = merged_bindings
         blocks.append(next_block)
         if merged_bindings:
@@ -189,6 +425,7 @@ def build_note_document(
     retrieved_knowledge: dict[str, Any] | None = None,
     planner_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """从 document_view / style / assets 等运行态材料构造正式 NoteDocument。"""
     data = deepcopy(document_view or {})
     styles = deepcopy(block_style_map or {})
     assets = deepcopy(image_assets or [])
@@ -201,7 +438,7 @@ def build_note_document(
     for index, block in enumerate(block_list):
         block_id = str(block.get("id") or f"block_{index}")
         component_type = normalize_component_type(block.get("component_type")) or str(block.get("component_type") or "")
-        props = deepcopy(data.get(block_id, {}) or {})
+        props = _sanitize_block_media_props(data.get(block_id, {}) or {})
         block_style = deepcopy(styles.get(block_id, {}) or {})
         asset_refs = _extract_asset_urls(props)
         block_fact_bindings = []
@@ -217,7 +454,9 @@ def build_note_document(
                     "fact_fields": fact_fields,
                     "fact_field_labels": _label_fact_fields(fact_fields),
                     "kind": meta.get("kind") or "default",
+                    "confidence": meta.get("confidence") or ("high" if (meta.get("kind") or "default") == "verified" else ("low" if (meta.get("kind") or "default") == "caution" else "medium")),
                     "sources": list(meta.get("sources") or []),
+                    "source_items": deepcopy(meta.get("source_items") or []),
                     "hint": meta.get("hint"),
                 })
 
@@ -236,7 +475,9 @@ def build_note_document(
                     "fact_fields": fact_fields,
                     "fact_field_labels": _label_fact_fields(fact_fields),
                     "kind": meta.get("kind") or "default",
+                    "confidence": meta.get("confidence") or ("high" if (meta.get("kind") or "default") == "verified" else ("low" if (meta.get("kind") or "default") == "caution" else "medium")),
                     "sources": list(meta.get("sources") or []),
+                    "source_items": deepcopy(meta.get("source_items") or []),
                     "hint": meta.get("hint"),
                 })
 
@@ -258,7 +499,17 @@ def build_note_document(
         if block_fact_bindings:
             top_level_fact_bindings.append({"block_id": block_id, "bindings": block_fact_bindings})
 
-    normalized_assets = _normalize_document_assets(assets, blocks)
+    cover_asset_url = str(
+        next(
+            (
+                item.get("url")
+                for item in (assets or [])
+                if isinstance(item, dict) and str(item.get("role") or "") == "cover" and str(item.get("url") or "").strip()
+            ),
+            "",
+        )
+    ).strip() or None
+    normalized_assets = _normalize_document_assets(assets, blocks, preferred_cover_url=cover_asset_url)
 
     document = {
         "document_meta": {
@@ -283,6 +534,7 @@ def build_note_document(
             "selected_element_id": selected_element_id,
             "active_panel": active_panel or "main",
             "patch_tracks": tracks,
+            "cover_asset_url": cover_asset_url,
         },
         "planner": deepcopy(planner_output or {}),
     }
@@ -290,6 +542,7 @@ def build_note_document(
 
 
 def note_document_to_document_view(note_document: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """把正式 NoteDocument 投影回紧凑 document_view + style_map + assets。"""
     note_document = deepcopy(note_document or {})
     document_view: dict[str, Any] = {
         "page_title": ((note_document.get("document_meta") or {}).get("title") or "XHS-Forge Note"),
@@ -332,6 +585,7 @@ def note_document_to_document_view(note_document: dict[str, Any] | None) -> tupl
 
 
 def build_note_document_layout(note_document: dict[str, Any] | None) -> dict[str, Any]:
+    """生成只读布局视图，供渲染器和分发逻辑快速消费。"""
     note_document = deepcopy(note_document or {})
     blocks: list[dict[str, Any]] = []
     for index, block in enumerate(note_document.get("blocks") or []):
@@ -345,7 +599,7 @@ def build_note_document_layout(note_document: dict[str, Any] | None) -> dict[str
             "id": block_id,
             "component_type": component_type,
             "content_brief": block.get("content_brief", ""),
-            "props": deepcopy(block.get("props") or {}),
+            "props": _sanitize_block_media_props(block.get("props") or {}),
             "style": deepcopy(block.get("style") or {}),
             "semantic_role": block.get("semantic_role") or "content",
             "editable_targets": deepcopy(block.get("editable_targets") or []),
@@ -363,6 +617,7 @@ def build_note_document_layout(note_document: dict[str, Any] | None) -> dict[str
 
 
 def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, Any]:
+    """从运行时 state 折叠出当前的正式 NoteDocument。"""
     state = state or {}
     existing = deepcopy(state.get("note_document") or {})
     if isinstance(existing, dict) and existing.get("blocks") is not None:
@@ -370,6 +625,18 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
         ui_state = existing.setdefault("ui_state", {})
         provenance = existing.setdefault("provenance", {})
         planner = existing.setdefault("planner", {})
+        cleaned_blocks: list[dict[str, Any]] = []
+        for block in existing.get("blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            next_block = deepcopy(block)
+            next_block["props"] = _sanitize_block_media_props(next_block.get("props") or {})
+            next_block["asset_refs"] = [
+                ref for ref in (next_block.get("asset_refs") or [])
+                if str(ref or "").strip() and not _is_placeholder_image_url(ref)
+            ]
+            cleaned_blocks.append(next_block)
+        existing["blocks"] = cleaned_blocks
 
         if state.get("active_archetype"):
             document_meta["active_archetype"] = state.get("active_archetype")
@@ -390,7 +657,12 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
         if state.get("planner_output") is not None:
             existing["planner"] = deepcopy(state.get("planner_output") or {})
         if state.get("image_assets") is not None:
-            existing["assets"] = _normalize_document_assets(state.get("image_assets") or [], existing.get("blocks") or [])
+            existing["assets"] = _normalize_document_assets(
+                state.get("image_assets") or [],
+                existing.get("blocks") or [],
+                preferred_cover_url=str(ui_state.get("cover_asset_url") or "").strip() or None,
+                existing_assets=existing.get("assets") or [],
+            )
         return _apply_retrieval_grounding_to_document(existing, state.get("retrieved_knowledge") or {})
 
     document = {
@@ -416,6 +688,7 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
             "selected_element_id": state.get("selected_element_id"),
             "active_panel": state.get("active_panel") or "main",
             "patch_tracks": deepcopy(state.get("patch_tracks") or {}),
+            "cover_asset_url": None,
         },
         "planner": deepcopy(state.get("planner_output") or {}),
     }
@@ -423,33 +696,33 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
 
 
 def build_note_document_layout_from_state(state: dict[str, Any] | None) -> dict[str, Any]:
-    """Project runtime state into the normalized document layout."""
+    """把运行时 state 直接投影成标准化布局视图。"""
     return build_note_document_layout(build_note_document_from_state(state))
 
 
 def build_note_document_editing_context(
     state: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    """Build the compact editing context derived from the formal NoteDocument."""
+    """构造编辑器所需的紧凑上下文：文档、视图、样式映射和素材列表。"""
     note_document = build_note_document_from_state(state)
     document_view, block_style_map, image_assets = note_document_to_document_view(note_document)
     return note_document, document_view, block_style_map, image_assets
 
 
 def build_document_view_from_note_document(note_document: dict[str, Any] | None) -> dict[str, Any]:
-    """Backward-compatible wrapper for tests; runtime code should use build_note_document_layout."""
+    """测试兼容包装：从 NoteDocument 生成 document_view。"""
     return build_note_document_layout(note_document)
 
 
 def build_document_view_from_state(state: dict[str, Any] | None) -> dict[str, Any]:
-    """Backward-compatible wrapper for tests; runtime code should use build_note_document_layout_from_state."""
+    """测试兼容包装：从 state 生成 document_view。"""
     return build_note_document_layout_from_state(state)
 
 
 def build_document_editing_context_from_state(
     state: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    """Backward-compatible wrapper for tests; runtime code should use build_note_document_editing_context."""
+    """测试兼容包装：从 state 生成编辑上下文。"""
     return build_note_document_editing_context(state)
 
 
@@ -461,6 +734,7 @@ def update_note_document_block(
     style: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """更新单个区块的 props / style / 元数据。"""
     document = deepcopy(note_document or {})
     blocks = list(document.get("blocks") or [])
     for block in blocks:
@@ -484,6 +758,7 @@ def update_note_document_theme(
     page_theme: dict[str, Any] | None = None,
     global_vars: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """更新文档级主题信息。"""
     document = deepcopy(note_document or {})
     theme = document.setdefault("theme", {})
     if page_theme is not None:
@@ -494,13 +769,139 @@ def update_note_document_theme(
 
 
 def update_note_document_title(note_document: dict[str, Any] | None, title: str) -> dict[str, Any]:
+    """更新文档标题。"""
     document = deepcopy(note_document or {})
     meta = document.setdefault("document_meta", {})
     meta["title"] = title
     return document
 
 
+def update_note_document_cover_preference(
+    note_document: dict[str, Any] | None,
+    cover_asset_url: str | None,
+) -> dict[str, Any]:
+    """只记录封面素材偏好，不提前物化封面区块。"""
+    document = deepcopy(note_document or {})
+    ui_state = document.setdefault("ui_state", {})
+    normalized_cover_url = str(cover_asset_url or "").strip() or None
+    ui_state["cover_asset_url"] = normalized_cover_url
+    document["assets"] = _normalize_cover_asset_roles(document.get("assets") or [], normalized_cover_url)
+    return document
+
+
+def update_note_document_asset_preferences(
+    note_document: dict[str, Any] | None,
+    asset_url: str,
+    *,
+    role: str | None = None,
+    locked: bool | None = None,
+    selection_state: str | None = None,
+) -> dict[str, Any]:
+    """更新单个文档资产的使用偏好，并同步封面偏好。"""
+    document = deepcopy(note_document or {})
+    normalized_url = str(asset_url or "").strip()
+    if not normalized_url:
+        return document
+
+    ui_state = document.setdefault("ui_state", {})
+    normalized_role = str(role or "").strip() or None
+    normalized_selection_state = str(selection_state or "").strip() or None
+
+    updated_assets: list[dict[str, Any]] = []
+    asset_exists = False
+    for asset in document.get("assets") or []:
+        if not isinstance(asset, dict) or not asset.get("url"):
+            continue
+        next_asset = deepcopy(asset)
+        if str(next_asset.get("url") or "") == normalized_url:
+            asset_exists = True
+            if normalized_role is not None:
+                next_asset["role"] = normalized_role
+            if locked is not None:
+                next_asset["locked"] = bool(locked)
+            if normalized_selection_state is not None:
+                next_asset["selection_state"] = normalized_selection_state
+                if normalized_selection_state == "excluded":
+                    next_asset["locked"] = False
+                    if str(next_asset.get("role") or "") == "cover":
+                        next_asset["role"] = "supporting"
+            if normalized_role == "cover":
+                next_asset["selection_state"] = "available"
+        updated_assets.append(next_asset)
+
+    if not asset_exists:
+        updated_assets.append({
+            "id": normalized_url,
+            "url": normalized_url,
+            "desc": "",
+            "source_type": "unknown",
+            "query": None,
+            "role": normalized_role or "supporting",
+            "locked": bool(locked),
+            "selection_state": normalized_selection_state or "available",
+            "source_reason": "",
+            "used_by_blocks": [],
+        })
+
+    if normalized_role == "cover":
+        ui_state["cover_asset_url"] = normalized_url
+        document["assets"] = _normalize_cover_asset_roles(updated_assets, normalized_url)
+    else:
+        current_cover_url = str(ui_state.get("cover_asset_url") or "").strip()
+        if current_cover_url == normalized_url and (
+            normalized_selection_state == "excluded" or normalized_role in {"inline", "supporting"}
+        ):
+            ui_state["cover_asset_url"] = None
+        document["assets"] = _normalize_cover_asset_roles(updated_assets, str(ui_state.get("cover_asset_url") or "").strip() or None)
+    return document
+
+
+def remove_note_document_asset(
+    note_document: dict[str, Any] | None,
+    asset_url: str,
+) -> dict[str, Any]:
+    """删除文档资产，并同步清理封面偏好与区块中的直接图片引用。"""
+    document = deepcopy(note_document or {})
+    normalized_url = str(asset_url or "").strip()
+    if not normalized_url:
+        return document
+
+    document["assets"] = [
+        deepcopy(asset)
+        for asset in (document.get("assets") or [])
+        if isinstance(asset, dict) and str(asset.get("url") or "") != normalized_url
+    ]
+
+    ui_state = document.setdefault("ui_state", {})
+    if str(ui_state.get("cover_asset_url") or "") == normalized_url:
+        ui_state["cover_asset_url"] = None
+
+    cleaned_blocks: list[dict[str, Any]] = []
+    for block in document.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        next_block = deepcopy(block)
+        next_block["asset_refs"] = [
+            ref for ref in (next_block.get("asset_refs") or [])
+            if str(ref or "") != normalized_url
+        ]
+        props = deepcopy(next_block.get("props") or {})
+        if isinstance(props.get("image_urls"), list):
+            props["image_urls"] = [
+                item for item in props.get("image_urls") or []
+                if str(item or "") != normalized_url and not _is_placeholder_image_url(item)
+            ]
+        if str(props.get("image_url") or "") == normalized_url or _is_placeholder_image_url(props.get("image_url")):
+            props.pop("image_url", None)
+        next_block["props"] = props
+        cleaned_blocks.append(next_block)
+
+    document["blocks"] = cleaned_blocks
+    return document
+
+
 def replace_note_document_blocks(note_document: dict[str, Any] | None, blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    """整批替换文档区块列表。"""
     document = deepcopy(note_document or {})
     document["blocks"] = deepcopy(blocks)
     return document
@@ -512,6 +913,7 @@ def append_note_document_block(
     *,
     props: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """在文档尾部追加一个区块，并补齐 block 能力元数据。"""
     document = deepcopy(note_document or {})
     blocks = list(document.get("blocks") or [])
     component_type = normalize_component_type(block.get("component_type")) or str(block.get("type") or block.get("component_type") or "")
@@ -547,6 +949,7 @@ def insert_note_document_block(
     *,
     props: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """在指定位置插入一个区块，并补齐 block 能力元数据。"""
     document = deepcopy(note_document or {})
     blocks = list(document.get("blocks") or [])
     component_type = normalize_component_type(block.get("component_type")) or str(block.get("type") or block.get("component_type") or "")
@@ -577,6 +980,7 @@ def insert_note_document_block(
 
 
 def remove_note_document_block(note_document: dict[str, Any] | None, block_id: str) -> dict[str, Any]:
+    """按 block_id 删除一个区块。"""
     document = deepcopy(note_document or {})
     blocks = [block for block in (document.get("blocks") or []) if str(block.get("id") or "") != str(block_id)]
     for index, block in enumerate(blocks):
@@ -592,6 +996,7 @@ def build_note_document_from_structure_patch(
     blocks: list[dict[str, Any]] | None = None,
     component_payloads: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """基于结构化补丁更新标题和区块骨架。"""
     document = deepcopy(note_document or {})
     current_blocks = list(document.get("blocks") or [])
     current_by_id = {

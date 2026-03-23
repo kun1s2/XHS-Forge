@@ -9,7 +9,7 @@
         </div>
         <div class="text-[15px] font-bold text-gray-100">当前线程的图片资产与封面管理</div>
         <p class="max-w-2xl text-[11px] leading-relaxed text-gray-500">
-          这里优先展示当前封面、资产池和联网搜图结果。你可以把图片收入资产池、设为封面，并查看这张图已经绑定到哪些区块。
+          这里优先展示当前封面、资产池和联网搜图结果。你可以把图片收入资产池、设为封面、标成正文补图、锁定为必用素材，或者临时排除不再参与生成。
         </p>
       </div>
 
@@ -87,6 +87,24 @@
               </div>
             </div>
             <div>
+              <div class="text-[10px] uppercase tracking-[0.18em] text-gray-500">使用状态</div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <span class="rounded-full border border-[#2f456d] bg-[#162033] px-2.5 py-1 text-[9px] font-bold text-[#8ab4ff]">封面</span>
+                <span
+                  v-if="currentCoverAsset.locked"
+                  class="rounded-full border border-amber-700/30 bg-amber-950/20 px-2.5 py-1 text-[9px] font-bold text-amber-300"
+                >
+                  必须使用
+                </span>
+                <span
+                  v-if="currentCoverAsset.selection_state === 'excluded'"
+                  class="rounded-full border border-rose-700/30 bg-rose-950/20 px-2.5 py-1 text-[9px] font-bold text-rose-300"
+                >
+                  暂不使用
+                </span>
+              </div>
+            </div>
+            <div>
               <div class="text-[10px] uppercase tracking-[0.18em] text-gray-500">区块绑定</div>
               <div class="mt-2 flex flex-wrap gap-2">
                 <span
@@ -106,6 +124,30 @@
               @click="$emit('cover', currentCoverAsset)"
             >
               当前已是封面
+            </button>
+            <button
+              class="rounded-2xl border border-[#444] bg-[#121418] px-3 py-2 text-[11px] font-bold text-gray-200 transition-all hover:border-blue-500 hover:text-blue-300"
+              @click="$emit('preference', currentCoverAsset, { role: 'inline', selection_state: 'available' })"
+            >
+              改成正文图
+            </button>
+            <button
+              class="rounded-2xl border border-amber-700/30 bg-amber-950/20 px-3 py-2 text-[11px] font-bold text-amber-300 transition-all hover:border-amber-500/50 hover:text-amber-200"
+              @click="$emit('preference', currentCoverAsset, { locked: !currentCoverAsset.locked, selection_state: 'available' })"
+            >
+              {{ currentCoverAsset.locked ? '取消必用' : '标记必用' }}
+            </button>
+            <button
+              class="rounded-2xl border border-[#4a2b2b] bg-[#241515] px-3 py-2 text-[11px] font-bold text-[#ff9b9b] transition-all hover:border-[#ff6b6b] hover:text-white"
+              @click="$emit('preference', currentCoverAsset, { selection_state: 'excluded' })"
+            >
+              暂不使用
+            </button>
+            <button
+              class="rounded-2xl border border-[#4a2b2b] bg-[#241515] px-3 py-2 text-[11px] font-bold text-[#ff9b9b] transition-all hover:border-[#ff6b6b] hover:text-white"
+              @click="$emit('delete', currentCoverAsset)"
+            >
+              删除素材
             </button>
           </div>
         </div>
@@ -151,7 +193,13 @@
                 v-if="asset.locked"
                 class="rounded-full border border-amber-700/30 bg-amber-950/20 px-2 py-0.5 text-[9px] font-bold text-amber-300"
               >
-                已锁定
+                必须使用
+              </span>
+              <span
+                v-if="asset.selection_state === 'excluded'"
+                class="rounded-full border border-rose-700/30 bg-rose-950/20 px-2 py-0.5 text-[9px] font-bold text-rose-300"
+              >
+                暂不使用
               </span>
             </div>
           </div>
@@ -180,6 +228,34 @@
                 @click="$emit('cover', asset)"
               >
                 {{ asset.url === currentCoverUrl ? '当前封面' : '设为封面' }}
+              </button>
+              <button
+                class="rounded-2xl border border-[#444] bg-[#121418] px-3 py-2 text-[11px] font-semibold text-gray-200 transition-all hover:border-blue-500 hover:text-blue-300"
+                @click="$emit('preference', asset, { role: 'inline', selection_state: 'available' })"
+              >
+                正文图
+              </button>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                class="flex-1 rounded-2xl border px-3 py-2 text-[11px] font-semibold transition-all"
+                :class="asset.locked ? 'border-amber-700/30 bg-amber-950/20 text-amber-300' : 'border-[#444] text-gray-200 hover:border-amber-500/40 hover:text-amber-300'"
+                @click="$emit('preference', asset, { locked: !asset.locked, selection_state: 'available' })"
+              >
+                {{ asset.locked ? '取消必用' : '标记必用' }}
+              </button>
+              <button
+                class="flex-1 rounded-2xl border px-3 py-2 text-[11px] font-semibold transition-all"
+                :class="asset.selection_state === 'excluded' ? 'border-emerald-700/30 bg-emerald-950/20 text-emerald-300' : 'border-[#4a2b2b] bg-[#241515] text-[#ff9b9b] hover:border-[#ff6b6b] hover:text-white'"
+                @click="$emit('preference', asset, { selection_state: asset.selection_state === 'excluded' ? 'available' : 'excluded', locked: false })"
+              >
+                {{ asset.selection_state === 'excluded' ? '恢复使用' : '暂不使用' }}
+              </button>
+              <button
+                class="rounded-2xl border border-[#4a2b2b] bg-[#241515] px-3 py-2 text-[11px] font-semibold text-[#ff9b9b] transition-all hover:border-[#ff6b6b] hover:text-white"
+                @click="$emit('delete', asset)"
+              >
+                删除
               </button>
             </div>
           </div>
@@ -275,6 +351,8 @@ const emit = defineEmits<{
   search: [query: string]
   import: [asset: ImageAsset]
   cover: [asset: ImageAsset]
+  preference: [asset: ImageAsset, updates: Partial<Pick<ImageAsset, 'role' | 'locked' | 'selection_state'>>]
+  delete: [asset: ImageAsset]
 }>()
 
 const query = ref('')
@@ -285,8 +363,8 @@ const boundAssetCount = computed(() => props.currentAssets.filter(asset => (asse
 const humanizeAssetRole = (role?: string) => {
   if (!role) return 'asset'
   if (role === 'cover') return '封面'
-  if (role === 'supporting') return '辅助图'
   if (role === 'inline') return '正文图'
+  if (role === 'supporting') return '辅助图'
   return role
 }
 

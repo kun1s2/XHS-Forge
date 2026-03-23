@@ -22,7 +22,7 @@ async def rag_node(state: UIProjectState) -> dict:
     # 执行 RAG 检索
     knowledge = await retrieve_brand_knowledge(user_query)
     
-    # 将知识写入 state，供后续 content_node 消费
+    # 将知识写入 state，供后续正式页面生成链消费
     return {
         "retrieved_knowledge": knowledge
     }

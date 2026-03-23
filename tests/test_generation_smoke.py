@@ -1,13 +1,19 @@
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from app.agents.nodes.component_builder import apply_component_contract_layer, apply_component_contract_with_trace, build_component_fallback, enforce_component_contract
+from app.core.note_document import build_note_document_from_state
+from app.agents.state import merge_state_patch
 from app.agents.nodes.distill_node import distill_node
 from app.agents.nodes.distill_node import _extract_conflicts, _extract_structured_sources, _infer_fact_confidence
 from app.agents.utils.fact_utils import apply_confirmed_facts_to_knowledge, merge_confirmed_fact_selection
-from app.agents.nodes.style_node import style_agent
-from app.agents.nodes.render_node import render_node
+from app.agents.nodes.theme_compiler_node import theme_compiler
+from app.agents.nodes.document_renderer_node import document_renderer
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.agents.graph import outline_synthesizer
+from app.services.cache_service import CacheService
+from app.services.search_enricher import enrich_product_document
+from app.services.retrieval_profiles import build_followup_query_variants, compute_missing_slot_keys
 
 
 def test_normalize_entity_name():
@@ -82,6 +88,172 @@ def test_enforce_component_contract_for_poll():
     assert merged["option_b"] == fallback["option_b"]
 
 
+def test_apply_component_contract_layer_strips_placeholder_cover_images():
+    merged = apply_component_contract_layer(
+        "CoverSwiper",
+        {
+            "type": "CoverSwiper",
+            "image_urls": [
+                "https://example.com/image1.jpg",
+                "https://picsum.photos/800/1200",
+                "https://img.example/mate-1.jpg",
+            ],
+        },
+        {
+            "type": "CoverSwiper",
+            "image_urls": ["https://img.example/mate-1.jpg", "https://img.example/mate-2.jpg"],
+        },
+    )
+
+    assert merged["image_urls"] == ["https://img.example/mate-1.jpg"]
+
+
+def test_build_note_document_from_state_strips_placeholder_cover_images_from_existing_blocks():
+    note_document = build_note_document_from_state({
+        "note_document": {
+            "document_meta": {"title": "测试页面"},
+            "theme": {"page_theme": {}, "global_vars": {}},
+            "blocks": [
+                {
+                    "id": "cover_1",
+                    "type": "CoverSwiper",
+                    "props": {
+                        "type": "CoverSwiper",
+                        "image_urls": [
+                            "https://example.com/image1.jpg",
+                            "https://picsum.photos/800/1200",
+                            "https://img.example/mate-1.jpg",
+                        ],
+                    },
+                    "asset_refs": [
+                        "https://example.com/image1.jpg",
+                        "https://img.example/mate-1.jpg",
+                    ],
+                }
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
+        }
+    })
+
+    block = note_document["blocks"][0]
+    assert block["props"]["image_urls"] == ["https://img.example/mate-1.jpg"]
+    assert block["asset_refs"] == ["https://img.example/mate-1.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_cache_service_sanitizes_trend_result_placeholder_cover_images():
+    cache = CacheService(use_redis=False)
+    await cache.set_trend_result(
+        "华为 Mate 60",
+        "none",
+        {
+            "document_meta": {"title": "测试页面"},
+            "theme": {"page_theme": {}, "global_vars": {}},
+            "blocks": [
+                {
+                    "id": "cover_1",
+                    "type": "CoverSwiper",
+                    "props": {
+                        "type": "CoverSwiper",
+                        "image_urls": [
+                            "https://example.com/image1.jpg",
+                            "https://img.example/mate-1.jpg",
+                        ],
+                    },
+                }
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
+        },
+    )
+
+    cached = await cache.get_trend_result("华为 Mate 60", "none")
+    assert cached is not None
+    assert cached["blocks"][0]["props"]["image_urls"] == ["https://img.example/mate-1.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_search_enricher_falls_back_to_structured_results_when_llm_json_is_sparse():
+    note_document = {
+        "document_meta": {"title": "华为 Mate 60"},
+        "blocks": [
+            {
+                "id": "spec_1",
+                "type": "ProductSpecCard",
+                "props": {"title": "华为 Mate 60"},
+            }
+        ],
+    }
+
+    mock_results = [
+        {
+            "title": "华为 Mate 60 官方价格与参数",
+            "link": "https://consumer.huawei.com/mate60",
+            "snippet": "官方售价 ￥5999 起，支持卫星通信与北斗消息，影像风格鲜明。",
+        },
+        {
+            "title": "华为 Mate 60 使用体验",
+            "link": "https://example.review/mate60",
+            "snippet": "续航稳定，系统流畅，影像调性有辨识度。",
+        },
+    ]
+
+    class _SparseResponse:
+        content = '{"refined_name":"华为 Mate 60","price":"未提及","features":[]}'
+
+    with patch("app.services.search_enricher.search_network_structured_async", new=AsyncMock(return_value=mock_results)):
+        with patch("app.services.search_enricher.get_cleaner_llm") as mock_get_llm:
+            mock_get_llm.return_value = AsyncMock()
+            mock_get_llm.return_value.ainvoke = AsyncMock(return_value=_SparseResponse())
+            enriched = await enrich_product_document(note_document, archetype="seeding")
+
+    props = enriched["blocks"][0]["props"]
+    assert props["price"] == "￥5999"
+    assert props["core_features"]
+    assert props["sources"][0]["url"] == "https://consumer.huawei.com/mate60"
+
+
+def test_retrieval_profiles_compute_missing_slot_keys_and_followup_queries():
+    retrieval_profile = {
+        "slot_labels": {
+            "chipset": "CPU / SoC",
+            "battery": "电池与续航",
+            "price": "价格与版本",
+        },
+        "followup_limit": 2,
+        "followup_queries": {
+            "chipset": ["华为 Mate 60 处理器 芯片 SoC 官方 参数"],
+            "battery": ["华为 Mate 60 电池容量 续航 官方 实测"],
+            "price": ["华为 Mate 60 售价 版本 官方 发售价"],
+        },
+    }
+    fact_slots = {
+        "price": {"summary": "5999 起"},
+    }
+
+    missing_slot_keys = compute_missing_slot_keys(
+        slot_labels=retrieval_profile["slot_labels"],
+        fact_slots=fact_slots,
+    )
+    assert missing_slot_keys == ["chipset", "battery"]
+
+    followups = build_followup_query_variants(
+        user_query="华为 Mate 60 测评",
+        entity_name="华为 Mate 60",
+        retrieval_profile=retrieval_profile,
+        missing_slot_keys=missing_slot_keys,
+    )
+    assert [item["scope"] for item in followups] == ["chipset", "battery"]
+    assert all("华为 Mate 60" in item["query"] for item in followups)
+
+
 @pytest.mark.asyncio
 async def test_generation_smoke_pipeline():
     # Smoke test should stay deterministic and local; it is not responsible for
@@ -145,9 +317,9 @@ async def test_generation_smoke_pipeline():
         },
     }
 
-    styled = await style_agent(state)
+    styled = await theme_compiler(state)
     state["note_document"] = styled["note_document"]
-    rendered = await render_node(state)
+    rendered = await document_renderer(state)
     html = rendered["final_html"]
 
     assert knowledge["entity_name"] == "华为 Mate 60"
@@ -160,18 +332,68 @@ async def test_generation_smoke_pipeline():
 @pytest.mark.asyncio
 async def test_outline_synthesizer_injects_title_and_story_guards():
     result = await outline_synthesizer({
+        "intent_result_v2": {"task_type": "edit"},
         "main_messages": [type("Msg", (), {"content": "帮我针对华为 Mate 60 做一个深度种草笔记"})()],
         "retrieved_knowledge": {
             "entity_name": "华为 Mate 60",
             "summary": "这是一台亮点和争议并存的高端机。",
             "key_selling_points": ["续航稳定", "大屏沉浸", "辨识度高"],
         },
-        "document_view": {
+        "note_document": {
+            "document_meta": {"title": "旧页面"},
+            "theme": {"page_theme": {}, "global_vars": {}},
             "blocks": [
-                {"id": "cover_1", "component_type": "CoverSwiper", "content_brief": "封面图"},
-                {"id": "versus_1", "component_type": "VersusCard", "content_brief": "优缺点对撞"},
-                {"id": "poll_1", "component_type": "PollBlock", "content_brief": "互动投票"},
-            ]
+                {
+                    "id": "cover_1",
+                    "type": "CoverSwiper",
+                    "label": "图片轮播",
+                    "semantic_role": "hero_media",
+                    "content_brief": "封面图",
+                    "props": {"type": "CoverSwiper", "image_urls": []},
+                    "style": {},
+                    "asset_refs": [],
+                    "fact_bindings": [],
+                    "editable_targets": ["image_urls"],
+                    "asset_support": "required",
+                    "fact_binding_support": False,
+                    "order": 0,
+                },
+                {
+                    "id": "versus_1",
+                    "type": "VersusCard",
+                    "label": "对比卡",
+                    "semantic_role": "comparison",
+                    "content_brief": "优缺点对撞",
+                    "props": {"type": "VersusCard", "title": "旧对比"},
+                    "style": {},
+                    "asset_refs": [],
+                    "fact_bindings": [],
+                    "editable_targets": ["title", "proText", "conText"],
+                    "asset_support": "none",
+                    "fact_binding_support": True,
+                    "order": 1,
+                },
+                {
+                    "id": "poll_1",
+                    "type": "PollBlock",
+                    "label": "投票卡",
+                    "semantic_role": "interactive_opinion",
+                    "content_brief": "互动投票",
+                    "props": {"type": "PollBlock", "question": "旧互动"},
+                    "style": {},
+                    "asset_refs": [],
+                    "fact_bindings": [],
+                    "editable_targets": ["question", "option_a", "option_b"],
+                    "asset_support": "none",
+                    "fact_binding_support": False,
+                    "order": 2,
+                },
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
         },
     })
 
@@ -181,12 +403,125 @@ async def test_outline_synthesizer_injects_title_and_story_guards():
     assert component_types[0] == "TitleBlock"
     assert "StoryText" in component_types
     assert "CoverSwiper" in component_types
-    assert result["note_document"]["document_meta"]["title"] == "华为 Mate 60 深度种草"
+    assert result["note_document"]["document_meta"]["title"] == "旧页面"
 
 
 @pytest.mark.asyncio
-async def test_style_agent_compiles_distinct_scenario_theme_tokens():
-    seeding = await style_agent({
+async def test_outline_synthesizer_rebuilds_from_planner_for_create_requests_on_existing_canvas():
+    result = await outline_synthesizer({
+        "intent_result_v2": {"task_type": "create"},
+        "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
+        "retrieved_knowledge": {
+            "entity_name": "华为 Mate 60",
+            "summary": "这是一台亮点和争议并存的高端机。",
+            "key_selling_points": ["续航稳定", "大屏沉浸", "辨识度高"],
+        },
+        "note_document": {
+            "document_meta": {"title": "旧页面"},
+            "theme": {"page_theme": {}, "global_vars": {}},
+            "blocks": [
+                {
+                    "id": "cover_old",
+                    "type": "CoverSwiper",
+                    "label": "图片轮播",
+                    "semantic_role": "hero_media",
+                    "content_brief": "旧封面",
+                    "props": {"type": "CoverSwiper", "image_urls": []},
+                    "style": {},
+                    "asset_refs": [],
+                    "fact_bindings": [],
+                    "editable_targets": ["image_urls"],
+                    "asset_support": "required",
+                    "fact_binding_support": False,
+                    "order": 0,
+                }
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
+        },
+        "planner_output": {
+            "block_intents": [
+                {"intent_type": "heading", "preferred_component": "TitleBlock"},
+                {"intent_type": "narrative_text", "preferred_component": "StoryText"},
+                {"intent_type": "comparison", "preferred_component": "VersusCard"},
+                {"intent_type": "interactive_opinion", "preferred_component": "PollBlock"},
+            ],
+            "scenario_scores": {"seeding": 1.0},
+        },
+    })
+
+    blocks = result["note_document"]["blocks"]
+    block_ids = [block["id"] for block in blocks]
+    component_types = [block["type"] for block in blocks]
+
+    assert "cover_old" not in block_ids
+    assert component_types[:2] == ["TitleBlock", "StoryText"]
+    assert "VersusCard" in component_types
+    assert "PollBlock" in component_types
+
+
+@pytest.mark.asyncio
+async def test_outline_synthesizer_rebuilds_for_create_like_query_even_without_intent_result():
+    result = await outline_synthesizer({
+        "active_panel": "main",
+        "selected_element_id": "无 (全局修改)",
+        "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
+        "retrieved_knowledge": {
+            "entity_name": "华为 Mate 60",
+            "summary": "这是一台亮点和争议并存的高端机。",
+            "key_selling_points": ["续航稳定", "大屏沉浸", "辨识度高"],
+        },
+        "note_document": {
+            "document_meta": {"title": "旧页面"},
+            "theme": {"page_theme": {}, "global_vars": {}},
+            "blocks": [
+                {
+                    "id": "cover_old",
+                    "type": "CoverSwiper",
+                    "label": "图片轮播",
+                    "semantic_role": "hero_media",
+                    "content_brief": "旧封面",
+                    "props": {"type": "CoverSwiper", "image_urls": []},
+                    "style": {},
+                    "asset_refs": [],
+                    "fact_bindings": [],
+                    "editable_targets": ["image_urls"],
+                    "asset_support": "required",
+                    "fact_binding_support": False,
+                    "order": 0,
+                }
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
+        },
+        "planner_output": {
+            "block_intents": [
+                {"intent_type": "heading", "preferred_component": "TitleBlock"},
+                {"intent_type": "narrative_text", "preferred_component": "StoryText"},
+                {"intent_type": "comparison", "preferred_component": "VersusCard"},
+            ],
+            "scenario_scores": {"seeding": 1.0},
+        },
+    })
+
+    blocks = result["note_document"]["blocks"]
+    block_ids = [block["id"] for block in blocks]
+    component_types = [block["type"] for block in blocks]
+
+    assert "cover_old" not in block_ids
+    assert component_types[:2] == ["TitleBlock", "StoryText"]
+    assert "VersusCard" in component_types
+
+
+@pytest.mark.asyncio
+async def test_theme_compiler_compiles_distinct_scenario_theme_tokens():
+    seeding = await theme_compiler({
         "active_archetype": "seeding",
         "has_controversy": True,
         "planner_policy": {"theme_policy": {"preset": "seeding_hot", "interaction_bias": "high"}},
@@ -197,7 +532,7 @@ async def test_style_agent_compiles_distinct_scenario_theme_tokens():
             ]
         },
     })
-    travel = await style_agent({
+    travel = await theme_compiler({
         "active_archetype": "travel",
         "has_controversy": False,
         "planner_policy": {"theme_policy": {"preset": "travel_clean", "interaction_bias": "low"}},
@@ -226,8 +561,8 @@ async def test_style_agent_compiles_distinct_scenario_theme_tokens():
 
 
 @pytest.mark.asyncio
-async def test_style_agent_prefers_planner_theme_policy_over_legacy_intent_vibe():
-    result = await style_agent({
+async def test_theme_compiler_prefers_planner_theme_policy_over_legacy_intent_vibe():
+    result = await theme_compiler({
         "active_archetype": "travel",
         "planner_policy": {"theme_policy": {"preset": "luxury_editorial", "interaction_bias": "high"}},
         "document_view": {
@@ -352,8 +687,68 @@ async def test_component_builder_node_emits_contract_first_trace_on_fallback(mon
     assert trace["asset_count"] == 0
     assert "precheck_warning_count" in trace
     assert "contract_filter_count" in trace
-    poll_block = next(block for block in result["note_document"]["blocks"] if block["id"] == "poll_1")
-    assert "question" in poll_block["props"]
+    assert result["note_document"]["_block_update"]["id"] == "poll_1"
+    assert "question" in result["note_document"]["_block_update"]["data"]["props"]
+
+
+@pytest.mark.asyncio
+async def test_component_builder_parallel_patches_do_not_collapse_document_blocks(monkeypatch):
+    from app.agents.nodes.component_builder import component_builder_node
+
+    class _BrokenStructured:
+        async def ainvoke(self, *_args, **_kwargs):
+            raise RuntimeError("builder unavailable")
+
+    class _BrokenLLM:
+        def with_structured_output(self, *_args, **_kwargs):
+            return _BrokenStructured()
+
+    monkeypatch.setattr("app.agents.nodes.component_builder.get_builder_llm", lambda: _BrokenLLM())
+
+    base_document = {
+        "document_meta": {"title": "测试页面"},
+        "blocks": [
+            {"id": "title_1", "type": "TitleBlock", "props": {}, "style": {}, "order": 0},
+            {"id": "poll_1", "type": "PollBlock", "props": {}, "style": {}, "order": 1},
+        ],
+    }
+
+    title_result = await component_builder_node({
+        "component_id": "title_1",
+        "component_type": "TitleBlock",
+        "content_brief": "标题",
+        "user_query": "做一篇华为 Mate 60 对比笔记",
+        "active_archetype": "seeding",
+        "retrieved_knowledge": {"entity_name": "华为 Mate 60", "summary": "旗舰手机对比"},
+        "creator_persona": "数码博主",
+        "image_assets": [],
+        "planner_policy": {},
+        "content_messages": [],
+        "note_document": base_document,
+    })
+    poll_result = await component_builder_node({
+        "component_id": "poll_1",
+        "component_type": "PollBlock",
+        "content_brief": "互动投票",
+        "user_query": "做一篇华为 Mate 60 对比笔记",
+        "active_archetype": "seeding",
+        "retrieved_knowledge": {"entity_name": "华为 Mate 60", "summary": "旗舰手机对比"},
+        "creator_persona": "数码博主",
+        "image_assets": [],
+        "planner_policy": {},
+        "content_messages": [],
+        "note_document": base_document,
+    })
+
+    merged_document = merge_state_patch(
+        merge_state_patch(base_document, title_result["note_document"]),
+        poll_result["note_document"],
+    )
+
+    assert len(merged_document["blocks"]) == 2
+    merged_by_id = {block["id"]: block for block in merged_document["blocks"]}
+    assert merged_by_id["title_1"]["props"]["title"]
+    assert merged_by_id["poll_1"]["props"]["question"]
 
 def test_component_builder_fallback_prefers_confirmed_fact_attributes():
     payload = build_component_fallback(
@@ -377,6 +772,9 @@ def test_component_builder_fallback_prefers_confirmed_fact_attributes():
     assert payload["feature_meta"][0]["kind"] == "verified"
     assert payload["feature_meta"][0]["sources"] == ["华为官网"]
     assert payload["feature_meta"][0]["field"] == "battery_capacity"
+    assert payload["spec_items"][0]["label"] == "电池容量"
+    assert payload["spec_items"][0]["status"] == "verified"
+    assert payload["spec_items"][0]["decision_impact"]
 
 
 def test_apply_confirmed_facts_to_knowledge_strips_unconfirmed_conflicting_attributes():
@@ -418,6 +816,7 @@ def test_component_builder_fallback_uses_conflict_safe_notes_when_fact_unconfirm
 
     assert "price: 5499元" in payload["core_features"]
     assert any("电池容量: 存在多版本说法" in item for item in payload["core_features"])
+    assert any(item["status"] == "caution" for item in payload["spec_items"])
 
 
 def test_story_text_fallback_includes_paragraph_meta_for_verified_and_caution():
@@ -453,3 +852,67 @@ def test_story_text_fallback_includes_paragraph_meta_for_verified_and_caution():
     assert payload["paragraph_meta"][2]["kind"] == "caution"
     assert "华为官网" in payload["paragraph_meta"][2]["sources"]
     assert payload["paragraph_meta"][2]["fields"] == ["price"]
+    assert payload["sections"][0]["label"] == "开场判断"
+    assert payload["sections"][1]["role"] == "verified"
+    assert payload["sections"][2]["role"] == "caution"
+
+
+def test_radar_chart_fallback_emits_structured_metrics():
+    payload = build_component_fallback(
+        comp_type="RadarChartBlock",
+        comp_id="radar_1",
+        content_brief="雷达图",
+        user_query="帮我做 Mate 60 雷达图",
+        retrieved_knowledge={
+            "entity_name": "华为 Mate 60",
+            "confirmed_facts": {
+                "battery_capacity": {"value": "5000mAh", "field_label": "电池容量", "sources": ["华为官网"]},
+            },
+            "key_selling_points": ["影像辨识度高", "系统体验稳", "手感完整"],
+        },
+        image_assets=[],
+    )
+
+    assert len(payload["metrics"]) == len(payload["dimensions"])
+    assert payload["metrics"][0]["label"] == payload["dimensions"][0]
+    assert payload["metrics"][0]["reason"]
+    assert payload["metrics"][0]["confidence"] in {"high", "medium", "low"}
+
+
+def test_poll_block_fallback_emits_structured_option_cards():
+    payload = build_component_fallback(
+        comp_type="PollBlock",
+        comp_id="poll_1",
+        content_brief="互动投票",
+        user_query="帮我做 Mate 60 站队卡",
+        retrieved_knowledge={
+            "entity_name": "华为 Mate 60",
+            "key_selling_points": ["影像风格"],
+            "known_issues": ["价格门槛"],
+        },
+        image_assets=[],
+    )
+
+    assert payload["option_cards"][0]["label"] == payload["option_a"]
+    assert payload["option_cards"][0]["stance"] == "主推理由"
+    assert payload["option_cards"][1]["label"] == payload["option_b"]
+
+
+def test_versus_card_fallback_emits_structured_routes():
+    payload = build_component_fallback(
+        comp_type="VersusCard",
+        comp_id="versus_1",
+        content_brief="对比卡",
+        user_query="帮我做 Mate 60 对比",
+        retrieved_knowledge={
+            "entity_name": "华为 Mate 60",
+            "key_selling_points": ["上手氛围强", "影像更有记忆点"],
+            "known_issues": ["价格门槛偏高", "生态协同没那么省心"],
+        },
+        image_assets=[],
+    )
+
+    assert payload["pros"]["summary"]
+    assert payload["pros"]["points"]
+    assert payload["cons"]["fit_for"]
+    assert payload["decision_hint"]

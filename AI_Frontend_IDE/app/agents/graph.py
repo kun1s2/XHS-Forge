@@ -1,9 +1,9 @@
-"""Primary LangGraph runtime for the note workspace.
+"""笔记工作台的主 LangGraph 运行时。
 
-The graph keeps user-facing orchestration explicit:
-- agent nodes handle routing/planning/edit decisions
-- deterministic nodes resolve blocks, compile themes, verify, and render
-- state stays centralized so rollback, tracing, and workspace restore remain stable
+这张图负责把用户请求编排成一条明确的执行链：
+- agent 节点负责路由、规划和编辑决策
+- 确定性节点负责大纲解析、组件构建、主题编译、校验和渲染
+- 状态集中在统一 state 中，保证回滚、追踪和 workspace 恢复稳定
 """
 
 import time
@@ -12,6 +12,7 @@ import json
 from typing import Dict, Any, List
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.errors import GraphInterrupt
 from langgraph.store.base import BaseStore
 from langgraph.prebuilt import ToolNode
 from langgraph.types import Send
@@ -20,6 +21,11 @@ from langgraph.types import Send
 from app.agents.state import UIProjectState
 from app.core.config import settings
 from app.core.query_heuristics import looks_like_existing_canvas_edit
+from app.core.request_semantics import (
+    has_local_selection as request_has_local_selection,
+    latest_user_text_from_messages,
+    state_requests_create,
+)
 from app.core.schema import OutlineOutput
 from app.core.note_document import build_note_document_layout_from_state, build_note_document_from_state, build_note_document_from_structure_patch
 from app.core.component_manifest import resolve_component_for_block_intent
@@ -32,13 +38,20 @@ from app.agents.nodes.distill_node import distill_node # ✨ 导入提纯节点
 from app.agents.nodes.review_node import controversy_sniffer_node
 from app.agents.nodes.structure_node import structure_agent
 from app.agents.nodes.patch_node import surgical_patch_agent
-from app.agents.nodes.style_node import style_agent
-from app.agents.nodes.render_node import render_node
+from app.agents.nodes.theme_compiler_node import theme_compiler
+from app.agents.nodes.document_renderer_node import document_renderer
 from app.agents.nodes.refusal_node import refusal_node
 from app.agents.nodes.battle_node import battle_node
 from app.agents.nodes.component_builder import component_builder_node
 from app.agents.nodes.note_editor_node import note_editor_node
 from app.agents.nodes.planner_node import planner_node
+from app.agents.nodes.retrieval_gap_fill_node import retrieval_gap_fill_node
+from app.agents.nodes.conversational_checkpoint_nodes import (
+    asset_checkpoint_node,
+    fact_conflict_checkpoint_node,
+    fact_gap_checkpoint_node,
+    structure_checkpoint_node,
+)
 from app.agents.nodes.verify_note_node import verify_note_node
 from app.agents.tools_registry import RESEARCH_TOOLS
 from app.agents.utils.entity_utils import normalize_entity_name
@@ -46,6 +59,7 @@ from app.agents.utils.fact_utils import summarize_confirmed_attributes
 from app.core.runtime_log import append_latest_console_log
 
 def with_performance_profiling(node_name: str, func):
+    """给节点包一层耗时统计，并统一写入运行日志。"""
     @functools.wraps(func)
     async def wrapper(state: UIProjectState):
         start_time = time.perf_counter()
@@ -56,6 +70,12 @@ def with_performance_profiling(node_name: str, func):
             print(f"⏱️ [性能监控] 节点 {node_name} 完毕, 耗时: \033[93m{elapsed:.2f}s\033[0m")
             append_latest_console_log(message)
             return result
+        except GraphInterrupt:
+            elapsed = time.perf_counter() - start_time
+            message = f"⏸️ [性能监控] 节点 {node_name} 等待用户确认, 耗时: {elapsed:.2f}s"
+            print(f"⏸️ [性能监控] 节点 {node_name} 等待用户确认, 耗时: \033[96m{elapsed:.2f}s\033[0m")
+            append_latest_console_log(message)
+            raise
         except Exception as e:
             elapsed = time.perf_counter() - start_time
             message = f"❌ [性能监控] 节点 {node_name} 失败, 耗时: {elapsed:.2f}s"
@@ -65,6 +85,7 @@ def with_performance_profiling(node_name: str, func):
     return wrapper
 
 def with_context_engineering(node_func):
+    """为节点提供轻量上下文隔离，避免历史消息直接污染局部调用。"""
     @functools.wraps(node_func)
     async def wrapper(state: UIProjectState):
         cloned_state = state.copy()
@@ -74,30 +95,28 @@ def with_context_engineering(node_func):
 
 
 def _has_local_selection(state: UIProjectState) -> bool:
-    selected = state.get("selected_element_id")
-    return selected not in [None, "", "无", "无 (全局修改)", "none"]
+    """判断当前请求是否已经命中了局部选中目标。"""
+    return request_has_local_selection(state.get("selected_element_id"))
 
 
 def _has_existing_canvas(state: UIProjectState) -> bool:
+    """判断当前工作台是否已经存在可编辑画布。"""
     execution_view = build_note_document_layout_from_state(state)
     return bool(execution_view.get("blocks"))
 
 
 def _latest_user_text(state: UIProjectState) -> str:
-    main_msgs = state.get("main_messages", []) or []
-    if not main_msgs:
-        return ""
-    content = getattr(main_msgs[-1], "content", "") or ""
-    if isinstance(content, list):
-        text_parts = []
-        for part in content:
-            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
-                text_parts.append(str(part.get("text")))
-        return "".join(text_parts).strip()
-    return str(content)
+    """提取主会话里最后一条用户文本。"""
+    return latest_user_text_from_messages(state.get("main_messages", []) or [])
+
+
+def _is_create_request(state: UIProjectState) -> bool:
+    """判断当前请求是否属于需要重新铺开页面的创建任务。"""
+    return state_requests_create(state)
 
 
 def _materialize_blocks_from_planner(state: UIProjectState) -> list[dict[str, Any]]:
+    """把 planner 的 block intents 物化成最小 block skeleton。"""
     planner_output = state.get("planner_output") or {}
     block_intents = list(planner_output.get("block_intents") or [])
     if not block_intents:
@@ -134,6 +153,11 @@ def _materialize_blocks_from_planner(state: UIProjectState) -> list[dict[str, An
 
 
 def route_intent(state: UIProjectState) -> str:
+    """把网关输出映射到下一个工作流节点。
+
+    这里特别强调顺序：明显的编辑请求先走便宜的确定性判断，再决定是否进入
+    更重的创建/搜证链路，避免已有画布编辑多绕一层。
+    """
     intent_v2 = state.get("intent_result_v2") or {}
     task_type = str(intent_v2.get("task_type") or "").lower()
     edit_scope = str(intent_v2.get("edit_scope") or "").lower()
@@ -166,7 +190,7 @@ def route_intent(state: UIProjectState) -> str:
         return "patch_node"
     if any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]) or needs_research:
         return "research_agent"
-    if "structure" in route or "结构" in route or "style" in route or "样式" in route:
+    if "structure" in route or "结构" in route or "theme_compiler" in route or "style" in route or "样式" in route:
         return "note_editor"
     return END
 
@@ -174,17 +198,26 @@ async def outline_synthesizer(state: UIProjectState) -> dict:
     """
     【大纲合成器】：验证并收束 block skeleton，直接产出 NoteDocument。
     """
+    force_rebuild = _is_create_request(state)
     current_note_document = build_note_document_from_state(state)
-    execution_view = build_note_document_layout_from_state(state)
-    blocks = [
-        {
-            "id": block.get("id"),
-            "component_type": block.get("component_type"),
-            "content_brief": block.get("content_brief", ""),
-        }
-        for block in execution_view.get("blocks", [])
-    ]
-    if not blocks and settings.ENABLE_PLANNER_V2:
+    if force_rebuild:
+        current_note_document = build_note_document_from_structure_patch(
+            current_note_document,
+            blocks=[],
+        )
+        blocks: list[dict[str, Any]] = []
+    else:
+        execution_view = build_note_document_layout_from_state(state)
+        blocks = [
+            {
+                "id": block.get("id"),
+                "component_type": block.get("component_type"),
+                "content_brief": block.get("content_brief", ""),
+            }
+            for block in execution_view.get("blocks", [])
+        ]
+
+    if (force_rebuild or not blocks) and settings.ENABLE_PLANNER_V2:
         blocks = _materialize_blocks_from_planner(state)
     retrieved_knowledge = state.get("retrieved_knowledge", {}) if isinstance(state.get("retrieved_knowledge", {}), dict) else {}
     planner_output = state.get("planner_output") or {}
@@ -248,14 +281,14 @@ async def outline_synthesizer(state: UIProjectState) -> dict:
     return {"note_document": next_note_document}
 
 
-async def outline_resolver_node(state: UIProjectState) -> dict:
+async def outline_resolver(state: UIProjectState) -> dict:
     """
     【现代化大纲解析器】：
     直接消费 planner.block_intents 与 component manifest，确定性产出 block skeleton。
     不再走 历史工具循环。
     """
     note_document = build_note_document_from_state(state)
-    if not (note_document.get("blocks") or []):
+    if _is_create_request(state) or not (note_document.get("blocks") or []):
         synthesized = await outline_synthesizer(state)
     else:
         synthesized = {"note_document": note_document}
@@ -282,9 +315,10 @@ async def outline_resolver_node(state: UIProjectState) -> dict:
     }
 
 def map_components(state: UIProjectState) -> list:
+    """把解析后的区块骨架分发成 builder 任务。"""
     execution_view = build_note_document_layout_from_state(state)
     blocks = execution_view.get("blocks", [])
-    if not blocks: return ["style_node"]
+    if not blocks: return ["theme_compiler"]
     
     user_query = _latest_user_text(state)
     active_archetype = state.get("active_archetype", "general")
@@ -302,15 +336,16 @@ def map_components(state: UIProjectState) -> list:
             "creator_persona": creator_persona,
             "image_assets": state.get("image_assets", []),
             "planner_policy": state.get("planner_policy", {}),
-            "content_messages": [] 
+            "content_messages": [],
+            "note_document": state.get("note_document", {}),
         })
         for b in blocks
-    ] + ["style_node"]
+    ]
 
 def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None):
     workflow = StateGraph(UIProjectState)
 
-    # 1. 注册节点
+    # 1. 注册节点。这里的名字直接对应运行时和诊断面板术语。
     workflow.add_node("asset_processor", with_performance_profiling("asset_processor", asset_processor_node))
     workflow.add_node("intent_agent", with_performance_profiling("intent_agent", intent_agent))
     workflow.add_node("refusal_node", with_performance_profiling("refusal_node", refusal_node))
@@ -320,18 +355,23 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
     workflow.add_node("battle_node", with_performance_profiling("battle_node", battle_node))
     
-    workflow.add_node("outline_resolver", with_performance_profiling("outline_resolver", outline_resolver_node))
+    workflow.add_node("outline_resolver", with_performance_profiling("outline_resolver", outline_resolver))
 
     workflow.add_node("component_builder", component_builder_node)
     workflow.add_node("planner", with_performance_profiling("planner", planner_node))
+    workflow.add_node("structure_checkpoint", with_performance_profiling("structure_checkpoint", structure_checkpoint_node))
+    workflow.add_node("retrieval_gap_fill", with_performance_profiling("retrieval_gap_fill", retrieval_gap_fill_node))
+    workflow.add_node("fact_gap_checkpoint", with_performance_profiling("fact_gap_checkpoint", fact_gap_checkpoint_node))
+    workflow.add_node("asset_checkpoint", with_performance_profiling("asset_checkpoint", asset_checkpoint_node))
+    workflow.add_node("fact_conflict_checkpoint", with_performance_profiling("fact_conflict_checkpoint", fact_conflict_checkpoint_node))
     workflow.add_node("note_editor", with_performance_profiling("note_editor", note_editor_node))
     workflow.add_node("verify_note", with_performance_profiling("verify_note", verify_note_node))
     workflow.add_node("structure_node", with_performance_profiling("structure_node", structure_agent))
     workflow.add_node("patch_node", with_performance_profiling("patch_node", surgical_patch_agent))
-    workflow.add_node("style_node", with_performance_profiling("style_node", style_agent))
-    workflow.add_node("render", with_performance_profiling("render", render_node))
+    workflow.add_node("theme_compiler", with_performance_profiling("theme_compiler", theme_compiler))
+    workflow.add_node("document_renderer", with_performance_profiling("document_renderer", document_renderer))
 
-    # 2. 核心连接
+    # 2. 核心连接：从瘦网关分流，再进入规划 / 大纲 / 构建 / 主题 / 渲染主线。
     workflow.add_edge(START, "asset_processor")
     workflow.add_edge("asset_processor", "intent_agent")
 
@@ -343,9 +383,9 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
         END: END
     })
 
-    workflow.add_edge("patch_node", "render")
+    workflow.add_edge("patch_node", "document_renderer")
     workflow.add_edge("note_editor", "verify_note")
-    workflow.add_edge("verify_note", "style_node")
+    workflow.add_edge("verify_note", "theme_compiler")
     workflow.add_edge("refusal_node", END)
 
     # RAG 链：决策与物理强取 -> 提纯 -> 争议嗅探
@@ -355,15 +395,21 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     
     if settings.ENABLE_PLANNER_V2:
         workflow.add_edge("battle_node", "planner")
-        workflow.add_edge("planner", "outline_resolver")
+        workflow.add_edge("planner", "structure_checkpoint")
+        workflow.add_edge("structure_checkpoint", "retrieval_gap_fill")
+        workflow.add_edge("retrieval_gap_fill", "fact_gap_checkpoint")
+        workflow.add_edge("fact_gap_checkpoint", "asset_checkpoint")
+        workflow.add_edge("asset_checkpoint", "fact_conflict_checkpoint")
+        workflow.add_edge("fact_conflict_checkpoint", "outline_resolver")
     else:
         workflow.add_edge("battle_node", "outline_resolver")
 
     # 解析完毕后分发并发任务
-    workflow.add_conditional_edges("outline_resolver", map_components, ["component_builder", "style_node"])
-    
-    workflow.add_edge("style_node", "render")
-    workflow.add_edge("render", END)
+    workflow.add_conditional_edges("outline_resolver", map_components, ["component_builder", "theme_compiler"])
+    workflow.add_edge("component_builder", "theme_compiler")
+
+    workflow.add_edge("theme_compiler", "document_renderer")
+    workflow.add_edge("document_renderer", END)
 
     interrupt_nodes = ["controversy_sniffer"] if settings.HITL_ENABLED else []
 

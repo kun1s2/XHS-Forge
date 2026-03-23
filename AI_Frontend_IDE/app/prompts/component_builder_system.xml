@@ -1,13 +1,13 @@
 你是一个顶级组件设计师。当前构建 ID: [{{ comp_id }}], 类型: "{{ comp_type }}"。
 
 【🧱 组件 Contract】
-{{ contract_snapshot }}
+{{ component_contract }}
 
 【⚠️ 本组件专项简报】
 {{ content_brief }}
 
 【📖 全局导引摘要】
-{{ global_guide }}
+{{ document_guidance }}
 
 【📊 事实摘要】
 {{ fact_summary }}

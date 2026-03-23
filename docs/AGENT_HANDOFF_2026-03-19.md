@@ -4,8 +4,8 @@
 
 配套文档：
 
-1. [`JOB_SHOWCASE_BLUEPRINT.md`](/root/XHS-Forge/docs/JOB_SHOWCASE_BLUEPRINT.md)
-2. [`INTERVIEW_DELIVERY_PACK.md`](/root/XHS-Forge/docs/INTERVIEW_DELIVERY_PACK.md)
+1. [`JOB_SHOWCASE_BLUEPRINT.md`](./JOB_SHOWCASE_BLUEPRINT.md)
+2. [`INTERVIEW_DELIVERY_PACK.md`](./INTERVIEW_DELIVERY_PACK.md)
 
 这份文档用于把本轮大改造的背景、已经完成的工作、当前真实状态、验证结果、风险点和下一步方向一次性交代清楚。
 
@@ -40,10 +40,10 @@
 
 1. `research_agent` 已拿到事实，但 `distill_node` 只认 `ToolMessage`，导致事实链断裂。
 2. `component_builder` 的结构化输出与当前模型接口兼容性差，失败后大量回落为占位文案。
-3. `style_node` 和组件生成并发，样式依赖状态未稳定落库。
-4. `outline_node` 推荐的组件和 `render_node` 实现的组件不一致，常导致最后只渲出一半。
+3. `theme_compiler` 和组件生成并发，主题依赖状态未稳定落库。
+4. `outline_resolver` 推荐的组件和 `document_renderer` 实现的组件不一致，常导致最后只渲出一半。
 5. 后端 HTML renderer 与前端 Vue renderer 存在协议偏差。
-6. 整体交互仍然是 `intent -> research -> distill -> outline -> component_builder -> style -> render` 的旧式流水线，不适合“自然语言直接编辑笔记”。
+6. 整体交互仍然是 `intent -> research -> distill -> outline_resolver -> component_builder -> theme_compiler -> document_renderer` 的旧式流水线，不适合“自然语言直接编辑笔记”。
 
 ## 3. 架构判断
 
@@ -55,7 +55,7 @@
 - `langchain-core==1.2.15`
 - `langchain-openai==1.1.10`
 
-后来为了后续迁移基线，也在 [`requirements.txt`](/root/XHS-Forge/AI_Frontend_IDE/requirements.txt) 里补入了 `langchain==1.2.12`。
+后来为了后续迁移基线，也在 [`requirements.txt`](../AI_Frontend_IDE/requirements.txt) 里补入了 `langchain==1.2.12`。
 
 真正“显得旧”的不是版本号，而是使用方式：
 
@@ -142,9 +142,9 @@
 
 当前又新增两条关键架构判断，后续重构应以此为准：
 
-1. `intent_agent` 与 `outline_agent` 存在职责重叠。
+1. `intent_agent` 与 `outline_resolver` 存在职责重叠。
    - `intent_agent` 当前同时承担路由、场景判定、叙事模式、视觉风格、受众画像、CTA、搜图策略。
-   - `outline_agent` 又在做页面级策划、积木选择、互动结构与叙事节奏决策。
+   - `outline_resolver` 又在做页面级策划、积木选择、互动结构与叙事节奏决策。
    - 后续建议收缩为：
      - `intent`: 只负责网关信号（create/edit/inspect、编辑范围、是否 research、是否需要资产、场景、风险）
      - `planner`: 单独负责内容策略与页面叙事
@@ -162,18 +162,18 @@
 这两条是后续大改的优先级很高的“方向性决定”，不建议再回到“让 intent 和 outline 同时做策划”或“继续扩大全量字符串组件类型”的旧路线。
 
 
-目标架构已经单独写在 [`NOTE_EDITOR_V2.md`](/root/XHS-Forge/docs/NOTE_EDITOR_V2.md)。
+目标架构已经单独写在 [`NOTE_EDITOR_V2.md`](./NOTE_EDITOR_V2.md)。
 
 简化后应是：
 
 理想目标仍然是：
 
-`intent -> note_editor -> verify -> render`
+`intent -> note_editor -> verify -> document_renderer`
 
 但当前仓库里的实际稳定运行策略已经调整为：
 
-- 整页新建生成：优先走 `research -> distill -> controversy -> battle -> outline -> component_builder -> style -> render`
-- 选中组件后的自然语言修改：优先走 `note_editor -> verify -> style -> render`
+- 整页新建生成：优先走 `research -> distill -> controversy -> battle -> outline_resolver -> component_builder -> theme_compiler -> document_renderer`
+- 选中组件后的自然语言修改：优先走 `note_editor -> verify -> theme_compiler -> document_renderer`
 
 也就是说，`editor runtime` 目前已经主导“修改”场景，但“整页新建”暂时仍然由旧的稳定生成链负责。
 
@@ -187,9 +187,9 @@
 
 文件：
 
-- [`distill_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/distill_node.py)
-- [`research_agent.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/research_agent.py)
-- [`entity_utils.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/utils/entity_utils.py)
+- [`distill_node.py`](../AI_Frontend_IDE/app/agents/nodes/distill_node.py)
+- [`research_agent.py`](../AI_Frontend_IDE/app/agents/nodes/research_agent.py)
+- [`entity_utils.py`](../AI_Frontend_IDE/app/agents/utils/entity_utils.py)
 
 已完成：
 
@@ -207,9 +207,9 @@
 
 文件：
 
-- [`component_builder.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/component_builder.py)
-- [`render_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/render_node.py)
-- [`schema.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/schema.py)
+- [`component_builder.py`](../AI_Frontend_IDE/app/agents/nodes/component_builder.py)
+- [`document_renderer_node.py`](../AI_Frontend_IDE/app/agents/nodes/document_renderer_node.py)
+- [`schema.py`](../AI_Frontend_IDE/app/core/schema.py)
 
 已完成：
 
@@ -217,7 +217,7 @@
 2. 增加 `build_component_fallback`。
 3. 增加 `enforce_component_contract`。
 4. 避免失败后整页都是“内容填充中...”。
-5. `render_node` 修复旧样式状态读取方式。
+5. `document_renderer` 修复旧样式状态读取方式。
 6. 补上对 `RadarChartBlock`、`PollBlock`、`LocationBlock`、`WeatherPolaroid` 的渲染支持。
 
 效果：
@@ -229,7 +229,7 @@
 
 文件：
 
-- [`style_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/style_node.py)
+- [`theme_compiler_node.py`](../AI_Frontend_IDE/app/agents/nodes/theme_compiler_node.py)
 
 已完成：
 
@@ -246,10 +246,10 @@
 
 文件：
 
-- [`DynamicRenderer.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/DynamicRenderer.vue)
-- [`XForgeRenderer.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/XForgeRenderer.vue)
-- [`RadarChartBlock.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/blocks/RadarChartBlock.vue)
-- [`PollBlock.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/blocks/PollBlock.vue)
+- [`DynamicRenderer.vue`](../ai-frontend-ide/src/components/renderers/DynamicRenderer.vue)
+- [`XForgeRenderer.vue`](../ai-frontend-ide/src/components/renderers/XForgeRenderer.vue)
+- [`RadarChartBlock.vue`](../ai-frontend-ide/src/components/renderers/blocks/RadarChartBlock.vue)
+- [`PollBlock.vue`](../ai-frontend-ide/src/components/renderers/blocks/PollBlock.vue)
 
 已完成：
 
@@ -266,11 +266,11 @@
 
 文件：
 
-- [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
-- [`verify_note_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/verify_note_node.py)
-- [`note_tools.py`](/root/XHS-Forge/AI_Frontend_IDE/app/tools/note_tools.py)
-- [`tools_registry.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/tools_registry.py)
-- [`graph.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/graph.py)
+- [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+- [`verify_note_node.py`](../AI_Frontend_IDE/app/agents/nodes/verify_note_node.py)
+- [`note_tools.py`](../AI_Frontend_IDE/app/tools/note_tools.py)
+- [`tools_registry.py`](../AI_Frontend_IDE/app/agents/tools_registry.py)
+- [`graph.py`](../AI_Frontend_IDE/app/agents/graph.py)
 
 已完成：
 
@@ -290,7 +290,7 @@
 9. 新增更像编辑器的操作工具：
    - `move_note_block`
    - `replace_note_block`
-10. 为避免全局生成链被实验中的 editor loop 拖垮，`battle_node` 已暂时切回稳定的 `outline_node` 主线；`note_editor` 当前主要负责局部编辑。
+10. 为避免全局生成链被实验中的 editor loop 拖垮，`battle_node` 已暂时切回稳定的 `outline_resolver` 主线；`note_editor` 当前主要负责局部编辑。
 11. `note_editor` 局部模式新增了代码级限域护栏：即使模型输出试图误改其他区块，节点出口也只允许目标区块的数据与样式变更通过。
 12. `note_editor` 局部模式已进一步收敛为结构化补丁路径：
    - 带 `selected_element_id` 时，优先走 `with_structured_output(..., method="function_calling")`
@@ -317,7 +317,7 @@
 
 文件：
 
-- [`chat.py`](/root/XHS-Forge/AI_Frontend_IDE/app/api/chat.py)
+- [`chat.py`](../AI_Frontend_IDE/app/api/chat.py)
 
 已完成：
 
@@ -340,8 +340,8 @@
 
 文件：
 
-- [`workspace.py`](/root/XHS-Forge/AI_Frontend_IDE/app/api/workspace.py)
-- [`responses.py`](/root/XHS-Forge/AI_Frontend_IDE/app/schemas/responses.py)
+- [`workspace.py`](../AI_Frontend_IDE/app/api/workspace.py)
+- [`responses.py`](../AI_Frontend_IDE/app/schemas/responses.py)
 
 已完成：
 
@@ -367,7 +367,7 @@
 
 文件：
 
-- [`persistence.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/persistence.py)
+- [`persistence.py`](../AI_Frontend_IDE/app/core/persistence.py)
 
 已完成：
 
@@ -382,8 +382,8 @@
 
 文件：
 
-- [`graph.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/graph.py)
-- [`intent_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/intent_node.py)
+- [`graph.py`](../AI_Frontend_IDE/app/agents/graph.py)
+- [`intent_node.py`](../AI_Frontend_IDE/app/agents/nodes/intent_node.py)
 
 已完成：
 
@@ -394,12 +394,12 @@
 
 文件：
 
-- [`showcase_manager.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/showcase_manager.py)
-- [`workspace.py`](/root/XHS-Forge/AI_Frontend_IDE/app/api/workspace.py)
-- [`ShowcaseRail.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/ShowcaseRail.vue)
-- [`ChatPanel.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/ChatPanel.vue)
-- [`useChatStore.ts`](/root/XHS-Forge/ai-frontend-ide/src/stores/useChatStore.ts)
-- [`JOB_SHOWCASE_BLUEPRINT.md`](/root/XHS-Forge/docs/JOB_SHOWCASE_BLUEPRINT.md)
+- [`showcase_manager.py`](../AI_Frontend_IDE/app/services/showcase_manager.py)
+- [`workspace.py`](../AI_Frontend_IDE/app/api/workspace.py)
+- [`ShowcaseRail.vue`](../ai-frontend-ide/src/components/chat/ShowcaseRail.vue)
+- [`ChatPanel.vue`](../ai-frontend-ide/src/components/chat/ChatPanel.vue)
+- [`useChatStore.ts`](../ai-frontend-ide/src/stores/useChatStore.ts)
+- [`JOB_SHOWCASE_BLUEPRINT.md`](./JOB_SHOWCASE_BLUEPRINT.md)
 
 已完成：
 
@@ -428,15 +428,15 @@
 
 文件：
 
-- [`tests/conftest.py`](/root/XHS-Forge/tests/conftest.py)
-- [`test_rag_pipeline.py`](/root/XHS-Forge/tests/test_rag_pipeline.py)
-- [`test_generation_smoke.py`](/root/XHS-Forge/tests/test_generation_smoke.py)
-- [`test_note_editor_v2.py`](/root/XHS-Forge/tests/test_note_editor_v2.py)
-- [`test_chat_ws_integration.py`](/root/XHS-Forge/tests/test_chat_ws_integration.py)
-- [`test_workspace_api.py`](/root/XHS-Forge/tests/test_workspace_api.py)
-- [`test_showcase_manager.py`](/root/XHS-Forge/tests/test_showcase_manager.py)
-- [`test_workspace_showcase_api.py`](/root/XHS-Forge/tests/test_workspace_showcase_api.py)
-- [`ws_probe.py`](/root/XHS-Forge/scripts/ws_probe.py)
+- [`tests/conftest.py`](../tests/conftest.py)
+- [`test_rag_pipeline.py`](../tests/test_rag_pipeline.py)
+- [`test_generation_smoke.py`](../tests/test_generation_smoke.py)
+- [`test_note_editor_v2.py`](../tests/test_note_editor_v2.py)
+- [`test_chat_ws_integration.py`](../tests/test_chat_ws_integration.py)
+- [`test_workspace_api.py`](../tests/test_workspace_api.py)
+- [`test_showcase_manager.py`](../tests/test_showcase_manager.py)
+- [`test_workspace_showcase_api.py`](../tests/test_workspace_showcase_api.py)
+- [`ws_probe.py`](../scripts/ws_probe.py)
 
 覆盖点：
 
@@ -461,7 +461,7 @@
 15. 已为主题编辑补上单测，覆盖：
    - 空主题补丁的确定性回填
    - 主题别名变量归一化
-   - `style_node` 对 `page_theme` 的优先级处理
+   - `theme_compiler` 对 `page_theme` 的优先级处理
 16. 已为 `/workspace` 响应协议补上单测，覆盖：
    - checkpoint 时间戳兼容
    - 结构化 messages / node_prompts 的 schema 兼容
@@ -496,12 +496,12 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 
 已确认的事实：
 
-1. 早期试验里主线曾实际走通 `intent -> research -> distill -> controversy -> battle -> note_editor -> verify_note -> style -> render`
+1. 早期试验里主线曾实际走通 `intent -> research -> distill -> controversy -> battle -> note_editor -> verify_note -> theme_compiler -> document_renderer`
 2. 在后续真实压测中发现，`note_editor` 作为“整页新建主脑”仍可能因为过度追求局部润色而打满递归上限。
 3. 为了保证产品先稳定可用，当前已经把“整页新建”切回旧的稳定生成链。
 4. 真实日志确认：
    - 整页新建链可稳定生成 `VersusCard / ProductSpecCard / PollBlock`
-   - `render` 节点可稳定产出完整 HTML
+   - `document_renderer` 节点可稳定产出完整 HTML
    - 第二条带 `selected_element_id` 的修改消息已成功进入局部编辑入口
    - 局部编辑入口内部现在已进一步收敛为结构化补丁路径，减少 ReAct 工具循环空转
    - 通过 `scripts/ws_probe.py` 的真实双回合压测，已经确认第二回合能把 `PollBlock.question/option_a/option_b` 真正改写为更毒舌的可见文案，而不是只改 `content_brief`
@@ -616,7 +616,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 如果要让另一个 agent 接手，建议直接给它下面这段任务说明：
 
 ```text
-请先阅读 /root/XHS-Forge/docs/AGENT_HANDOFF_2026-03-19.md 和 /root/XHS-Forge/docs/NOTE_EDITOR_V2.md。
+请先阅读 [`AGENT_HANDOFF_2026-03-19.md`](./AGENT_HANDOFF_2026-03-19.md) 和 [`NOTE_EDITOR_V2.md`](./NOTE_EDITOR_V2.md)。
 当前主线已经改成 Note Editor V2，重点文件是：
 - AI_Frontend_IDE/app/agents/nodes/note_editor_node.py
 - AI_Frontend_IDE/app/agents/nodes/verify_note_node.py
@@ -751,7 +751,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 时间：2026-03-20
 - 目标：继续减少 `ChatPanel / PreviewIframe / AgentInspector` 自己手写旧 `pageData/styleData` fallback，让 UI 通过 store selector 读取“优先新协议、兼容旧协议”的结果。
 - 关键改动：
-  - [`useChatStore.ts`](/root/XHS-Forge/ai-frontend-ide/src/stores/useChatStore.ts)
+  - [`useChatStore.ts`](../ai-frontend-ide/src/stores/useChatStore.ts)
     - 新增：
       - `getPreferredBlockById(doc, page, blockId)`
       - `getPreferredPayloadById(doc, page, blockId)`
@@ -759,11 +759,11 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
       - `getPreferredPatchTracks(doc, page)`
       - `getPreferredCoverUrl(doc, page, assets)`
     - 这批 selector 统一封装了“优先 `NoteDocument`，再回退 legacy `pageData/styleData`”的兼容逻辑。
-  - [`ChatPanel.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/ChatPanel.vue)
+  - [`ChatPanel.vue`](../ai-frontend-ide/src/components/chat/ChatPanel.vue)
     - 选中块与选中 payload 不再自己遍历 `noteDocument.blocks/pageData.blocks`，统一改走 store selector。
-  - [`PreviewIframe.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/canvas/PreviewIframe.vue)
+  - [`PreviewIframe.vue`](../ai-frontend-ide/src/components/canvas/PreviewIframe.vue)
     - hover payload 和当前封面读取改走 store selector，减少组件内 legacy fallback。
-  - [`AgentInspector.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/AgentInspector.vue)
+  - [`AgentInspector.vue`](../ai-frontend-ide/src/components/chat/AgentInspector.vue)
     - 活跃场景标签和 patch track 读取改走 store selector，不再自己拼 `noteDocument/planner/pageData` 三套逻辑。
 - 结果：
   - 前端“新协议优先、旧协议兼容”的判断开始集中到 store，UI 层更轻，后续继续淡出 `pageData/styleData` 会容易很多。
@@ -775,7 +775,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 时间：2026-03-20
 - 目标：不再让 `planner_policy` 只停留在 prompt 展示层，而是让它开始参与整页编辑的目标识别与编辑请求判断。
 - 关键改动：
-  - [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+  - [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
     - 新增：
       - `_extract_planner_intent_hints(user_query, planner_policy)`
       - `_score_block_planner_match(block_meta, user_query, planner_policy)`
@@ -784,7 +784,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
     - 这意味着用户说“证据那块”“互动那块”“收敛一点”这种更抽象的表达时，编辑器会更倾向于命中符合当前 planner 策略和块语义角色的目标，而不只是依赖显式组件别名。
     - 顺手补强了编辑触发词，新增 `收敛 / 克制 / 柔和 / 锐利` 等自然编辑表达，减少“明明像修改请求却没进入整页编辑”的情况。
 - 对应回归：
-  - [`tests/test_note_editor_v2.py`](/root/XHS-Forge/tests/test_note_editor_v2.py)
+  - [`tests/test_note_editor_v2.py`](../tests/test_note_editor_v2.py)
     - 新增 `test_resolve_global_target_id_uses_planner_policy_intent_hint`，验证当 planner policy 偏好 `evidence_summary` 时，`把证据那块收敛一点` 会稳定命中 `ProductSpecCard`。
 
 ## 26. 最新验证结果（补充）。
@@ -796,11 +796,11 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 时间：2026-03-20
 - 目标：继续让前端渲染链明确以 `NoteDocument.blocks[*].props/style` 为主，legacy `pageData/styleData` 只在新协议缺席时回退。
 - 关键改动：
-  - [`PolaroidImage.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/blocks/PolaroidImage.vue)
+  - [`PolaroidImage.vue`](../ai-frontend-ide/src/components/renderers/blocks/PolaroidImage.vue)
     - 去掉了对 `pageData` 的直接依赖，当前只吃 `data` 或 `node.props`。
-  - [`HandwrittenText.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/blocks/HandwrittenText.vue)
+  - [`HandwrittenText.vue`](../ai-frontend-ide/src/components/renderers/blocks/HandwrittenText.vue)
     - 同样去掉了对 `pageData` 的直接依赖，只保留 `data / node.props`。
-  - [`XForgeRenderer.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/XForgeRenderer.vue)
+  - [`XForgeRenderer.vue`](../ai-frontend-ide/src/components/renderers/XForgeRenderer.vue)
     - `pageData/styleData` 改为可选 props。
     - `nodeData` 现在优先使用 `node.props`；只有当 `node.props` 为空时，才会回退到 legacy `pageData[node.id]`。
     - 这让 `NoteDocument` 继续坐稳主渲染协议，legacy payload 退为兼容兜底，而不是默认参与合并。
@@ -814,14 +814,14 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 时间：2026-03-20
 - 目标：不只在 `_score_block_for_query(...)` 阶段消费 `planner_policy`，而是让编辑器更早在“推断目标组件类型”时就参考 planner 的 block intent 偏好。
 - 关键改动：
-  - [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+  - [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
     - 新增 `_infer_component_type_from_planner_policy(user_query, planner_policy)`。
     - `_infer_target_component_type(...)` 现在支持可选 `planner_policy`，会在显式组件 alias 未命中时，依据 `layout_policy.preferred_block_intents` 和抽象语义词（如 `证据/互动/正文/封面`）先推断一个目标组件类型。
     - `_resolve_global_target_id(...)` 现在把 `planner_policy` 继续向内透传到 `_infer_target_component_type(...)`，让组件类型推断和块目标打分共享同一份 planner 偏好。
   - 效果：
     - 当 planner 偏好 `evidence_summary` 且用户说“把证据那块收敛一点”时，编辑器会更早推断目标组件应落在 `RadarChartBlock/ProductSpecCard` 这类证据块，而不只是依赖最后的上下文打分。
 - 对应回归：
-  - [`tests/test_note_editor_v2.py`](/root/XHS-Forge/tests/test_note_editor_v2.py)
+  - [`tests/test_note_editor_v2.py`](../tests/test_note_editor_v2.py)
     - 新增 `test_infer_target_component_type_can_use_planner_policy_hints`，验证 seeding 场景下 planner policy 偏好 `evidence_summary` 时，抽象表达 `把证据那块收敛一点` 会推断到 `RadarChartBlock`。
 
 ## 30. 最新验证结果（补充）。
@@ -833,14 +833,14 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 时间：2026-03-20
 - 目标：继续减少 `note_editor` 在目标识别时对 legacy 页面状态反推 `NoteDocument` 的依赖，让它在 state 已带 `note_document` 时优先直接使用这份新协议元数据。
 - 关键改动：
-  - [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+  - [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
     - 旧的 legacy block meta map helper 被统一升级为同时支持 `note_document` 和 legacy 页面状态。
     - `_has_global_edit_request(...)` 和 `_resolve_global_target_id(...)` 新增可选参数 `note_document`，在传入 `NoteDocument` 且其 `blocks` 已存在时，会优先直接使用块级元数据，而不是重新从旧页面状态推导。
     - `_apply_global_edit_plan(...)` 也开始接收 `note_document`，整页编辑主链会把 `build_note_document_from_state(state)` 的结果一路透传给目标识别逻辑。
   - 效果：
     - 现在当 state 里已经有 richer `NoteDocument` 元数据时，整页编辑判断和目标命中会优先相信这份文档协议，而不是继续依赖 legacy block 信息。
 - 对应回归：
-  - [`tests/test_note_editor_v2.py`](/root/XHS-Forge/tests/test_note_editor_v2.py)
+  - [`tests/test_note_editor_v2.py`](../tests/test_note_editor_v2.py)
     - 新增 `test_resolve_global_target_id_prefers_passed_note_document_metadata`，验证当传入的 `note_document` 明确把某个 `StoryText` 标记成 `interactive_opinion` 时，`把互动那块改得更毒舌一点` 会优先命中这份文档元数据，而不是单纯依赖 legacy 组件类型。
 
 ## 32. 最新验证结果（补充）。
@@ -850,9 +850,9 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 
 ## 33. DynamicRenderer 的协议组装继续下沉回 store。
 - 时间：2026-03-20
-- 目标：继续减少渲染组件自己拼 `NoteDocument -> legacy render page/style` 的逻辑，让“新协议优先、旧协议兜底”的渲染兼容层集中在 store。
+- 目标：继续减少渲染组件自己拼 `NoteDocument -> legacy document layout payload` 的逻辑，让“新协议优先、旧协议兜底”的渲染兼容层集中在 store。
 - 关键改动：
-  - [`useChatStore.ts`](/root/XHS-Forge/ai-frontend-ide/src/stores/useChatStore.ts)
+  - [`useChatStore.ts`](../ai-frontend-ide/src/stores/useChatStore.ts)
     - 新增：
       - `buildRenderablePageDataFromDocument(doc)`
       - `getPreferredRenderPageData(doc, page)`
@@ -861,7 +861,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
       - 把 `NoteDocument.blocks[*]` 映射成前端渲染所需的 block 节点结构
       - 在文档可用时优先输出新协议渲染数据
       - 否则才回退 legacy `pageData/styleData`
-  - [`DynamicRenderer.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/renderers/DynamicRenderer.vue)
+  - [`DynamicRenderer.vue`](../ai-frontend-ide/src/components/renderers/DynamicRenderer.vue)
     - 不再自己手写 `renderPageData/renderStyleData` 的 `NoteDocument -> legacy` 映射逻辑，统一改用 store helper。
 - 结果：
   - 渲染入口层继续变轻，前端“协议转换逻辑”开始更多集中在 store，而不是散落在多个 renderer 组件里。
@@ -873,7 +873,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 时间：2026-03-20
 - 目标：不只在 `_resolve_global_target_id(...)` 的块打分阶段消费 `NoteDocument` 元数据，而是让 `_infer_target_component_type(...)` 这层更早的组件类型推断也能直接参考文档中的 `semantic_role`。
 - 关键改动：
-  - [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+  - [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
     - 抽出统一的 `ROLE_TOKEN_MAP`，把 `互动/正文/标题/封面/证据/对比/地点/氛围` 这类语义词映射集中到一处。
     - 新增 `_infer_component_type_from_note_document(user_query, note_document)`。
     - `_infer_target_component_type(...)` 新增可选参数 `note_document`，现在在显式组件 alias 和 planner policy 都未命中时，会直接扫描 `NoteDocument.blocks[*].semantic_role` 来推断目标组件类型。
@@ -881,7 +881,7 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
   - 效果：
     - 现在像“把互动那块改得更毒舌一点”这种表达，不只在最终块打分阶段依赖 `NoteDocument`，在更早的“目标组件类型推断”阶段也已经开始消费文档语义。
 - 对应回归：
-  - [`tests/test_note_editor_v2.py`](/root/XHS-Forge/tests/test_note_editor_v2.py)
+  - [`tests/test_note_editor_v2.py`](../tests/test_note_editor_v2.py)
     - 新增 `test_infer_target_component_type_can_use_note_document_semantic_hints`，验证当 `note_document` 里某个 `StoryText` 被标成 `interactive_opinion` 时，抽象表达会在组件类型推断阶段就拿到 `StoryText`。
 
 ## 36. 最新验证结果（补充）。
@@ -922,11 +922,11 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - 本轮已在 `LangChainProject` 环境中补齐：
   - `langchain==1.2.12`
   - `langgraph==1.1.3`
-- 同步将 [`AI_Frontend_IDE/requirements.txt`](/root/XHS-Forge/AI_Frontend_IDE/requirements.txt) 中的 `langgraph` 版本对齐为 `1.1.3`，避免后续复现环境再次出现版本漂移。
-- [`enrichment_agent.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/enrichment_agent.py) 已从“全量动态 prompt”收成“静态 system prompt + 动态 user context”结构：
+- 同步将 [`AI_Frontend_IDE/requirements.txt`](../AI_Frontend_IDE/requirements.txt) 中的 `langgraph` 版本对齐为 `1.1.3`，避免后续复现环境再次出现版本漂移。
+- [`enrichment_agent.py`](../AI_Frontend_IDE/app/agents/nodes/enrichment_agent.py) 已从“全量动态 prompt”收成“静态 system prompt + 动态 user context”结构：
   - `create_controlled_agent(..., prompt=system_prompt)` 现在满足 `create_agent` 使用条件。
   - 当前环境下，这个节点已具备真正走 `langchain_create_agent` 后端的条件。
-- [`tests/test_enrichment_agent.py`](/root/XHS-Forge/tests/test_enrichment_agent.py) 也按当前架构修正为 patch `create_controlled_agent`，不再依赖早已不存在的全局 `enrichment_react_agent` 变量。
+- [`tests/test_enrichment_agent.py`](../tests/test_enrichment_agent.py) 也按当前架构修正为 patch `create_controlled_agent`，不再依赖早已不存在的全局 `enrichment_react_agent` 变量。
 
 ### Validation
 - `python - <<'PY' ... from langchain.agents import create_agent ... PY` -> ok
@@ -935,12 +935,12 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - `cd /root/XHS-Forge/ai-frontend-ide && npm run build` -> passed
 
 ## 40. Patch Node Migrated Toward `create_agent` Shape (2026-03-20)
-- [`patch_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/patch_node.py) 已从“动态整段 prompt”重构为“静态 system prompt + 动态 user context”：
+- [`patch_node.py`](../AI_Frontend_IDE/app/agents/nodes/patch_node.py) 已从“动态整段 prompt”重构为“静态 system prompt + 动态 user context”：
   - system prompt 只描述微创 patch 流程与约束。
   - user message 只携带 `selected_element_id + user_instruction`。
 - 这样 `patch_doctor = create_controlled_agent(..., prompt=system_prompt)` 现在满足 `create_agent` 的静态 prompt 入口条件。
 - 这意味着当前环境下，除强 stateful 的 `note_editor` 外，`patch_node` 与 `enrichment_agent` 都已经具备实际走 `langchain_create_agent` 后端的条件。
-- 新增测试 [`tests/test_patch_node.py`](/root/XHS-Forge/tests/test_patch_node.py)，验证：
+- 新增测试 [`tests/test_patch_node.py`](../tests/test_patch_node.py)，验证：
   - `patch_node` 使用静态 system prompt 构建 agent。
   - 动态用户上下文仍正确进入 user message。
   - 返回结果仍正常回写到旧页面 patch 状态。
@@ -951,10 +951,10 @@ PYTHONPATH=/root/XHS-Forge/AI_Frontend_IDE pytest -q tests/test_showcase_manager
 - `cd /root/XHS-Forge/ai-frontend-ide && npm run build` -> passed
 
 ## 41. Preview/Inspector Further De-Legacy + Enrichment Migration Regression (2026-03-20)
-- [`PreviewIframe.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/canvas/PreviewIframe.vue) 现在直接消费 store 的 `renderPageData`，hover payload fallback 不再显式依赖 `pageData`。
-- [`AgentInspector.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/AgentInspector.vue) 的 DSL compat 面板改为展示 `renderPageData/renderStyleData`，不再直接读取 `pageData/styleData`。
+- [`PreviewIframe.vue`](../ai-frontend-ide/src/components/canvas/PreviewIframe.vue) 现在直接消费 store 的 `renderPageData`，hover payload fallback 不再显式依赖 `pageData`。
+- [`AgentInspector.vue`](../ai-frontend-ide/src/components/chat/AgentInspector.vue) 的 DSL compat 面板改为展示 `renderPageData/renderStyleData`，不再直接读取 `pageData/styleData`。
 - 这意味着前端两个高频调试/预览入口已经进一步统一到 store 派生出来的“新协议优先兼容态”，减少显式 legacy 读取。
-- [`tests/test_enrichment_agent.py`](/root/XHS-Forge/tests/test_enrichment_agent.py) 继续补强：
+- [`tests/test_enrichment_agent.py`](../tests/test_enrichment_agent.py) 继续补强：
   - 现在不仅验证 user prompt 含动态上下文，还验证 `create_controlled_agent` 收到的是静态 system prompt，确保 `enrichment_agent` 的 `create_agent` 迁移形态可回归。
 
 ### Validation
@@ -1142,7 +1142,7 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
 
 ## 53. Frontend Renderer Layer No Longer Reads Legacy pageData/styleData
 - `useChatStore.ts` 新增 `buildRenderablePageDataFromLegacy(...)`，把旧 `pageData/styleData` 统一在 store 内补形成 `node.props/node.style` 结构。
-- `getPreferredRenderPageData(...)` 现在无论来自 `NoteDocument` 还是 legacy 页面，都会产出同一种 render node 结构。
+- `getPreferredRenderPageData(...)` 现在无论来自 `NoteDocument` 还是 legacy 页面，都会产出同一种 document renderer node 结构。
 - `DynamicRenderer.vue` 不再向 `XForgeRenderer` 传 `pageData/styleData`；`XForgeRenderer.vue` 也已删除对 `pageData/styleData` 的显式依赖，只消费 `node.props/node.style`。
 - 结果：前端 renderer 目录里的 block/renderer 组件已经不再直接读取 legacy `pageData/styleData`，legacy 协议被进一步压回 store 兼容层。
 - 验证：`grep -RIn "pageData|styleData" ai-frontend-ide/src/components/renderers` 已无结果，前端 `npm run build` 通过。
@@ -1238,7 +1238,7 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
 - 从当前状态开始，项目已不再有“核心主链未完成”项，只剩可选增强项。
 
 ## 64. Final Guardrails Added
-- Added [`test_final_product_guards.py`](/root/XHS-Forge/tests/test_final_product_guards.py) to prevent regression in two areas:
+- Added [`test_final_product_guards.py`](../tests/test_final_product_guards.py) to prevent regression in two areas:
   - formal runtime reintroducing `create_react_agent` / `langgraph_create_react_agent`
   - frontend component layer directly depending on legacy `pageData/styleData` again
 - Validation:
@@ -1246,7 +1246,7 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
   - `cd /root/XHS-Forge/ai-frontend-ide && npm run build`
 
 ## 65. Final Acceptance Script Added
-- Added [`final_acceptance.sh`](/root/XHS-Forge/scripts/final_acceptance.sh) as the single-command acceptance path for the finished showcase build.
+- Added [`final_acceptance.sh`](../scripts/final_acceptance.sh) as the single-command acceptance path for the finished showcase build.
 - The script runs:
   - full backend `pytest`
   - `tests/test_final_product_guards.py`
@@ -1258,7 +1258,7 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
   - `bash /root/XHS-Forge/scripts/final_acceptance.sh` -> passed
 
 ## 66. Final Acceptance CI Added
-- Added [`final-acceptance.yml`](/root/XHS-Forge/.github/workflows/final-acceptance.yml) to run the same final acceptance path automatically on `push` and `pull_request`.
+- Added [`final-acceptance.yml`](../.github/workflows/final-acceptance.yml) to run the same final acceptance path automatically on `push` and `pull_request`.
 - The workflow:
   - sets up Python 3.12 and Node 20
   - installs backend/frontend dependencies
@@ -1266,14 +1266,14 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
 - This turns the final showcase state into a continuously enforced repository contract, not just a one-time local result.
 
 - 现代 agent 主链继续收口：正式 graph 已改为 `planner -> outline_resolver -> component_builder`，`route_intent(...)` 也已开始优先消费 `intent_result_v2`。
-- `outline_node.py` 现仅保留兼容壳，不再承载历史工具循环实现；防回退 guard 已覆盖 graph 与节点模块两层。
+- `outline_resolver` 的节点文件现仅保留兼容壳，不再承载历史工具循环实现；防回退 guard 已覆盖 graph 与节点模块两层。
 - `component_builder` 已升级为 contract-first：builder prompt 会明确收到 manifest contract snapshot 与 planner policy 摘要，最终输出统一走 `apply_component_contract_layer(...)`。
 
-- 样式与主题链继续现代化：`style_node` 已切到 `planner_policy.theme_policy` 优先，`visual_vibe/intensity_level` 仅作兼容回退；对应回归已补到 `tests/test_generation_smoke.py`。
+- 样式与主题链继续现代化：`theme_compiler` 已切到 `planner_policy.theme_policy` 优先，`visual_vibe/intensity_level` 仅作兼容回退；对应回归已补到 `tests/test_generation_smoke.py`。
 - `note_editor` 的整页主题 fallback 已优先消费 `planner_policy.theme_policy.preset`，测试覆盖在 `tests/test_note_editor_v2.py`。
 - `intent_agent` 的控制台输出与 `node_prompts` 已从历史 6D Signal 改为 `Gateway V2` 摘要，正式主链继续向“瘦 intent、强 planner”收束。
 
-- 旧六维主题钩子继续退出主链：`style_node` 已完全改成 `planner_policy.theme_policy` 驱动；`visual_vibe/intensity_level` 不再参与正式主题信号。
+- 旧六维主题钩子继续退出主链：`theme_compiler` 已完全改成 `planner_policy.theme_policy` 驱动；`visual_vibe/intensity_level` 不再参与正式主题信号。
 - `note_editor` 的页面主题 fallback 现在只吃 `planner_policy.theme_policy` 和用户 query，不再依赖 `intent_result.visual_vibe`。
 - `research_agent` 已切到 `intent_result_v2.needs_assets` 优先，正式 gateway->research 关系更符合现代 agent 网关协议。
 
@@ -1289,22 +1289,22 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
   - `builder.fallback_count`
   - `builder.contract_first`
   - `builder.component_types`
-- 前端 [`AgentInspector.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/AgentInspector.vue) 总览新增了“积木构建”卡片，`本轮追踪` 里也能直接看到 builder 摘要；当 builder 发生 fallback，Inspector 建议会主动提示优先检查组件 contract、事实摘要和局部业务简报。
+- 前端 [`AgentInspector.vue`](../ai-frontend-ide/src/components/chat/AgentInspector.vue) 总览新增了“积木构建”卡片，`本轮追踪` 里也能直接看到 builder 摘要；当 builder 发生 fallback，Inspector 建议会主动提示优先检查组件 contract、事实摘要和局部业务简报。
 
 - `intent_agent` 的 deterministic fast-path 又向前推进了一层：`content / style / structure` 三个编辑子面板的全局请求现在也会直接返回 Gateway V2，不再为明确编辑上下文额外调用意图 LLM。
-- 对应回归已补到 [`tests/test_architecture_v2.py`](/root/XHS-Forge/tests/test_architecture_v2.py)，确保这类子面板快路仍会被正式 graph 稳定路由到 `note_editor`。
+- 对应回归已补到 [`tests/test_architecture_v2.py`](../tests/test_architecture_v2.py)，确保这类子面板快路仍会被正式 graph 稳定路由到 `note_editor`。
 
 - `intent_agent` 现在还会在 `main` 面板的“已有画布显式编辑请求”上命中 deterministic fast-path：像“文本简短一点”“整体改成灰蓝风格”这类请求，不再先走意图 LLM。
-- 这条快路会基于 query 做轻量语义分流（`content_node / style_node / structure_node`），但正式 graph 仍会稳定把它们收束到 `note_editor`；对应回归也已补进 [`tests/test_architecture_v2.py`](/root/XHS-Forge/tests/test_architecture_v2.py)。
+- 这条快路会基于 query 做轻量语义分流（`content_node / theme_compiler / structure_node`），但正式 graph 仍会稳定把它们收束到 `note_editor`；对应回归也已补进 [`tests/test_architecture_v2.py`](../tests/test_architecture_v2.py)。
 
-- `intent_agent` 的 LLM 慢路已切到新的 [`IntentGatewayOutput`](/root/XHS-Forge/AI_Frontend_IDE/app/core/schema.py) 瘦身协议，并改用 [`intent_gateway_v2.xml`](/root/XHS-Forge/AI_Frontend_IDE/app/prompts/intent_gateway_v2.xml)。
-- 现在正式网关已经是“快路 V2、慢路也 V2”；旧六维 [`IntentOutput`](/root/XHS-Forge/AI_Frontend_IDE/app/core/schema.py) 只保留在兼容 helper 和历史测试上下文里，不再是正式意图 LLM 的主输出协议。
+- `intent_agent` 的 LLM 慢路已切到新的 [`IntentGatewayOutput`](../AI_Frontend_IDE/app/core/schema.py) 瘦身协议，并改用 [`intent_gateway_v2.xml`](../AI_Frontend_IDE/app/prompts/intent_gateway_v2.xml)。
+- 现在正式网关已经是“快路 V2、慢路也 V2”；旧六维 [`IntentOutput`](../AI_Frontend_IDE/app/core/schema.py) 只保留在兼容 helper 和历史测试上下文里，不再是正式意图 LLM 的主输出协议。
 
 - `research_agent` 现已不再读取 legacy `intent_result` 作为正式资产信号来源；它只使用 `intent_result_v2.needs_assets`，或在缺失时根据 query 中的搜图/实拍等显式语义做轻量推断。
 - 素材回填的 `image_assets[*].desc` 也已改成实体级标签（如 `Mate 60 实拍图`），不再把整句用户指令直接拼进素材描述。
 
 - 历史示范脚本和 campaign 测试也在同步去旧范式：`campaign_1_intent_tests / campaign_6d_radar_test / campaign_ultimate_stress_test / ignition_test` 已切到 `IntentGatewayOutput / planner_policy / resolver` 口径，避免仓库继续用 `visual_vibe / narrative_mode / asset_request` 误导后续维护方向。
-- 一部分 `style_agent / note_editor` 测试状态样例也已经优先改喂 `planner_policy.theme_policy`，减少测试层面对旧意图对象的主线依赖。
+- 一部分 `theme_compiler / note_editor` 测试状态样例也已经优先改喂 `planner_policy.theme_policy`，减少测试层面对旧意图对象的主线依赖。
 
 - 旧意图兼容链已正式删除：`IntentOutput`、`intent_result`、`intent_system.xml` 已从正式 runtime 退场；对应 refusal 节点、checkpointer 兼容和 chat thought 提取也已同步收干净。
 - `tests/test_final_product_guards.py` 现已新增护栏，防止仓库重新引入旧意图 schema、旧 prompt 文件或 `intent_result` 兼容逻辑。
@@ -1343,7 +1343,7 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
 - `resolve_component_for_block_intent(...)` 现在不再只是固定 intent->component 映射，会先按 manifest 语义字段做候选解析
 - `outline_resolver` trace 新增 `resolution_source=manifest_semantic_role`
 - `component_builder` 已进一步压缩 prompt：
-  - `global_guide` 改成摘要而不是整段注入
+  - `document_guidance` 改成摘要而不是整段注入
   - `retrieved_knowledge` 改成 compact fact summary
   - `image_assets` 改成 compact asset summary
   - `planner_policy` 只注入精简摘要
@@ -1447,8 +1447,8 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
   - 前端 build 通过
 - 后端主执行节点也已继续去旧：
   - `planner_node`
-  - `style_node`
-  - `render_node`
+  - `theme_compiler`
+  - `document_renderer`
   不再直接读取旧页面状态字段，而是统一经由 `NoteDocument` 执行视图工作。
 - 对应护栏已补：
   - `tests/test_final_product_guards.py::test_primary_execution_nodes_do_not_directly_read_legacy_dsl_state`
@@ -1457,15 +1457,15 @@ That makes the remaining stateful `create_react_agent` fallback much closer to a
   - guardrails `17 passed`
   - 前端 build 通过
 - 为提升可读性，前端 `useChatStore.ts` 顶部的大块纯 helper 现已抽离到：
-  - [`chatStoreDerivations.ts`](/root/XHS-Forge/ai-frontend-ide/src/stores/chatStoreDerivations.ts)
+  - [`chatStoreDerivations.ts`](../ai-frontend-ide/src/stores/chatStoreDerivations.ts)
 - 这让 store 主文件更像状态机和动作编排层，不再混着大量：
   - 协议 pick helper
   - NoteDocument 派生 helper
   - AI 回执摘要逻辑
   - render/cover/scenario 派生逻辑
 - 为提升后端可读性，`note_editor` 的语义命中与评分 helper 已抽离到：
-  - [`note_editor_support.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_support.py)
-- 现在 [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py) 更像正式执行管线：
+  - [`note_editor_support.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_support.py)
+- 现在 [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py) 更像正式执行管线：
   - 收集当前文档状态
   - 决定结构化 action
   - 应用 action

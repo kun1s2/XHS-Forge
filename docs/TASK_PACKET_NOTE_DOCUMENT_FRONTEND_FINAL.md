@@ -25,9 +25,9 @@
 - 这一步的意义是：后续继续删除 legacy `pageData/styleData` 依赖时，前端可以更放心地把 block 能力信息直接建立在 `NoteDocument` 上，而不是继续散落在运行时 helper 和注释约定里。
 
 ## 补充进展：renderer 层已不再直接读 legacy 协议（2026-03-20）
-- `DynamicRenderer` 与 `XForgeRenderer` 已改成只消费统一 render node 结构，block 层不再显式读取 `pageData/styleData`。
+- `DynamicRenderer` 与 `XForgeRenderer` 已改成只消费统一 document renderer node 结构，block 层不再显式读取 `pageData/styleData`。
 - legacy 页面如果仍需渲染，会先在 `useChatStore` 内通过 `buildRenderablePageDataFromLegacy(...)` 补形成 `node.props/node.style` 结构。
-- 这意味着前端 legacy 兼容层已经进一步集中到了 store，renderer 目录本身开始真正站到 `NoteDocument / render node` 主协议上。
+- 这意味着前端 legacy 兼容层已经进一步集中到了 store，renderer 目录本身开始真正站到 `NoteDocument / document renderer node` 主协议上。
 
 ## 补充进展：store 内部 legacy 同步路径已统一（2026-03-20）
 - `useChatStore` 现在新增统一 helper：`resolveLegacyWorkspaceState(...)` 与 `syncLegacyStateFromDocument(...)`。

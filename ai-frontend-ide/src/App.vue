@@ -1,5 +1,6 @@
 <template>
-  <div class="flex h-screen w-screen bg-[#1e1e1e] overflow-hidden font-sans text-gray-300">
+  <VisualRegressionLab v-if="isVisualLabMode" />
+  <div v-else class="flex h-screen w-screen bg-[#1e1e1e] overflow-hidden font-sans text-gray-300">
     
     <!-- 左侧会话管理侧边栏 -->
     <aside 
@@ -86,9 +87,11 @@
 import { onMounted } from 'vue'
 import ChatPanel from './components/chat/ChatPanel.vue'
 import PreviewIframe from './components/canvas/PreviewIframe.vue'
+import VisualRegressionLab from './components/visual/VisualRegressionLab.vue'
 import { useChatStore } from './stores/useChatStore'
 
 const chatStore = useChatStore()
+const isVisualLabMode = new URLSearchParams(window.location.search).get('visual_lab') === '1'
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '--:--'

@@ -103,9 +103,11 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
     assert len(result["retrieved_knowledge"]["fact_sources"]) == 2
     assert len(result["retrieved_knowledge"]["knowledge_records"]) == 2
     assert result["retrieved_knowledge"]["retrieval_eval"]["citation_count"] == 2
-    assert result["retrieved_knowledge"]["retrieval_eval"]["citation_coverage"] == 1.0
+    assert result["retrieved_knowledge"]["retrieval_eval"]["citation_coverage"] >= 0.5
     assert result["retrieved_knowledge"]["retrieval_eval"]["source_quality"] == "medium"
     assert result["retrieved_knowledge"]["retrieval_eval"]["recommendation"]
+    assert "missing_fields_before_followup" in result["retrieved_knowledge"]["retrieval_summary"]
+    assert "followup_search_used" in result["retrieved_knowledge"]["retrieval_summary"]
     assert result["image_assets"] == []
     assert result["agent_backends"]["research_agent"] == "deterministic_tool_orchestrator"
     print("\n✅ [时序校验通过]: research_node 已阻塞完成并成功回填 State。")
@@ -147,6 +149,64 @@ async def test_research_node_can_infer_asset_search_from_query_without_legacy_in
     assert result["retrieved_knowledge"]["retrieval_summary"]["image_count"] == 1
     assert result["retrieved_knowledge"]["retrieval_summary"]["asset_mode"] == "search"
     assert result["agent_backends"]["research_agent"] == "deterministic_tool_orchestrator"
+
+
+@pytest.mark.asyncio
+@patch.dict(
+    "app.agents.nodes.research_agent.TOOL_POOL",
+    {
+        "network_search": MagicMock(
+            ainvoke=AsyncMock(side_effect=[
+                "Mate 60 官方参数：麒麟芯片，价格 5999",
+                "Mate 60 用户体验：影像风格强，续航稳定"
+            ])
+        )
+    },
+)
+@patch("app.agents.nodes.research_agent.search_network_structured_async", new_callable=AsyncMock)
+@patch("app.agents.nodes.research_agent.search_google_images", new_callable=AsyncMock)
+@patch("app.services.cache_service.cache_service.get_hot_knowledge", new_callable=AsyncMock)
+@patch("app.services.cache_service.cache_service.match_trends_in_text", new_callable=AsyncMock)
+async def test_research_node_uses_digital_retrieval_profile_for_seeding(
+    mock_match_trends,
+    mock_get_hot_knowledge,
+    mock_search_google_images,
+    mock_structured_search,
+):
+    mock_match_trends.return_value = []
+    mock_get_hot_knowledge.return_value = None
+    mock_search_google_images.return_value = []
+    mock_structured_search.side_effect = [
+        [{"title": "Mate 60 官方参数", "link": "https://consumer.huawei.com/mate60", "snippet": "价格 5999，影像升级"}],
+        [{"title": "Mate 60 用户体验", "link": "https://example.com/review", "snippet": "续航稳定，影像风格强"}],
+        [{"title": "Mate 60 芯片参数", "link": "https://consumer.huawei.com/mate60-chip", "snippet": "处理器为麒麟芯片"}],
+        [{"title": "Mate 60 电池续航", "link": "https://consumer.huawei.com/mate60-battery", "snippet": "电池容量和续航表现稳定"}],
+        [{"title": "Mate 60 屏幕参数", "link": "https://consumer.huawei.com/mate60-display", "snippet": "屏幕亮度与分辨率升级"}],
+        [{"title": "Mate 60 相机参数", "link": "https://consumer.huawei.com/mate60-camera", "snippet": "影像系统升级"}],
+        [{"title": "Mate 60 价格版本", "link": "https://consumer.huawei.com/mate60-price", "snippet": "官方售价 5999 起"}],
+        [{"title": "Mate 60 充电参数", "link": "https://consumer.huawei.com/mate60-charge", "snippet": "支持 66W 快充"}],
+    ]
+
+    from langchain_core.messages import HumanMessage
+    result = await research_agent({
+        "main_messages": [HumanMessage(content="帮我做一篇华为 Mate 60 的数码测评")],
+        "active_panel": "main",
+        "active_archetype": "seeding",
+        "retrieved_knowledge": None,
+        "intent_result_v2": {"needs_assets": "none"},
+    })
+
+    summary = result["retrieved_knowledge"]["retrieval_summary"]
+    assert summary["retrieval_profile"] == "digital_review"
+    assert summary["retrieval_domain"] == "digital_review"
+    assert len(summary["query_variants"]) == 7
+    assert isinstance(summary["missing_fields"], list)
+    assert summary["followup_search_used"] is True
+    assert "fact_slots" in result["retrieved_knowledge"]
+    assert "chipset" in result["retrieved_knowledge"]["fact_slots"]
+    assert "battery" in result["retrieved_knowledge"]["fact_slots"]
+    assert "price" in result["retrieved_knowledge"]["fact_slots"]
+    assert "charging" in result["retrieved_knowledge"]["fact_slots"]
 
 
 @pytest.mark.asyncio

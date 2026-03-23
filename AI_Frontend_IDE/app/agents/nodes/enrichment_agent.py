@@ -1,8 +1,7 @@
-"""Deterministic enrichment orchestrator with tool-calling.
+"""显式增强入口，不再承担正式主链的事实主入口。
 
-The orchestration stays agentic, but runtime data now enters through the
-NoteDocument bridge so execution payload adapters stay localized to the service
-boundary instead of leaking through the main node flow.
+主运行时的 facts / citations 以 research_agent 为唯一真相源；这里保留给显式
+enhance/运营场景使用，只负责对空槽位做补充，不覆盖已有 grounded 数据。
 """
 
 import json

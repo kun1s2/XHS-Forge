@@ -8,7 +8,11 @@ import type {
   AgentBackends,
   AgentMeta,
   BenchmarkOverview,
+  BlockGalleryOverview,
   ChatMessage,
+  ConversationCheckpointAction,
+  ConversationCheckpointOption,
+  EvaluationOverview,
   ImageAsset,
   InspectorSummary,
   NoteDocument,
@@ -16,10 +20,14 @@ import type {
   NoteDocumentBlock,
   PlannerOutput,
   PlannerPolicy,
+  PreviewInteractionMode,
   RetrievedKnowledge,
   ShowcaseProfile,
+  TrendItem,
   TurnTrace,
   WSEvent,
+  WorkbenchInteractionMode,
+  WorkspaceViewMode,
 } from '../types/chat'
 import {
   buildAssistantResultText,
@@ -64,13 +72,12 @@ type SnapshotPart = {
 }
 
 const nodeMap: Record<string, string> = {
-  'intent_node': '意图解析',
+  'intent_agent': '意图解析',
   'research_agent': '全网搜索',
-  'enrichment_agent': '地理/热度增强',
-  'content_node': '文案创作',
-  'style_node': '视觉渲染',
+  'note_editor': '内容编辑',
+  'theme_compiler': '视觉渲染',
   'structure_node': '结构布局',
-  'asset_node': '素材调度'
+  'asset_processor': '素材调度'
 }
 
 const showcaseEnabled = import.meta.env.VITE_ENABLE_SHOWCASE === 'true'
@@ -101,6 +108,47 @@ const normalizeSnapshotMessages = (rawMessages: Array<Record<string, unknown>> =
     return { ...msg, content: String(msg.content || '') }
   })
 
+const normalizeConversationCheckpointAction = (raw: Record<string, unknown>): ConversationCheckpointAction | null => {
+  const rawActionType = String(raw.action_type || raw.action || '').trim()
+  if (!rawActionType) return null
+
+  const rawOptions = Array.isArray(raw.options) ? raw.options : []
+  let options: ConversationCheckpointOption[] = rawOptions
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => ({
+      label: String(item.label || ''),
+      value: String(item.value || ''),
+      description: String(item.description || ''),
+      recommended: Boolean(item.recommended),
+      asset_url: item.asset_url ? String(item.asset_url) : null,
+      selected_asset_ids: Array.isArray(item.selected_asset_ids) ? item.selected_asset_ids.map(String) : [],
+      selected_fact_value: item.selected_fact_value ? String(item.selected_fact_value) : null,
+    }))
+    .filter((item) => item.label && item.value)
+
+  if (rawActionType === 'stance_decision' && options.length === 0) {
+    options = [
+      { label: '🔴 黑榜', value: 'negative_stance', description: '按黑榜吐槽方向继续。' },
+      { label: '🟢 红榜', value: 'positive_stance', description: '按红榜种草方向继续。' },
+    ]
+  }
+
+  if (rawActionType === 'entity_disambiguation' && options.length === 0) {
+    options = []
+  }
+
+  return {
+    action_type: rawActionType,
+    checkpoint_id: String(raw.checkpoint_id || rawActionType),
+    title: String(raw.title || raw.message || '需要你确认一个关键决策'),
+    summary: String(raw.summary || raw.message || ''),
+    message: String(raw.message || raw.summary || ''),
+    recommended_option: String(raw.recommended_option || ''),
+    blocking: raw.blocking !== false,
+    options,
+  }
+}
+
 const hydrateSnapshotMessages = (
   snapshotMessages: ChatMessage[],
   existingMessages: ChatMessage[],
@@ -120,6 +168,7 @@ const hydrateSnapshotMessages = (
         ...msg,
         id: generateId(),
         timestamp: msg.timestamp || Date.now(),
+        messageKind: msg.messageKind || (msg.role === 'user' ? 'user_prompt' : undefined),
       }
     }
 
@@ -130,6 +179,7 @@ const hydrateSnapshotMessages = (
       ...msg,
       id: existing.id || msg.id || generateId(),
       timestamp: existing.timestamp || msg.timestamp || Date.now(),
+      messageKind: msg.messageKind || existing.messageKind || (msg.role === 'user' ? 'user_prompt' : undefined),
       imageUrls: msg.imageUrls || existing.imageUrls,
       thoughts: existing.thoughts,
       checkpointId: existing.checkpointId,
@@ -159,6 +209,8 @@ export const useChatStore = defineStore('chat', () => {
   const thoughtText = ref<string>('')
   const nodeStreamOutput = ref<string>('')
   const activePanel = ref<string>('main')
+  const workspaceMode = ref<WorkspaceViewMode>('preview')
+  const previewInteractionMode = ref<PreviewInteractionMode>('browse')
   const selectedComponentId = ref<string | null>(null)
   const selectedParagraphIndex = ref<number | null>(null)
   const composerDraft = ref<string>('')
@@ -172,6 +224,8 @@ export const useChatStore = defineStore('chat', () => {
   const agentBackends = ref<AgentBackends>({})
   const inspectorSummary = ref<InspectorSummary>({})
   const benchmarkOverview = ref<BenchmarkOverview>({})
+  const evaluationOverview = ref<EvaluationOverview>({})
+  const blockGalleryOverview = ref<BlockGalleryOverview>({})
   const pendingUploadUrls = ref<string[]>([])
   const showcaseProfiles = ref<ShowcaseProfile[]>([])
   const searchedAssets = ref<ImageAsset[]>([])
@@ -180,7 +234,7 @@ export const useChatStore = defineStore('chat', () => {
   const hoveredComponentId = ref<string | null>(null)
   const activeCheckpointId = ref<string | null>(null)
   const creatorPersona = ref<string>("硬核数码博主")
-  const hotTrends = ref<string[]>([]) // ✨ 哨兵新增：热词排行榜
+  const hotTrends = ref<TrendItem[]>([]) // 正式热点榜：带场景提示与新鲜度
   
   // ✨ 哨兵白盒化：Agent 决策元数据
   const agentMeta = ref<AgentMeta>({
@@ -225,9 +279,32 @@ export const useChatStore = defineStore('chat', () => {
     return getPreferredPayloadById(noteDocument.value, selectedComponentId.value)
   })
   const hasRenderableDocument = computed(() => documentBlocks.value.length > 0)
+  const interactionMode = computed<WorkbenchInteractionMode>(() => {
+    if (workspaceMode.value === 'preview') {
+      if (selectedComponentId.value) return 'edit'
+      return previewInteractionMode.value
+    }
+    if (workspaceMode.value === 'assets') return 'assets'
+    if (workspaceMode.value === 'gallery') return 'gallery'
+    if (workspaceMode.value === 'trends') return 'trends'
+    if (workspaceMode.value === 'showcase') return 'showcase'
+    return 'diagnostics'
+  })
 
   let ws: WebSocket | null = null
   let renderRecoveryTimer: number | null = null
+
+  const attachCheckpointToLatestUserPrompt = (checkpointId: string | null | undefined) => {
+    if (!checkpointId) return
+    for (let idx = messages.value.length - 1; idx >= 0; idx -= 1) {
+      const msg = messages.value[idx]
+      if (msg.role !== 'user') continue
+      if (msg.messageKind === 'checkpoint_decision') continue
+      if (msg.checkpointId) return
+      msg.checkpointId = checkpointId
+      return
+    }
+  }
 
   // === Actions (动作) ===
 
@@ -358,8 +435,8 @@ export const useChatStore = defineStore('chat', () => {
   const scheduleRenderRecovery = () => {
     clearRenderRecoveryTimer()
     renderRecoveryTimer = window.setTimeout(async () => {
-      if (currentNode.value !== 'render') return
-      console.warn('⚠️ render 收尾超时，尝试主动拉取 workspace 快照恢复前端')
+      if (currentNode.value !== 'document_renderer') return
+      console.warn('⚠️ document_renderer 收尾超时，尝试主动拉取 workspace 快照恢复前端')
       await recoverFromWorkspaceSnapshot()
       clearRenderRecoveryTimer()
     }, 3500)
@@ -394,6 +471,28 @@ export const useChatStore = defineStore('chat', () => {
       benchmarkOverview.value = (data?.data || data || {}) as BenchmarkOverview
     } catch (e) {
       console.error('获取 benchmark 概览失败:', e)
+    }
+  }
+
+  const fetchEvaluationOverview = async () => {
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/evaluation/overview`)
+      const data = await res.json()
+      evaluationOverview.value = (data?.data || data || {}) as EvaluationOverview
+    } catch (e) {
+      console.error('获取评估概览失败:', e)
+    }
+  }
+
+  const fetchBlockGalleryOverview = async () => {
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/block-gallery/overview`)
+      const data = await res.json()
+      blockGalleryOverview.value = (data?.data || data || {}) as BlockGalleryOverview
+    } catch (e) {
+      console.error('获取积木大全失败:', e)
     }
   }
 
@@ -450,9 +549,10 @@ export const useChatStore = defineStore('chat', () => {
       const baseUrl = getBaseUrl('http')
       const res = await fetch(`${baseUrl}/workspace/trends`)
       const data = await res.json()
-      hotTrends.value = data.trends || []
+      hotTrends.value = Array.isArray(data?.trends) ? (data.trends as TrendItem[]) : []
     } catch (e) {
       console.error('获取热词失败:', e)
+      hotTrends.value = []
     }
   }
 
@@ -474,6 +574,7 @@ export const useChatStore = defineStore('chat', () => {
         createNewSession()
       }
       void fetchBenchmarkOverview()
+      void fetchEvaluationOverview()
     } catch (e) {
       console.error('获取会话列表失败:', e)
       if (!threadId.value) createNewSession()
@@ -518,6 +619,7 @@ export const useChatStore = defineStore('chat', () => {
     nodeStreamOutput.value = ''
     selectedComponentId.value = null
     selectedParagraphIndex.value = null
+    workspaceMode.value = 'preview'
     
     try {
       const baseUrl = getBaseUrl('http')
@@ -527,6 +629,7 @@ export const useChatStore = defineStore('chat', () => {
       
       fetchAgentMeta()
       void fetchBenchmarkOverview()
+      void fetchEvaluationOverview()
       if (!force || !ws || ws.readyState !== WebSocket.OPEN) {
         connectWebSocket()
       }
@@ -534,6 +637,7 @@ export const useChatStore = defineStore('chat', () => {
       console.error('切换会话失败:', e)
       fetchAgentMeta()
       void fetchBenchmarkOverview()
+      void fetchEvaluationOverview()
       if (!force || !ws || ws.readyState !== WebSocket.OPEN) {
         connectWebSocket()
       }
@@ -566,6 +670,7 @@ export const useChatStore = defineStore('chat', () => {
     selectedComponentId.value = null
     selectedParagraphIndex.value = null
     hoveredComponentId.value = null
+    workspaceMode.value = 'preview'
     currentNode.value = ''
     thoughtText.value = ''
     nodeStreamOutput.value = ''
@@ -671,41 +776,13 @@ export const useChatStore = defineStore('chat', () => {
 
   const applyCoverAssetLocally = (asset: ImageAsset) => {
     const currentDoc = noteDocument.value || {}
-    const docBlocks = getDocumentBlocks(currentDoc).map(block => ({ ...block }))
-    const legacyBlocks = Array.isArray(currentPage.blocks) ? currentPage.blocks : []
-    const legacyCoverBlock = legacyBlocks.find((block: Record<string, any>) => block?.component_type === 'CoverSwiper')
-    let docCoverBlock = docBlocks.find(block => String(block?.type || '') === 'CoverSwiper')
-    if (!docCoverBlock) {
-      docCoverBlock = {
-        id: String((legacyCoverBlock as Record<string, any> | undefined)?.id || `cover_local_${Math.random().toString(36).slice(2, 8)}`),
-        type: 'CoverSwiper',
-        content_brief: '封面',
-        props: {},
-        style: {},
-        asset_refs: [],
-        fact_bindings: [],
-        order: 0,
-      }
-      docBlocks.unshift(docCoverBlock)
-    }
-
-    docCoverBlock.props = {
-      ...((docCoverBlock.props || {}) as Record<string, any>),
-      type: 'CoverSwiper',
-      image_urls: [asset.url],
-    }
-    docCoverBlock.asset_refs = [asset.url]
-
     const existingAssets = Array.isArray(currentDoc.assets) ? currentDoc.assets.map((item: Record<string, any>) => ({ ...item })) : []
-    const coverBlockId = String(docCoverBlock.id)
     const normalizedAssets = existingAssets
       .filter(item => item?.url)
       .map((item: Record<string, any>) => ({
         ...item,
         role: item.url === asset.url ? 'cover' : (item.role === 'cover' ? 'supporting' : item.role),
-        used_by_blocks: item.url === asset.url
-          ? Array.from(new Set([...(Array.isArray(item.used_by_blocks) ? item.used_by_blocks : []), coverBlockId]))
-          : (Array.isArray(item.used_by_blocks) ? item.used_by_blocks.filter((id: string) => id !== coverBlockId) : []),
+        used_by_blocks: Array.isArray(item.used_by_blocks) ? item.used_by_blocks : [],
       }))
 
     if (!normalizedAssets.some((item: Record<string, any>) => item.url === asset.url)) {
@@ -719,9 +796,16 @@ export const useChatStore = defineStore('chat', () => {
         locked: false,
         selection_state: 'available',
         source_reason: asset.source_reason || asset.desc || '封面图',
-        used_by_blocks: [coverBlockId],
+        used_by_blocks: [],
       })
     }
+
+    imageAssets.value = dedupeImageAssets(
+      [...imageAssets.value.filter(existing => existing.url !== asset.url).map(existing => ({
+        ...existing,
+        role: existing.role === 'cover' ? 'supporting' : existing.role,
+      })), { ...asset, role: 'cover' }],
+    )
 
     noteDocument.value = {
       ...currentDoc,
@@ -729,11 +813,93 @@ export const useChatStore = defineStore('chat', () => {
         ...((currentDoc.document_meta || {}) as Record<string, any>),
         title: (currentDoc.document_meta as any)?.title || 'XHS-Forge Note',
       },
-      blocks: docBlocks.map((block, index) => ({ ...block, order: index })),
+      blocks: getDocumentBlocks(currentDoc).map((block, index) => ({ ...block, order: index })),
       assets: normalizedAssets,
       ui_state: {
         ...((currentDoc.ui_state || {}) as Record<string, any>),
         selected_element_id: (currentDoc.ui_state as any)?.selected_element_id || selectedComponentId.value || null,
+        cover_asset_url: asset.url,
+      },
+    }
+  }
+
+  const applyAssetPreferencesLocally = (
+    asset: ImageAsset,
+    updates: Partial<Pick<ImageAsset, 'role' | 'locked' | 'selection_state'>>,
+  ) => {
+    const currentDoc = noteDocument.value || {}
+    const nextRole = updates.role
+    const nextSelectionState = updates.selection_state
+    const nextLocked = updates.locked
+
+    const normalizedAssets = (Array.isArray(currentDoc.assets) ? currentDoc.assets : [])
+      .filter((item: Record<string, any>) => item?.url)
+      .map((item: Record<string, any>) => {
+        const nextItem = { ...item }
+        if (nextItem.url === asset.url) {
+          if (typeof nextRole !== 'undefined') nextItem.role = nextRole
+          if (typeof nextLocked !== 'undefined') nextItem.locked = !!nextLocked
+          if (typeof nextSelectionState !== 'undefined') nextItem.selection_state = nextSelectionState
+          if (nextSelectionState === 'excluded') {
+            nextItem.locked = false
+            if (nextItem.role === 'cover') nextItem.role = 'supporting'
+          }
+          if (nextRole === 'cover') nextItem.selection_state = 'available'
+        } else if (nextRole === 'cover' && nextItem.role === 'cover') {
+          nextItem.role = 'supporting'
+        }
+        return nextItem
+      })
+
+    const upsertedAssets = normalizedAssets.some((item: Record<string, any>) => item.url === asset.url)
+      ? normalizedAssets
+      : [...normalizedAssets, {
+          id: asset.url,
+          url: asset.url,
+          desc: asset.desc || '素材图',
+          source_type: asset.source_type,
+          query: asset.query,
+          role: nextRole || asset.role || 'supporting',
+          locked: typeof nextLocked !== 'undefined' ? !!nextLocked : !!asset.locked,
+          selection_state: nextSelectionState || asset.selection_state || 'available',
+          source_reason: asset.source_reason || asset.desc || '素材图',
+          used_by_blocks: asset.used_by_blocks || [],
+        }]
+
+    imageAssets.value = dedupeImageAssets(
+      imageAssets.value.map((existing) => {
+        if (existing.url !== asset.url) {
+          return nextRole === 'cover' && existing.role === 'cover'
+            ? { ...existing, role: 'supporting' }
+            : existing
+        }
+        const nextExisting = { ...existing }
+        if (typeof nextRole !== 'undefined') nextExisting.role = nextRole
+        if (typeof nextLocked !== 'undefined') nextExisting.locked = !!nextLocked
+        if (typeof nextSelectionState !== 'undefined') nextExisting.selection_state = nextSelectionState
+        if (nextSelectionState === 'excluded') {
+          nextExisting.locked = false
+          if (nextExisting.role === 'cover') nextExisting.role = 'supporting'
+        }
+        if (nextRole === 'cover') nextExisting.selection_state = 'available'
+        return nextExisting
+      }),
+    )
+
+    const currentUiState = (currentDoc.ui_state || {}) as Record<string, any>
+    const currentCoverUrlValue = String(currentUiState.cover_asset_url || '')
+    const nextCoverUrl = nextRole === 'cover'
+      ? asset.url
+      : ((asset.url === currentCoverUrlValue && (nextSelectionState === 'excluded' || nextRole === 'inline' || nextRole === 'supporting'))
+          ? null
+          : (currentUiState.cover_asset_url || null))
+
+    noteDocument.value = {
+      ...currentDoc,
+      assets: upsertedAssets,
+      ui_state: {
+        ...currentUiState,
+        cover_asset_url: nextCoverUrl,
       },
     }
   }
@@ -757,6 +923,74 @@ export const useChatStore = defineStore('chat', () => {
       return true
     } catch (e) {
       console.error('设为封面失败:', e)
+      return false
+    }
+  }
+
+  const deleteAssetFromLibrary = async (asset: ImageAsset) => {
+    if (!threadId.value || !asset?.url) return false
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/${threadId.value}/assets?url=${encodeURIComponent(asset.url)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+      imageAssets.value = dedupeImageAssets(imageAssets.value.filter(existing => existing.url !== asset.url))
+      pendingUploadUrls.value = pendingUploadUrls.value.filter(url => url !== asset.url)
+      searchedAssets.value = searchedAssets.value.filter(existing => existing.url !== asset.url)
+
+      const currentDoc = noteDocument.value || {}
+      noteDocument.value = {
+        ...currentDoc,
+        assets: (Array.isArray(currentDoc.assets) ? currentDoc.assets : []).filter((item: Record<string, any>) => item?.url !== asset.url),
+        blocks: getDocumentBlocks(currentDoc).map((block, index) => ({ ...block, order: index })),
+        ui_state: {
+          ...((currentDoc.ui_state || {}) as Record<string, any>),
+          cover_asset_url: (currentDoc.ui_state as any)?.cover_asset_url === asset.url
+            ? null
+            : ((currentDoc.ui_state as any)?.cover_asset_url || null),
+        },
+      }
+
+      await switchSession(threadId.value, { force: true })
+      reportUiAction(threadId.value, 'workspace_remove_asset', `删除素材: ${asset.desc || asset.url}`, { asset_url: asset.url })
+      return true
+    } catch (e) {
+      console.error('删除素材失败:', e)
+      return false
+    }
+  }
+
+  const updateAssetPreferences = async (
+    asset: ImageAsset,
+    updates: Partial<Pick<ImageAsset, 'role' | 'locked' | 'selection_state'>>,
+  ) => {
+    if (!threadId.value || !asset?.url) return false
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/${threadId.value}/assets/preferences`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: asset.url,
+          role: typeof updates.role === 'undefined' ? undefined : updates.role,
+          locked: typeof updates.locked === 'undefined' ? undefined : !!updates.locked,
+          selection_state: typeof updates.selection_state === 'undefined' ? undefined : updates.selection_state,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      applyAssetPreferencesLocally(asset, updates)
+      await switchSession(threadId.value, { force: true })
+      reportUiAction(threadId.value, 'workspace_asset_preferences', `更新素材偏好: ${asset.desc || asset.url}`, {
+        asset_url: asset.url,
+        role: updates.role,
+        locked: updates.locked,
+        selection_state: updates.selection_state,
+      })
+      return true
+    } catch (e) {
+      console.error('更新素材偏好失败:', e)
       return false
     }
   }
@@ -793,6 +1027,23 @@ export const useChatStore = defineStore('chat', () => {
   const setSelectedComponent = (id: string | null, paragraphIndex: number | null = null) => {
     selectedComponentId.value = id
     selectedParagraphIndex.value = paragraphIndex
+    workspaceMode.value = 'preview'
+    if (id) previewInteractionMode.value = 'select'
+  }
+
+  const setWorkspaceMode = (mode: WorkspaceViewMode) => {
+    workspaceMode.value = mode
+    if (mode === 'trends') {
+      void fetchTrends()
+    }
+  }
+
+  const setPreviewInteractionMode = (mode: PreviewInteractionMode) => {
+    previewInteractionMode.value = mode
+    if (mode === 'browse') {
+      selectedComponentId.value = null
+      selectedParagraphIndex.value = null
+    }
   }
 
   const setComposerDraft = (value: string) => {
@@ -874,7 +1125,7 @@ export const useChatStore = defineStore('chat', () => {
            nodeStreamOutput.value = ''
         }
         currentNode.value = wsData.node || ''
-        if (currentNode.value === 'render') {
+        if (currentNode.value === 'document_renderer') {
           scheduleRenderRecovery()
         }
         break
@@ -882,7 +1133,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'thought':
         thoughtText.value = data
         nodeStreamOutput.value = ''
-        if (currentNode.value === 'render' || thoughtText.value.includes('云端打包渲染')) {
+        if (currentNode.value === 'document_renderer' || thoughtText.value.includes('云端打包渲染')) {
           scheduleRenderRecovery()
         }
         break
@@ -905,7 +1156,7 @@ export const useChatStore = defineStore('chat', () => {
         const content = typeof data === 'string' ? data : (wsData.content || '')
         const sourceNode = wsData.node || currentNode.value
         
-        if (sourceNode && !['content_node', 'direct_chat_node', 'rag_node'].includes(sourceNode)) {
+        if (sourceNode && !['note_editor', 'direct_chat_node', 'rag_node'].includes(sourceNode)) {
           nodeStreamOutput.value += content
           const buffer = nodeStreamOutput.value
           const marker = '"thought_process":'
@@ -970,6 +1221,7 @@ export const useChatStore = defineStore('chat', () => {
           lastMsg.agentBackends = nextAgentBackends
           activeCheckpointId.value = checkpointId
         }
+        attachCheckpointToLatestUserPrompt(checkpointId)
         if (ossUrl) previewUrl.value = ossUrl
         nodePrompts.value = nextNodePrompts
         imageAssets.value = dedupeImageAssets(nextImageAssets)
@@ -989,6 +1241,7 @@ export const useChatStore = defineStore('chat', () => {
         // ✨ 哨兵自动化：生成结束后，立即拉取 Agent 脑电图
         fetchAgentMeta()
         void fetchBenchmarkOverview()
+        void fetchEvaluationOverview()
         window.setTimeout(() => {
           void syncWorkspaceAfterTurnEnd()
         }, 120)
@@ -998,7 +1251,17 @@ export const useChatStore = defineStore('chat', () => {
         clearRenderRecoveryTimer()
         if (isAssistant) {
           lastMsg.streaming = false
-          lastMsg.content += `\n\n📢 ${data.message}`
+          const normalizedAction = normalizeConversationCheckpointAction(
+            (typeof data === 'object' && data ? data : {}) as Record<string, unknown>,
+          )
+          if (normalizedAction) {
+            lastMsg.actionRequired = normalizedAction
+            if (!(lastMsg.content || '').trim() && normalizedAction.summary) {
+              lastMsg.content = normalizedAction.summary
+            }
+          } else {
+            lastMsg.content += `\n\n📢 ${String((data as Record<string, unknown>)?.message || '')}`
+          }
         }
         break
 
@@ -1016,28 +1279,120 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  const rollbackTo = (checkpointId: string) => {
-    const idx = messages.value.findIndex(m => m.checkpointId === checkpointId)
-    if (idx === -1) return
-    messages.value = messages.value.slice(0, idx + 1)
-    const targetMsg = messages.value[idx]
-    activeCheckpointId.value = targetMsg.checkpointId ?? null
-    previewUrl.value = targetMsg.ossUrl ?? null
-    const targetDoc = (targetMsg.noteDocument || {}) as NoteDocument
-    nodePrompts.value = targetMsg.nodePrompts ?? {}
-    imageAssets.value = (targetMsg.imageAssets && targetMsg.imageAssets.length > 0) ? targetMsg.imageAssets : dedupeImageAssets(((targetDoc.assets || []) as ImageAsset[]))
-    sourceCode.value = targetMsg.sourceCode ?? ''
-    noteDocument.value = targetDoc
-    plannerOutput.value = targetMsg.plannerOutput ?? {}
-    plannerPolicy.value = targetMsg.plannerPolicy ?? {}
-    turnTrace.value = targetMsg.turnTrace ?? {}
-    agentBackends.value = targetMsg.agentBackends ?? {}
+  const submitCheckpointDecision = (
+    action: ConversationCheckpointAction,
+    option: ConversationCheckpointOption,
+  ) => {
+    if (wsStatus.value !== 'connected' || !ws || ws.readyState !== WebSocket.OPEN) return
+
     messages.value.push({
       id: generateId(),
-      role: 'system',
-      content: `已回退至历史版本 (ID: ${checkpointId.slice(0,6)}...)`,
-      timestamp: Date.now()
+      role: 'user',
+      content: `已选择：${option.label}`,
+      messageKind: 'checkpoint_decision',
+      timestamp: Date.now(),
     })
+
+    messages.value.push({
+      id: generateId(),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      streaming: true,
+    })
+
+    if (action.action_type === 'stance_decision') {
+      ws.send(JSON.stringify({
+        type: 'submit_stance',
+        stance: option.value,
+        panel: activePanel.value,
+        selected_element_id: selectedComponentId.value,
+      }))
+      return
+    }
+
+    if (action.action_type === 'entity_disambiguation') {
+      ws.send(JSON.stringify({
+        type: 'submit_disambiguation',
+        choice: option.value,
+        panel: activePanel.value,
+        selected_element_id: selectedComponentId.value,
+      }))
+      return
+    }
+
+    ws.send(JSON.stringify({
+      type: 'submit_checkpoint_decision',
+      action_type: action.action_type,
+      checkpoint_id: action.checkpoint_id,
+      decision: option.value,
+      selected_asset_ids: option.selected_asset_ids || [],
+      selected_fact_value: option.selected_fact_value || null,
+      panel: activePanel.value,
+      selected_element_id: selectedComponentId.value,
+    }))
+  }
+
+  const rollbackTo = async (checkpointId: string) => {
+    if (!threadId.value || !checkpointId) return false
+    try {
+      const baseUrl = getBaseUrl('http')
+      const res = await fetch(`${baseUrl}/workspace/${threadId.value}/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          checkpoint_id: checkpointId,
+          panel: activePanel.value,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await switchSession(threadId.value, { force: true })
+      messages.value.push({
+        id: generateId(),
+        role: 'system',
+        content: '已回到这条消息对应的历史状态。',
+        timestamp: Date.now(),
+      })
+      reportUiAction(threadId.value, 'workspace_rollback_thread', `回到历史点 ${checkpointId}`, { checkpoint_id: checkpointId })
+      return true
+    } catch (e) {
+      console.error('线程级回滚失败:', e)
+      return false
+    }
+  }
+
+  const branchFromCheckpoint = async (checkpointId: string) => {
+    if (!threadId.value || !checkpointId) return null
+    try {
+      const baseUrl = getBaseUrl('http')
+      const parentThreadId = threadId.value
+      const res = await fetch(`${baseUrl}/workspace/fork`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          old_thread_id: parentThreadId,
+          checkpoint_id: checkpointId,
+          panel: activePanel.value,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const nextThreadId = String(data?.new_thread_id || '')
+      if (!nextThreadId) throw new Error('missing new_thread_id')
+      await fetchSessions()
+      await switchSession(nextThreadId, { force: true })
+      messages.value.push({
+        id: generateId(),
+        role: 'system',
+        content: '已从这条消息创建一个新分支会话。',
+        timestamp: Date.now(),
+      })
+      reportUiAction(nextThreadId, 'workspace_fork', `从历史点创建分支 ${checkpointId}`, { checkpoint_id: checkpointId, parent_thread_id: parentThreadId })
+      return nextThreadId
+    } catch (e) {
+      console.error('创建分支失败:', e)
+      return null
+    }
   }
 
   const sendMessage = (content: string, options?: { imageUrls?: string[] }) => {
@@ -1051,6 +1406,7 @@ export const useChatStore = defineStore('chat', () => {
       id: generateId(),
       role: 'user',
       content: trimmedContent,
+      messageKind: 'user_prompt',
       imageUrls: stagedImageUrls,
       timestamp: Date.now()
     })
@@ -1085,6 +1441,9 @@ export const useChatStore = defineStore('chat', () => {
     currentNode,
     nodeStreamOutput,
     activePanel,
+    workspaceMode,
+    previewInteractionMode,
+    interactionMode,
     selectedComponentId,
     selectedParagraphIndex,
     composerDraft,
@@ -1097,6 +1456,8 @@ export const useChatStore = defineStore('chat', () => {
     agentBackends,
     inspectorSummary,
     benchmarkOverview,
+    evaluationOverview,
+    blockGalleryOverview,
     documentBlocks,
     documentAssets,
     renderPageData,
@@ -1124,6 +1485,8 @@ export const useChatStore = defineStore('chat', () => {
     pendingFactConflictCount,
     hotTrends,
     setSelectedComponent,
+    setWorkspaceMode,
+    setPreviewInteractionMode,
     setComposerDraft,
     setCreatorPersona,
     setHoveredComponent,
@@ -1142,7 +1505,9 @@ export const useChatStore = defineStore('chat', () => {
     getPreferredRenderStyleData,
     connectWebSocket,
     rollbackTo,
+    branchFromCheckpoint,
     sendMessage,
+    submitCheckpointDecision,
     fetchSessions,
     fetchShowcaseProfiles,
     switchSession,
@@ -1151,9 +1516,13 @@ export const useChatStore = defineStore('chat', () => {
     searchAssetImages,
     importAssetToLibrary,
     setAssetAsCover,
+    updateAssetPreferences,
+    deleteAssetFromLibrary,
     confirmFactValue,
     fetchAgentMeta,
     fetchBenchmarkOverview,
+    fetchEvaluationOverview,
+    fetchBlockGalleryOverview,
     fetchTrends,
     trackTrend,
     rollbackComponent

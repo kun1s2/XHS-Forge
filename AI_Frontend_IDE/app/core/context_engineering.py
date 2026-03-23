@@ -1,3 +1,10 @@
+"""上下文工程基础模块。
+
+这个文件负责把运行时的大对象压缩成一组稳定、可命名、可复用的上下文包，
+供 agent 节点和确定性节点消费。目标不是“给更多上下文”，而是“给更准、
+更短、更容易解释的上下文”。
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -7,6 +14,7 @@ from app.core.component_manifest import get_component_semantic_role, get_editabl
 
 
 def build_policy_summary(planner_policy: dict[str, Any] | None) -> dict[str, Any]:
+    """把 planner_policy 压缩成适合下游节点消费的策略摘要。"""
     safe_policy = planner_policy if isinstance(planner_policy, dict) else {}
     tone_policy = safe_policy.get("tone_policy", {}) if isinstance(safe_policy.get("tone_policy"), dict) else {}
     layout_policy = safe_policy.get("layout_policy", {}) if isinstance(safe_policy.get("layout_policy"), dict) else {}
@@ -38,9 +46,14 @@ def build_policy_summary(planner_policy: dict[str, Any] | None) -> dict[str, Any
 
 
 def build_asset_summary(image_assets: list[dict[str, Any]] | None, *, limit: int = 3) -> list[dict[str, Any]]:
+    """提取少量高信号素材摘要，避免把完整素材列表直接塞进 prompt。"""
     summary: list[dict[str, Any]] = []
     for asset in image_assets or []:
-        if not isinstance(asset, dict) or not asset.get("url"):
+        if (
+            not isinstance(asset, dict)
+            or not asset.get("url")
+            or str(asset.get("selection_state") or "").strip().lower() == "excluded"
+        ):
             continue
         summary.append(
             {
@@ -55,22 +68,37 @@ def build_asset_summary(image_assets: list[dict[str, Any]] | None, *, limit: int
 
 
 def build_fact_summary(retrieved_knowledge: dict[str, Any] | None, image_assets: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """把检索知识压缩成事实摘要，供规划、编辑和积木构建复用。"""
     knowledge = retrieved_knowledge if isinstance(retrieved_knowledge, dict) else {}
     attrs = knowledge.get("core_attributes") if isinstance(knowledge.get("core_attributes"), dict) else {}
     confirmed = knowledge.get("confirmed_facts") if isinstance(knowledge.get("confirmed_facts"), dict) else {}
     conflict_list = knowledge.get("fact_conflicts") if isinstance(knowledge.get("fact_conflicts"), list) else []
+    fact_slots = knowledge.get("fact_slots") if isinstance(knowledge.get("fact_slots"), dict) else {}
     return {
         "entity": knowledge.get("entity_name") or "",
         "key_selling_points": list(knowledge.get("key_selling_points") or [])[:4],
         "known_issues": list(knowledge.get("known_issues") or [])[:4],
         "core_attributes": dict(list(attrs.items())[:6]),
         "confirmed_facts": dict(list(confirmed.items())[:6]),
+        "fact_slots": {
+            str(key): str((value or {}).get("summary") or "")
+            for key, value in list(fact_slots.items())[:6]
+            if isinstance(value, dict) and str((value or {}).get("summary") or "").strip()
+        },
+        "missing_fields": list(knowledge.get("missing_fields") or [])[:6],
         "conflict_count": len(conflict_list),
-        "image_count": len([asset for asset in (image_assets or []) if isinstance(asset, dict) and asset.get("url")]),
+        "image_count": len([
+            asset
+            for asset in (image_assets or [])
+            if isinstance(asset, dict)
+            and asset.get("url")
+            and str(asset.get("selection_state") or "").strip().lower() != "excluded"
+        ]),
     }
 
 
 def count_fact_summary_entries(fact_summary: dict[str, Any] | None) -> int:
+    """统计事实摘要里的有效条目数，便于 trace 和诊断面板展示。"""
     summary = fact_summary if isinstance(fact_summary, dict) else {}
     count = 0
     if summary.get("entity"):
@@ -79,6 +107,8 @@ def count_fact_summary_entries(fact_summary: dict[str, Any] | None) -> int:
     count += len(summary.get("known_issues") or [])
     count += len(summary.get("core_attributes") or {})
     count += len(summary.get("confirmed_facts") or {})
+    count += len(summary.get("fact_slots") or {})
+    count += len(summary.get("missing_fields") or [])
     if summary.get("conflict_count"):
         count += 1
     return count
@@ -90,6 +120,7 @@ def build_retrieval_evidence_slice(
     semantic_role: str | None = None,
     limit: int = 3,
 ) -> list[dict[str, Any]]:
+    """按语义角色切出一小段最相关的检索证据。"""
     knowledge = retrieved_knowledge if isinstance(retrieved_knowledge, dict) else {}
     fact_sources = [item for item in (knowledge.get("fact_sources") or []) if isinstance(item, dict)]
     if not fact_sources:
@@ -141,6 +172,7 @@ def build_retrieval_evidence_slice(
 
 
 def build_document_summary(note_document: dict[str, Any] | None) -> dict[str, Any]:
+    """提取文档级摘要，用于让节点快速理解当前页面概况。"""
     document = note_document if isinstance(note_document, dict) else {}
     blocks = [block for block in (document.get("blocks") or []) if isinstance(block, dict)]
     return {
@@ -168,6 +200,7 @@ def build_selection_context(
     block_style_map: dict[str, Any] | None,
     selected_element_id: str | None,
 ) -> dict[str, Any]:
+    """构造当前选中区块的局部上下文，供局部编辑路径使用。"""
     safe_document = note_document if isinstance(note_document, dict) else {}
     safe_document_view = document_view if isinstance(document_view, dict) else {}
     safe_style_map = block_style_map if isinstance(block_style_map, dict) else {}

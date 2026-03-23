@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import FactBindingFooter from './FactBindingFooter.vue'
 
 const props = defineProps<{
   node: any
   data: {
     title?: string
-    metrics?: Array<{ label: string; value: number }>
+    metrics?: Array<{ label: string; value: number; reason?: string; confidence?: string; evidence?: string }>
     dimensions?: string[]
     scores?: number[]
   }
@@ -19,20 +20,26 @@ const normalizedMetrics = computed(() => {
     return props.data.metrics.map((item) => ({
       label: String(item.label || '维度'),
       value: Math.max(0, Math.min(100, Number(item.value) || 0)),
+      reason: String(item.reason || ''),
+      confidence: String(item.confidence || 'medium'),
+      evidence: String(item.evidence || ''),
     }))
   }
   if (Array.isArray(props.data.dimensions) && Array.isArray(props.data.scores) && props.data.dimensions.length) {
     return props.data.dimensions.map((label, idx) => ({
       label: String(label || `维度 ${idx + 1}`),
       value: Math.max(0, Math.min(100, Number(props.data.scores[idx]) || 0)),
+      reason: '',
+      confidence: 'medium',
+      evidence: '',
     }))
   }
   return [
-    { label: '性能', value: 85 },
-    { label: '续航', value: 70 },
-    { label: '颜值', value: 95 },
-    { label: '便携', value: 80 },
-    { label: '性价比', value: 65 },
+    { label: '性能', value: 85, reason: '高负载场景下仍然能维持稳定体验。', confidence: 'medium', evidence: '综合体验反馈' },
+    { label: '续航', value: 70, reason: '够用，但不是它最具决定性的优势。', confidence: 'medium', evidence: '日常续航表现' },
+    { label: '颜值', value: 95, reason: '第一眼观感足够强，容易形成记忆点。', confidence: 'medium', evidence: '外观与手感反馈' },
+    { label: '便携', value: 80, reason: '尺寸和重量还在可接受范围内。', confidence: 'medium', evidence: '握持体验' },
+    { label: '性价比', value: 65, reason: '更适合讲取舍，不适合写成绝对优势。', confidence: 'low', evidence: '价格与体验权衡' },
   ]
 })
 
@@ -63,6 +70,7 @@ const activeMetric = computed(() => {
 const interpretation = computed(() => {
   const metric = activeMetric.value || strongestMetric.value
   if (!metric) return '当前还没有足够的维度数据。'
+  if (metric.reason) return metric.reason
   if (metric.value >= 85) return `${metric.label} 已经形成明显优势，适合放进标题下或结论区承接。`
   if (metric.value >= 70) return `${metric.label} 表现稳定，适合写成“放心用”或“没有明显短板”。`
   return `${metric.label} 更像提醒项，适合在正文里用更克制的表达解释取舍。`
@@ -73,6 +81,18 @@ const scoreBand = computed(() => {
   if (averageScore.value >= 70) return '稳定均衡档'
   return '需要保守表达档'
 })
+
+const evidenceChips = computed(() => [
+  `${strongestMetric.value?.label || '主维度'} 领先`,
+  `${weakestMetric.value?.label || '风险维度'} 需要补强`,
+  `均值 ${averageScore.value}`,
+])
+
+const confidenceLabel = (confidence?: string) => {
+  if (confidence === 'high') return '高可信'
+  if (confidence === 'low') return '保守表达'
+  return '常规判断'
+}
 
 const polygonPoints = computed(() =>
   normalizedMetrics.value
@@ -117,18 +137,29 @@ const metricAxis = (idx: number) => {
 
 <template>
   <div
-    :class="['w-full rounded-[30px] border p-5 md:p-6 animate-in fade-in slide-in-from-bottom-4 duration-700', cssClasses]"
+    :class="['relative w-full overflow-hidden rounded-[30px] border p-5 md:p-6 animate-in fade-in slide-in-from-bottom-4 duration-700', cssClasses]"
     :style="cardStyle"
   >
-    <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div class="pointer-events-none absolute inset-0 opacity-80" :style="{ background: 'radial-gradient(circle at top left, color-mix(in srgb, var(--primary-vibe) 16%, white 84%) 0%, transparent 32%), radial-gradient(circle at bottom right, rgba(15,23,42,0.06) 0%, transparent 42%)' }"></div>
+    <div class="flex flex-col gap-3">
       <div>
         <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">Evidence Radar</div>
         <div class="mt-2 text-xl font-black leading-tight" :style="{ color: 'var(--text-color)' }">{{ title }}</div>
         <div class="mt-2 text-sm leading-relaxed" :style="{ color: 'var(--text-muted)' }">
           不只是一个静态图形，而是把结论、短板和维度强弱说清楚。
         </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <span
+            v-for="chip in evidenceChips"
+            :key="chip"
+            class="rounded-full border px-2.5 py-1 text-[10px] font-bold"
+            :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--text-muted)' }"
+          >
+            {{ chip }}
+          </span>
+        </div>
       </div>
-      <div class="grid grid-cols-2 gap-2 md:min-w-[280px]">
+      <div class="grid gap-2 sm:grid-cols-2">
         <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
           <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">最强维度</div>
           <div class="mt-1 text-sm font-black" :style="{ color: 'var(--text-color)' }">{{ strongestMetric?.label }}</div>
@@ -156,8 +187,8 @@ const metricAxis = (idx: number) => {
       </div>
     </div>
 
-    <div class="mt-6 grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-center">
-      <div class="relative mx-auto aspect-square w-full max-w-[260px]">
+    <div class="mt-6 grid gap-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
+      <div class="relative mx-auto aspect-square w-full max-w-[240px]">
         <svg viewBox="0 0 220 220" class="h-full w-full">
           <polygon
             v-for="(line, idx) in gridLines"
@@ -210,9 +241,17 @@ const metricAxis = (idx: number) => {
         >
           {{ metric.label }}
         </div>
+
+        <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div class="rounded-full border px-4 py-3 text-center backdrop-blur-md" :style="{ borderColor: 'rgba(255,255,255,0.16)', background: 'rgba(15,23,42,0.42)', boxShadow: '0 18px 36px rgba(15,23,42,0.16)' }">
+            <div class="text-[9px] font-black uppercase tracking-[0.22em] text-white/60">Average</div>
+            <div class="mt-1 text-[24px] font-black leading-none text-white">{{ averageScore }}</div>
+            <div class="mt-1 text-[10px] text-white/68">{{ scoreBand }}</div>
+          </div>
+        </div>
       </div>
 
-      <div class="space-y-3">
+      <div class="grid gap-3">
         <button
           v-for="(metric, idx) in normalizedMetrics"
           :key="metric.label"
@@ -231,7 +270,7 @@ const metricAxis = (idx: number) => {
               <div class="mt-1 text-sm font-black" :style="{ color: 'var(--text-color)' }">{{ metric.label }}</div>
             </div>
             <div class="text-right">
-              <div class="text-lg font-black" :style="{ color: 'var(--primary-vibe)' }">{{ metric.value }}</div>
+              <div class="text-lg font-black leading-none" :style="{ color: 'var(--primary-vibe)' }">{{ metric.value }}</div>
               <div class="text-[10px]" :style="{ color: 'var(--text-muted)' }">/ 100</div>
             </div>
           </div>
@@ -241,14 +280,48 @@ const metricAxis = (idx: number) => {
               :style="{ width: `${metric.value}%`, background: 'linear-gradient(90deg, color-mix(in srgb, var(--primary-vibe) 84%, white 16%) 0%, var(--primary-vibe) 100%)' }"
             ></div>
           </div>
-        </button>
-        <div class="rounded-[22px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
-          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Reading Note</div>
-          <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
-            {{ (activeMetric || strongestMetric)?.label || '当前维度' }}
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+            <span class="rounded-full border px-2 py-1 text-[10px] font-semibold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: metric.confidence === 'low' ? '#b45309' : metric.confidence === 'high' ? '#047857' : 'var(--text-muted)' }">
+              {{ confidenceLabel(metric.confidence) }}
+            </span>
+            <span>{{ metric.reason || '该维度适合承接一条简洁的判断理由。' }}</span>
           </div>
-          <div class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-            {{ interpretation }}
+          <div v-if="metric.evidence" class="mt-2 text-[11px] leading-relaxed" :style="{ color: 'var(--primary-vibe)' }">
+            证据提示：{{ metric.evidence }}
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-4 grid gap-3 md:grid-cols-2">
+      <div class="rounded-[22px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
+        <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Reading Note</div>
+        <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
+          {{ (activeMetric || strongestMetric)?.label || '当前维度' }}
+        </div>
+        <div class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+          {{ interpretation }}
+        </div>
+        <div
+          v-if="(activeMetric || strongestMetric)?.evidence"
+          class="mt-2 rounded-2xl border px-3 py-2 text-[11px] leading-relaxed"
+          :style="{ borderColor: 'var(--card-border)', background: 'rgba(255,255,255,0.72)', color: 'var(--text-muted)' }"
+        >
+          证据切片：{{ (activeMetric || strongestMetric)?.evidence }}
+        </div>
+      </div>
+      <div class="rounded-[22px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
+        <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Evidence Posture</div>
+        <div class="mt-2 grid gap-2 sm:grid-cols-2">
+          <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
+            <div class="text-[9px] uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">Strongest</div>
+            <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ strongestMetric?.label }}</div>
+            <div class="mt-1 text-[11px]" :style="{ color: 'var(--primary-vibe)' }">适合写进标题下或结论区</div>
+          </div>
+          <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
+            <div class="text-[9px] uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">Weakest</div>
+            <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ weakestMetric?.label }}</div>
+            <div class="mt-1 text-[11px]" :style="{ color: '#b45309' }">适合用更克制的语气解释取舍</div>
           </div>
         </div>
       </div>
@@ -268,5 +341,7 @@ const metricAxis = (idx: number) => {
         </div>
       </div>
     </div>
+
+    <FactBindingFooter :node="node" />
   </div>
 </template>

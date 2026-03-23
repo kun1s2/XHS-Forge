@@ -1,94 +1,91 @@
 <template>
   <div :id="compId" :class="[cssClasses]" :style="inlineStyles" @click="handleClick" @mouseover="handleMouseOver">
     <div
-      v-for="(p, idx) in paragraphs"
+      v-for="(section, idx) in sections"
       :key="idx"
-      class="group/paragraph relative mb-3 rounded-xl transition-all cursor-pointer"
+      class="group/paragraph relative mb-4 cursor-pointer rounded-[24px] border px-4 py-4 transition-all"
+      :style="sectionCardStyle(idx, section.kind)"
       @mouseenter="hoveredParagraph = idx"
       @mouseleave="hoveredParagraph = null"
     >
-      <div
-        class="text-[15px] leading-relaxed whitespace-pre-wrap rounded-xl transition-all px-3 py-2" :style="paragraphTextStyle(idx)"
-        :class="selectedParagraph === idx ? 'ring-2 ring-[var(--primary-vibe)]/60 bg-[var(--primary-vibe)]/5' : 'hover:bg-black/[0.03]'"
-        @click.stop="handleParagraphClick(idx, $event)"
-      >
-        {{ p }}
-      </div>
-
-      <div
-        class="absolute -top-2 left-3 flex items-start gap-2 opacity-0 translate-y-1 transition-all duration-150 pointer-events-none group-hover/paragraph:opacity-100 group-hover/paragraph:translate-y-0"
-        :class="selectedParagraph === idx || hoveredParagraph === idx ? 'opacity-100 translate-y-0 pointer-events-auto' : ''"
-      >
-        <span class="px-2 py-0.5 rounded-full bg-white/95 border border-slate-200 text-[10px] font-bold text-slate-500 shadow-sm">
-          第{{ idx + 1 }}段
-        </span>
-        <span
-          v-if="metaFor(idx)"
-          class="px-2 py-0.5 rounded-full border text-[10px] font-bold shadow-sm"
-          :class="paragraphMetaPillClass(metaFor(idx)?.kind)"
-        >
-          {{ paragraphMetaLabel(metaFor(idx)?.kind) }}
-        </span>
-        <div class="flex items-start gap-2">
-          <div class="flex items-center gap-1">
-            <button
-              class="px-2 py-0.5 rounded-full bg-white/95 border border-slate-200 text-[10px] font-semibold text-slate-700 shadow-sm hover:border-blue-400 hover:text-blue-500"
-              @click.stop="emitQuickAction(idx, '把这个正文块的第' + (idx + 1) + '段简短一点，保留核心信息。')"
-            >
-              简短
-            </button>
-            <button
-              class="px-2 py-0.5 rounded-full bg-white/95 border border-slate-200 text-[10px] font-semibold text-slate-700 shadow-sm hover:border-blue-400 hover:text-blue-500"
-              @click.stop="emitQuickAction(idx, '重写这个正文块的第' + (idx + 1) + '段，让表达更有冲击力。')"
-            >
-              重写
-            </button>
-            <button
-              class="px-2 py-0.5 rounded-full bg-white/95 border border-slate-200 text-[10px] font-semibold text-slate-700 shadow-sm hover:border-blue-400 hover:text-blue-500"
-              @click.stop="emitQuickAction(idx, '把这个正文块的第' + (idx + 1) + '段改得更尖锐一点，但不要失真。')"
-            >
-              尖锐
-            </button>
-          </div>
-          <div
-            v-if="metaFor(idx)"
-            class="max-w-[260px] rounded-2xl border bg-white/95 px-3 py-2 text-[11px] text-slate-600 shadow-lg backdrop-blur"
-            :class="paragraphMetaCardClass(metaFor(idx)?.kind)"
+      <div class="flex flex-col gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-black tracking-[0.18em]" :class="paragraphMetaPillClass(section.kind)">
+            {{ section.label || `第${idx + 1}段` }}
+          </span>
+          <span
+            v-if="section.summary"
+            class="rounded-full border px-2.5 py-1 text-[10px] font-semibold"
+            :style="{ borderColor: 'var(--card-border)', background: 'rgba(255,255,255,0.78)', color: 'var(--text-muted)' }"
           >
-            <div class="font-semibold text-slate-800">
-              {{ metaFor(idx)?.hint || paragraphMetaHint(metaFor(idx)?.kind) }}
-            </div>
-            <div v-if="paragraphFactFields(idx).length" class="mt-1 text-[10px] text-slate-500">
-              绑定字段: {{ paragraphFactFields(idx).join(' / ') }}
-            </div>
-            <div v-if="metaFor(idx)?.sources?.length" class="mt-1 text-[10px] text-slate-500">
-              来源: {{ metaFor(idx)?.sources?.join(' / ') }}
-            </div>
-          </div>
+            {{ section.summary }}
+          </span>
         </div>
+
+        <div
+          class="rounded-[18px] px-3 py-3 text-[15px] leading-relaxed whitespace-pre-wrap transition-all"
+          :style="paragraphTextStyle(idx)"
+          :class="selectedParagraph === idx ? 'ring-2 ring-[var(--primary-vibe)]/60 bg-[var(--primary-vibe)]/5' : 'bg-white/60'"
+          @click.stop="handleParagraphClick(idx, $event)"
+        >
+          {{ section.paragraph }}
+        </div>
+
+        <SourceDrilldownPanel
+          v-if="section.sourceItems.length || section.sources.length || section.confidence || section.fields.length || section.hint"
+          context-label="段落依据"
+          trigger-label="查看段落依据"
+          :sources="section.sources"
+          :source-items="section.sourceItems"
+          :fields="section.fields"
+          :confidence="section.confidence"
+          :hint="section.hint"
+        />
+
       </div>
     </div>
+
+    <FactBindingFooter :node="node" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import FactBindingFooter from './FactBindingFooter.vue'
+import SourceDrilldownPanel from './SourceDrilldownPanel.vue'
 
 type ParagraphMeta = {
   kind?: string
   hint?: string
   sources?: string[]
+  source_items?: Array<{ label?: string; url?: string; source_scope?: string }>
   fields?: string[]
+  confidence?: string
+}
+
+type StorySection = {
+  label: string
+  role: string
+  paragraph: string
+  summary?: string
+  hint?: string
+  sources?: string[]
+  sourceItems: Array<{ label: string; url?: string; source_scope?: string }>
+  fields?: string[]
+  kind?: string
+  confidence?: string
+  roleHint: string
 }
 
 const props = defineProps<{
   compId: string
+  node: any
   data: any
   style: any
   selectedParagraph?: number | null
 }>()
 
-const emit = defineEmits(['select', 'hover', 'quick-action'])
+const emit = defineEmits(['select', 'hover'])
 
 const cssClasses = computed(() => props.style?.css_classes || '')
 const inlineStyles = computed(() => props.style?.inline_styles || {})
@@ -97,29 +94,62 @@ const paragraphMeta = computed<ParagraphMeta[]>(() => Array.isArray(props.data?.
 const selectedParagraph = computed(() => props.selectedParagraph ?? null)
 const hoveredParagraph = ref<number | null>(null)
 
-const FACT_FIELD_LABELS: Record<string, string> = {
-  battery_capacity: '电池容量',
-  price: '价格',
+const roleHintByRole = (role?: string | null) => {
+  if (role === 'summary') return '适合承接最先给读者的判断。'
+  if (role === 'verified') return '适合放已确认事实，不要写得像情绪段落。'
+  if (role === 'caution') return '适合解释边界和不确定项。'
+  if (role === 'selling_point') return '适合把最容易打动人的理由收紧。'
+  return '适合承接正文，但不要退化成没有层次的大段文案。'
 }
 
-const metaFor = (idx: number): ParagraphMeta | null => paragraphMeta.value[idx] || null
-
-const paragraphFactFields = (idx: number) => {
-  const fields = Array.isArray(metaFor(idx)?.fields) ? metaFor(idx)?.fields || [] : []
-  return Array.from(new Set(fields.map((field) => String(field)).filter(Boolean))).map((field) => FACT_FIELD_LABELS[field] || field)
+const normalizeSourceItems = (items: unknown) => {
+  if (!Array.isArray(items)) return []
+  return items
+    .map((item) => ({
+      label: String((item as Record<string, unknown>)?.label || '').trim(),
+      url: String((item as Record<string, unknown>)?.url || '').trim() || undefined,
+      source_scope: String((item as Record<string, unknown>)?.source_scope || '').trim() || undefined,
+    }))
+    .filter((item) => item.label)
 }
 
-const paragraphMetaLabel = (kind?: string | null) => {
-  if (kind === 'verified') return '已确认'
-  if (kind === 'caution') return '保守表达'
-  return '信息说明'
-}
+const sections = computed<StorySection[]>(() => {
+  if (Array.isArray(props.data?.sections) && props.data.sections.length) {
+    return props.data.sections.map((section: any, idx: number) => {
+      const meta = paragraphMeta.value[idx] || {}
+      return {
+        label: String(section?.label || `第${idx + 1}段`),
+        role: String(section?.role || 'body'),
+        paragraph: String(section?.paragraph || paragraphs.value[idx] || ''),
+        summary: String(section?.summary || ''),
+        hint: String(section?.hint || meta?.hint || ''),
+        sources: Array.isArray(section?.sources) ? section.sources.map((source: unknown) => String(source)) : Array.isArray(meta?.sources) ? meta.sources.map((source) => String(source)) : [],
+        sourceItems: normalizeSourceItems(section?.source_items ?? meta?.source_items),
+        fields: Array.isArray(section?.fields) ? section.fields.map((field: unknown) => String(field)) : Array.isArray(meta?.fields) ? meta.fields.map((field) => String(field)) : [],
+        kind: String(section?.kind || meta?.kind || 'default'),
+        confidence: String(section?.confidence || meta?.confidence || ''),
+        roleHint: roleHintByRole(String(section?.role || 'body')),
+      }
+    })
+  }
 
-const paragraphMetaHint = (kind?: string | null) => {
-  if (kind === 'verified') return '该段采用已确认事实'
-  if (kind === 'caution') return '该段因参数冲突而采用保守表达'
-  return '该段基于当前页面内容生成'
-}
+  return paragraphs.value.map((paragraph: string, idx: number) => {
+    const meta = paragraphMeta.value[idx] || {}
+    return {
+      label: `第${idx + 1}段`,
+      role: 'body',
+      paragraph: String(paragraph || ''),
+      summary: '',
+      hint: String(meta?.hint || ''),
+      sources: Array.isArray(meta?.sources) ? meta.sources.map((source) => String(source)) : [],
+      sourceItems: normalizeSourceItems(meta?.source_items),
+      fields: Array.isArray(meta?.fields) ? meta.fields.map((field) => String(field)) : [],
+      kind: String(meta?.kind || 'default'),
+      confidence: String(meta?.confidence || ''),
+      roleHint: roleHintByRole('body'),
+    }
+  })
+})
 
 const paragraphMetaPillClass = (kind?: string | null) => {
   if (kind === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -127,15 +157,34 @@ const paragraphMetaPillClass = (kind?: string | null) => {
   return 'border-slate-200 bg-white/95 text-slate-500'
 }
 
-const paragraphMetaCardClass = (kind?: string | null) => {
-  if (kind === 'verified') return 'border-emerald-200 bg-emerald-50/95'
-  if (kind === 'caution') return 'border-amber-200 bg-amber-50/95'
-  return 'border-slate-200 bg-white/95'
+const sectionCardStyle = (idx: number, kind?: string | null) => {
+  if (selectedParagraph.value === idx) {
+    return {
+      borderColor: 'color-mix(in srgb, var(--primary-vibe) 35%, white 65%)',
+      background: 'color-mix(in srgb, var(--primary-vibe) 6%, white 94%)',
+    }
+  }
+  if (kind === 'verified') {
+    return {
+      borderColor: 'rgba(16,185,129,0.22)',
+      background: 'linear-gradient(180deg, rgba(236,253,245,0.94) 0%, rgba(255,255,255,0.9) 100%)',
+    }
+  }
+  if (kind === 'caution') {
+    return {
+      borderColor: 'rgba(245,158,11,0.24)',
+      background: 'linear-gradient(180deg, rgba(255,247,237,0.96) 0%, rgba(255,255,255,0.92) 100%)',
+    }
+  }
+  return {
+    borderColor: 'var(--card-border)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.84) 100%)',
+  }
 }
 
 const paragraphTextStyle = (idx: number) => ({
   color: 'var(--text-color, #1f2937)',
-  background: selectedParagraph.value === idx ? 'var(--primary-vibe-light, rgba(255,36,66,0.08))' : 'transparent',
+  background: selectedParagraph.value === idx ? 'var(--primary-vibe-light, rgba(255,36,66,0.08))' : 'rgba(255,255,255,0.72)',
 })
 
 const handleClick = (e: MouseEvent) => {
@@ -153,7 +202,4 @@ const handleParagraphClick = (idx: number, e: MouseEvent) => {
   emit('select', { compId: props.compId, paragraphIndex: idx })
 }
 
-const emitQuickAction = (idx: number, prompt: string) => {
-  emit('quick-action', { compId: props.compId, paragraphIndex: idx, prompt })
-}
 </script>

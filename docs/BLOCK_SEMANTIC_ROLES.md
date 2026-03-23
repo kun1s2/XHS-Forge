@@ -222,4 +222,4 @@ planner 和业务层应先输出语义 block intent，而不是直接输出组�
 - `asset_support`
 - `supported_scenarios`
 
-对应设计见 [`COMPONENT_MANIFEST_SEMANTIC_MAPPING.md`](/root/XHS-Forge/docs/COMPONENT_MANIFEST_SEMANTIC_MAPPING.md)。
+对应设计见 [`COMPONENT_MANIFEST_SEMANTIC_MAPPING.md`](./COMPONENT_MANIFEST_SEMANTIC_MAPPING.md)。

@@ -1,9 +1,8 @@
 import asyncio
-import json
-import random
 from typing import List, Dict, Any
 from app.services.cache_service import cache_service
 from app.services.rag_ingestion import ingest_retrieved_knowledge
+from app.services.trend_intelligence import infer_trend_profile, normalize_trend_keyword
 from app.agents.nodes.research_agent import research_agent
 from app.agents.state import UIProjectState
 from langchain_core.messages import HumanMessage
@@ -16,7 +15,7 @@ class TrendPipeline:
     """
     def __init__(self):
         self._is_running = False
-        self._hot_topics = ["索尼 A7C2", "华为 Mate 60", "赛博朋克风测评", "理想 L9 避雷", "春天第一杯咖啡"]
+        self._inflight_topics: set[str] = set()
 
     async def start_background_task(self):
         """
@@ -52,6 +51,10 @@ class TrendPipeline:
         """
         调用 Agent 进行调研。如果开启 deep_scan，会增加舆情探测权重。
         """
+        normalized_topic = normalize_trend_keyword(topic)
+        if not normalized_topic:
+            return
+        profile = infer_trend_profile(normalized_topic)
         prompt = f"请调研 {topic} 的最新评价和参数。"
         if deep_scan:
             prompt = f"请针对「{topic}」进行深度舆情分析，找出现在社交平台上大家争议最大的 3 个点，并提取高保真图片。"
@@ -59,14 +62,14 @@ class TrendPipeline:
         # 构造调研状态
         mock_state: UIProjectState = {
             "main_messages": [HumanMessage(content=prompt)],
-            "scenarios": ["seeding"],
+            "scenarios": [profile["scenario_hint"]] if profile["scenario_hint"] != "general" else ["seeding"],
             "active_archetype": "general",
             "intent_result_v2": {
                 "task_type": "create",
                 "edit_scope": "none",
                 "needs_research": True,
                 "needs_assets": "search",
-                "scenario_scores": {"seeding": 1.0},
+                "scenario_scores": {profile["scenario_hint"] if profile["scenario_hint"] != "general" else "seeding": 1.0},
                 "risk_flags": [],
             },
         }
@@ -80,7 +83,7 @@ class TrendPipeline:
                 # 调研成功，写入 Redis 供所有用户共享
                 ingest_result = await ingest_retrieved_knowledge(
                     entity_name=topic,
-                    scenario="seeding",
+                    scenario=profile["scenario_hint"] if profile["scenario_hint"] != "general" else "seeding",
                     ingest_mode="system_preload",
                     knowledge=knowledge,
                 )
@@ -100,7 +103,15 @@ class TrendPipeline:
                 ttl_seconds = max(
                     [int(record.get("ttl_seconds") or 0) for record in (ingest_result["records"] or [])] or [6 * 3600]
                 )
-                await cache_service.set_hot_knowledge(topic, knowledge, ttl=ttl_seconds)
+                await cache_service.set_hot_knowledge(normalized_topic, knowledge, ttl=ttl_seconds)
+                await cache_service.update_trend_rank(
+                    normalized_topic,
+                    score_increment=5.0 if deep_scan else 2.0,
+                    scenario_hint=profile["scenario_hint"],
+                    source="system_preload",
+                    record_count=ingest_result["kb_snapshot"].get("record_count") or 0,
+                    freshness=ingest_result["kb_snapshot"].get("freshness") or "fresh",
+                )
         except Exception as e:
             print(f"⚠️ [预热工兵] 调研失败 ({topic}): {e}")
 
@@ -112,6 +123,26 @@ async def process_new_trend_background(query_str: str, websocket=None):
     【主动式热点发现】：用户提问时如果未命中缓存，异步启动该话题的收录。
     这展示了“由点及面”的流量聚合能力。
     """
-    print(f"🔄 [任务分发] 针对新用户话题「{query_str[:15]}...」启动后台热点收录任务")
-    # 此处可发送到消息队列 (RabbitMQ/Kafka) 进行削峰处理
-    pass
+    topic = normalize_trend_keyword(query_str)
+    if not topic:
+        return
+    profile = infer_trend_profile(topic)
+    hot_snapshot = await cache_service.get_hot_knowledge_snapshot(topic)
+    if hot_snapshot.get("cache_hit") and hot_snapshot.get("cache_freshness") == "fresh":
+        return
+    if topic in trend_pipeline._inflight_topics:
+        return
+
+    print(f"🔄 [任务分发] 针对新用户话题「{topic[:15]}...」启动后台热点收录任务")
+    trend_pipeline._inflight_topics.add(topic)
+    try:
+        await cache_service.update_trend_rank(
+            topic,
+            score_increment=2.0,
+            scenario_hint=profile["scenario_hint"],
+            source="task_triggered_ingest",
+            freshness="unknown",
+        )
+        await trend_pipeline._pre_research_topic(topic, deep_scan=True)
+    finally:
+        trend_pipeline._inflight_topics.discard(topic)

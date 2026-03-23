@@ -1,14 +1,20 @@
 import json
 import asyncio
+from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks
 from starlette.websockets import WebSocketState
 from pydantic import ValidationError
+from langgraph.types import Command
 from app.schemas.requests import ChatWSPayload
 from langchain_core.messages import HumanMessage
 from app.services.cache_service import get_trend_cache, set_trend_cache, RiskControlCache
 from app.services.trend_pipeline import process_new_trend_background
+from app.services.trend_intelligence import infer_trend_profile
 from app.core.config import settings
 from app.core.note_document import build_note_document_from_state
+from app.core.query_heuristics import looks_like_existing_canvas_edit
+from app.core.request_semantics import payload_requests_create
+from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.runtime_log import (
     append_latest_console_log,
     append_log_divider,
@@ -26,12 +32,15 @@ NODE_THOUGHT_MAP = {
     "research_agent": "🧠 正在为您搜寻最硬核的专业背景资料...",
     "tools": "🔧 正在调用专业工具执行任务...",
     "controversy_sniffer": "🛡️ 正在进行内容合规与舆情审计...",
-    "content_node": "✍️ 正在为您撰写爆款文案...",
+    "note_editor": "✍️ 正在为您整理页面内容与编辑策略...",
+    "structure_checkpoint": "🧩 正在和您确认页面骨架方向...",
+    "fact_gap_checkpoint": "📌 正在和您确认缺失的关键信息...",
+    "asset_checkpoint": "🖼️ 正在和您确认素材使用方案...",
+    "fact_conflict_checkpoint": "⚖️ 正在和您确认冲突事实采用哪种说法...",
     "outline_resolver": "🧭 正在根据策略稳定解析页面骨架...",
     "component_builder": "👷 工兵正在全力搭建组件...",
-    "enrichment_node": "🚀 正在执行事实补全与地理位置打卡...",
-    "style_node": "🎨 正在为您生成高定版页面样式...",
-    "render": "📺 正在进行云端打包渲染..."
+    "theme_compiler": "🎨 正在为您生成高定版页面样式...",
+    "document_renderer": "📺 正在进行云端打包渲染..."
 }
 
 TOOL_THOUGHT_MAP = {
@@ -43,7 +52,7 @@ TOOL_THOUGHT_MAP = {
     "generate_images_tool": "🎨 正在调用 CogView 绘制视觉素材..."
 }
 
-TRACE_STATE_NODE = "render"
+TRACE_STATE_NODE = "document_renderer"
 
 
 def _safe_json_signature(value):
@@ -202,6 +211,99 @@ def _build_turn_end_payload(
         payload["agentBackends"] = agent_backends
     return payload
 
+
+def _count_human_turns(values: dict | None, panel: str) -> int:
+    messages = (values or {}).get(f"{panel}_messages") or []
+    return sum(1 for msg in messages if isinstance(msg, HumanMessage))
+
+
+def _build_turn_anchor_patch(values: dict | None, *, panel: str, checkpoint_id: str) -> dict[str, Any]:
+    """
+    为当前用户轮次写入正式历史锚点。
+
+    这样“回到这里 / 从这里分支”不会只依赖前端内存，刷新页面后仍能挂在对应用户消息下面。
+    """
+    human_turns = _count_human_turns(values or {}, panel)
+    if human_turns <= 0:
+        return {}
+    return {
+        "turn_anchors": [
+            {
+                "panel": panel,
+                "turn_index": human_turns - 1,
+                "checkpoint_id": checkpoint_id,
+            }
+        ]
+    }
+
+
+def _payload_has_runtime_assets(payload: "ChatWSPayload") -> bool:
+    """判断当前请求是否已经携带线程级素材上下文。"""
+    return any(
+        isinstance(asset, dict) and str(asset.get("url") or "").strip()
+        for asset in (payload.current_assets or [])
+    )
+
+
+def _can_use_trend_cache_fast_path(payload: "ChatWSPayload") -> bool:
+    """判断当前请求是否适合直接旁路到热词缓存页。
+
+    只有真正空白的新建请求才允许直接复用整页缓存：
+    - 没有本轮新上传图片
+    - 没有线程级素材资产
+    - 没有父 checkpoint（说明不是沿着已有工作区继续创作）
+    """
+    return (
+        not bool(payload.image_urls or [])
+        and not _payload_has_runtime_assets(payload)
+        and not bool(payload.parent_checkpoint_id)
+    )
+
+
+def _build_runtime_image_assets(payload: "ChatWSPayload") -> list[dict[str, Any]]:
+    """把前端线程资产池作为本轮图片上下文的唯一真相源。"""
+    runtime_assets = [
+        asset
+        for asset in (payload.current_assets or [])
+        if isinstance(asset, dict) and str(asset.get("url") or "").strip()
+    ]
+    return [{"__replace__": True}, *runtime_assets]
+
+
+def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] | None:
+    """把 LangGraph interrupt value 归一化成聊天区 action_required 载荷。"""
+    if not isinstance(raw_interrupt, dict):
+        return None
+    action_type = str(raw_interrupt.get("action_type") or raw_interrupt.get("action") or "").strip()
+    if not action_type:
+        return None
+    options = []
+    for item in raw_interrupt.get("options") or []:
+        if not isinstance(item, dict):
+            continue
+        options.append(
+            {
+                "label": str(item.get("label") or ""),
+                "value": str(item.get("value") or ""),
+                "description": str(item.get("description") or ""),
+                "recommended": bool(item.get("recommended")),
+                "asset_url": str(item.get("asset_url") or "") or None,
+                "selected_asset_ids": list(item.get("selected_asset_ids") or []),
+                "selected_fact_value": str(item.get("selected_fact_value") or "") or None,
+            }
+        )
+    return {
+        "action_type": action_type,
+        "action": action_type,
+        "checkpoint_id": str(raw_interrupt.get("checkpoint_id") or action_type),
+        "title": str(raw_interrupt.get("title") or raw_interrupt.get("message") or "需要你确认一个关键决策"),
+        "summary": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
+        "message": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
+        "recommended_option": str(raw_interrupt.get("recommended_option") or ""),
+        "blocking": bool(raw_interrupt.get("blocking", True)),
+        "options": options,
+    }
+
 @router.websocket("/chat/{thread_id}")
 async def websocket_chat(websocket: WebSocket, thread_id: str):
     await websocket.accept()
@@ -230,11 +332,33 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 # 1. 解析 Payload
                 payload_dict = json.loads(data)
                 
-                # --- HITL 唤醒处理逻辑 (Stance/Disambiguation) ---
-                if payload_dict.get("type") in ["submit_stance", "submit_disambiguation"]:
+                # --- HITL / Checkpoint 唤醒处理逻辑 ---
+                if payload_dict.get("type") in ["submit_stance", "submit_disambiguation", "submit_checkpoint_decision"]:
                     print(f"📥 [HITL 唤醒] 收到决策: {payload_dict.get('type')}")
                     config = {"configurable": {"thread_id": thread_id}}
-                    
+
+                    if payload_dict.get("type") == "submit_checkpoint_decision":
+                        resume_payload = {
+                            "action_type": payload_dict.get("action_type"),
+                            "checkpoint_id": payload_dict.get("checkpoint_id"),
+                            "decision": payload_dict.get("decision"),
+                            "selected_asset_ids": payload_dict.get("selected_asset_ids") or [],
+                            "selected_fact_value": payload_dict.get("selected_fact_value"),
+                        }
+                        await _run_graph_loop(
+                            agent,
+                            Command(resume=resume_payload),
+                            config,
+                            websocket,
+                            turn_context={
+                                "user_query": "",
+                                "selected_element_id": payload_dict.get("selected_element_id"),
+                                "panel": payload_dict.get("panel", "main"),
+                                "before_values": {},
+                            },
+                        )
+                        continue
+
                     if payload_dict.get("type") == "submit_stance":
                         await agent.aupdate_state(config, {"user_stance": payload_dict.get("stance")})
                     else:
@@ -331,9 +455,27 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
 
                 # --- 2. 【第二阶段：极速嗅探】去 Redis 查缓存 ---
                 selected_el = payload.selected_element_id or "无 (全局修改)"
+                candidate_topic = normalize_entity_name(user_query_str)
+                if (
+                    candidate_topic
+                    and len(candidate_topic) <= 40
+                    and payload_requests_create(
+                        content=user_query_str,
+                        panel=payload.panel,
+                        selected_element_id=selected_el,
+                    )
+                ):
+                    profile = infer_trend_profile(candidate_topic)
+                    from app.services.cache_service import cache_service
+                    await cache_service.update_trend_rank(
+                        candidate_topic,
+                        score_increment=1.0,
+                        scenario_hint=profile["scenario_hint"],
+                        source="user_query",
+                    )
                 
                 cached_result = await get_trend_cache(user_query_str, selected_el)
-                if cached_result and not pending_urls:
+                if cached_result and _can_use_trend_cache_fast_path(payload):
                     print(f"🚀 [语义缓存] 命中热点: {user_query_str[:15]}")
                     await websocket.send_json({"event": "token", "node": "cache", "data": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"})
                     await websocket.send_json({
@@ -348,10 +490,16 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     })
                     continue
                 else:
+                    if cached_result and not _can_use_trend_cache_fast_path(payload):
+                        print("🧩 [语义缓存] 当前请求带有素材或父 checkpoint，跳过整页缓存旁路，改走实时生成链。")
                     # 如果缓存未命中，且是全新生成，挂载异步收录任务
-                    if selected_el in ["无 (全局修改)", "none", None]:
+                    if payload_requests_create(
+                        content=user_query_str,
+                        panel=payload.panel,
+                        selected_element_id=selected_el,
+                    ):
                         print(f"🔄 [任务挂载] 未命中缓存，已将「{user_query_str[:15]}...」加入后台热点收录队列")
-                        asyncio.create_task(process_new_trend_background(user_query_str, websocket=websocket))
+                        asyncio.create_task(process_new_trend_background(candidate_topic or user_query_str, websocket=websocket))
 
                 # 3. 准备执行输入
                 if pending_urls:
@@ -367,6 +515,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     "active_panel": payload.panel,
                     "selected_element_id": payload.selected_element_id or "无 (全局修改)",
                     "creator_persona": payload.creator_persona or "硬核数码博主",
+                    "image_assets": _build_runtime_image_assets(payload),
                     "pending_images": pending_urls,
                 }
                 
@@ -406,6 +555,7 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
     MAX_RESUME = 10
     last_next_signature = None
     repeated_next_count = 0
+    pending_interrupt_payload: dict[str, Any] | None = None
     
     # 🌟 哨兵监控：实时捕获最后一公里产生的物理资产
     final_oss_url = None
@@ -421,8 +571,8 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
             if websocket.client_state != WebSocketState.CONNECTED: return
             kind = event["event"]
             
-            # 1. 物理资产捕获 (render 节点产出)
-            if kind == "on_chain_end" and event["name"] == "render":
+            # 1. 物理资产捕获 (document_renderer 节点产出)
+            if kind == "on_chain_end" and event["name"] == "document_renderer":
                 output = event["data"].get("output", {})
                 final_oss_url = output.get("final_oss_url")
                 final_html = output.get("final_html", "")
@@ -465,6 +615,15 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
                 if content:
                     await websocket.send_json({"event": "token", "data": content, "node": node_name})
 
+            if kind == "on_chain_stream" and event.get("name") == "LangGraph":
+                chunk = event.get("data", {}).get("chunk") or {}
+                interrupts = list(chunk.get("__interrupt__") or [])
+                if interrupts:
+                    first_interrupt = interrupts[0]
+                    pending_interrupt_payload = _normalize_checkpoint_action_payload(
+                        getattr(first_interrupt, "value", None)
+                    )
+
             # 3. 状态文案提示
             elif kind == "on_chain_start":
                 node_name = event["name"]
@@ -476,6 +635,10 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
                 trace_timeline.append({"event": "tool_start", "node": tool_name})
                 append_latest_console_log(f"🔧 [TOOL START]: {tool_name}")
                 await websocket.send_json({"event": "thought", "data": thought})
+
+        if pending_interrupt_payload:
+            await websocket.send_json({"event": "action_required", "data": pending_interrupt_payload})
+            return
 
         # 检查快照。注意：如果这轮是从旧 checkpoint 分叉出来的，收尾必须回到“线程最新”状态，
         # 不能继续拿带 checkpoint_id 的 config 读旧快照，否则前端会收到父版本页面。
@@ -490,7 +653,15 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
                 timeline=trace_timeline,
             )
             try:
-                await _aupdate_state_compat(agent, latest_config, {"turn_trace": turn_trace}, as_node=TRACE_STATE_NODE)
+                trace_patch = {"turn_trace": turn_trace}
+                trace_patch.update(
+                    _build_turn_anchor_patch(
+                        latest_snapshot.values or {},
+                        panel=(turn_context or {}).get("panel") or "main",
+                        checkpoint_id=latest_snapshot.config["configurable"]["checkpoint_id"],
+                    )
+                )
+                await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
                 latest_snapshot = await agent.aget_state(latest_config)
             except Exception:
                 pass
@@ -533,6 +704,19 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
             turn_trace["warnings"] = list((turn_trace.get("warnings") or [])) + ["auto_resume_guard"]
             append_log_divider('TURN END')
             append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, snapshot.values or {})}")
+            try:
+                trace_patch = {"turn_trace": turn_trace}
+                trace_patch.update(
+                    _build_turn_anchor_patch(
+                        snapshot.values or {},
+                        panel=(turn_context or {}).get("panel") or "main",
+                        checkpoint_id=snapshot.config["configurable"]["checkpoint_id"],
+                    )
+                )
+                await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
+                snapshot = await agent.aget_state(latest_config)
+            except Exception:
+                pass
             await websocket.send_json({
                 "event": "turn_end",
                 "data": _build_turn_end_payload(
@@ -554,7 +738,7 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
         if "controversy_sniffer" in snapshot.next and snapshot.values.get("needs_disambiguation"):
             await websocket.send_json({"event": "action_required", "data": {"action": "entity_disambiguation", "message": "发现消歧项", "options": snapshot.values.get("disambiguation_options", [])}})
             return
-        if "content_node" in snapshot.next and snapshot.values.get("has_controversy") and not snapshot.values.get("user_stance"):
+        if "note_editor" in snapshot.next and snapshot.values.get("has_controversy") and not snapshot.values.get("user_stance"):
             await websocket.send_json({"event": "action_required", "data": {"action": "stance_decision", "message": "发现争议", "options": [{"label": "🔴 黑榜", "value": "negative_stance"}, {"label": "🟢 红榜", "value": "positive_stance"}]}})
             return
 
@@ -580,6 +764,19 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
     turn_trace["warnings"] = list((turn_trace.get("warnings") or [])) + ["max_auto_resume_exceeded"]
     append_log_divider('TURN END')
     append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, snapshot.values or {})}")
+    try:
+        trace_patch = {"turn_trace": turn_trace}
+        trace_patch.update(
+            _build_turn_anchor_patch(
+                snapshot.values or {},
+                panel=(turn_context or {}).get("panel") or "main",
+                checkpoint_id=snapshot.config["configurable"]["checkpoint_id"],
+            )
+        )
+        await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
+        snapshot = await agent.aget_state(latest_config)
+    except Exception:
+        pass
     await websocket.send_json({
         "event": "turn_end",
         "data": _build_turn_end_payload(

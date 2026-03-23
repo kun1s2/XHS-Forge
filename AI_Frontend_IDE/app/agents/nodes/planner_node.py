@@ -4,21 +4,17 @@ from app.agents.state import UIProjectState
 from app.core.component_manifest import resolve_component_for_block_intent
 from app.core.note_document import build_note_document_from_state
 from app.core.prompt_engineering import build_prompt_snapshot
+from app.core.request_semantics import latest_user_text_from_messages, state_requests_create
 from app.services.scenario_manager import scenario_manager
 
 
+def _is_create_request(state: UIProjectState) -> bool:
+    """判断当前请求是否属于需要重建页面骨架的全新创建。"""
+    return state_requests_create(state)
+
+
 def _latest_user_text(state: UIProjectState) -> str:
-    main_msgs = state.get("main_messages", []) or []
-    if not main_msgs:
-        return ""
-    content = getattr(main_msgs[-1], "content", "") or ""
-    if isinstance(content, list):
-        parts = []
-        for part in content:
-            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
-                parts.append(str(part.get("text")))
-        return "".join(parts).strip()
-    return str(content)
+    return latest_user_text_from_messages(state.get("main_messages", []) or [])
 
 
 def _build_scenario_scores(state: UIProjectState) -> dict[str, float]:
@@ -114,19 +110,20 @@ def _build_policy_bundle(scenario_scores: dict[str, float]) -> dict[str, Any]:
 
 def _build_block_intents(state: UIProjectState, scenario_scores: dict[str, float], planner_policy: dict[str, Any]) -> list[dict[str, Any]]:
     note_document = build_note_document_from_state(state)
-    if list((note_document or {}).get("blocks") or []):
+    if list((note_document or {}).get("blocks") or []) and not _is_create_request(state):
         return []
 
     knowledge = state.get("retrieved_knowledge") or {}
     has_images = bool(state.get("image_assets"))
     has_controversy = bool(state.get("has_controversy"))
     user_query = _latest_user_text(state)
+    wants_visual_cover = has_images or any(token in user_query for token in ["封面", "首图", "头图", "大图", "图片", "配图", "海报", "图文"])
     preferred = list((((planner_policy.get("layout_policy") or {}).get("preferred_block_intents")) or []))
     ranked_scenarios = sorted(scenario_scores.items(), key=lambda item: item[1], reverse=True)
     primary = ranked_scenarios[0][0] if ranked_scenarios else "general"
 
     intent_types = ["heading", "narrative_text"]
-    if has_images or "封面" in user_query or "图片" in user_query:
+    if wants_visual_cover:
         intent_types.insert(0, "hero_media")
     if primary == "travel":
         intent_types.append("location_info")
@@ -140,6 +137,8 @@ def _build_block_intents(state: UIProjectState, scenario_scores: dict[str, float
         intent_types.append("interactive_opinion")
 
     for intent_type in preferred:
+        if intent_type == "hero_media" and not wants_visual_cover:
+            continue
         if intent_type not in intent_types:
             intent_types.append(intent_type)
 

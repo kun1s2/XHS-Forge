@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import FactBindingFooter from './FactBindingFooter.vue'
 
 const props = defineProps<{
   node: any;
@@ -26,5 +27,7 @@ const props = defineProps<{
     </div>
 
     <div class="absolute bottom-0 right-4 text-6xl font-serif text-[var(--primary-vibe)] opacity-10 select-none">”</div>
+
+    <FactBindingFooter :node="node" />
   </div>
 </template>

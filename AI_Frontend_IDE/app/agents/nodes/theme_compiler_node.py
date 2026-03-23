@@ -254,7 +254,7 @@ def _build_block_style(block_type: str, intensity: float, vibe: str) -> dict:
     }
 
 
-async def style_agent(state: UIProjectState) -> dict:
+async def theme_compiler(state: UIProjectState) -> dict:
     print("🎨 [主题编译器] 开始为画布编译视觉主题...")
     note_document = build_note_document_from_state(state)
     execution_view = build_note_document_layout(note_document)
@@ -294,6 +294,3 @@ async def style_agent(state: UIProjectState) -> dict:
         },
         "agent_backends": {"theme_compiler": "deterministic_compiler"},
     }
-
-
-theme_compiler_node = style_agent

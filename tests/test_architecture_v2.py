@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from app.agents.nodes.intent_node import _normalize_gateway_result, intent_agent
 from app.agents.nodes.planner_node import planner_node
-from app.agents.graph import outline_resolver_node, route_intent
+from app.agents.graph import map_components, outline_resolver, route_intent
 from app.core.component_manifest import (
     build_component_contract_map,
     component_manifest_version,
@@ -18,7 +18,12 @@ from app.core.component_manifest import (
     normalize_component_type,
     resolve_component_for_block_intent,
 )
-from app.core.note_document import build_note_document, note_document_to_document_view
+from app.core.note_document import (
+    build_note_document,
+    build_note_document_from_state,
+    note_document_to_document_view,
+    update_note_document_cover_preference,
+)
 from app.core.schema import IntentGatewayOutput, NoteDocument
 
 
@@ -112,6 +117,38 @@ def test_note_document_schema_accepts_richer_block_metadata():
     assert document.blocks[0].fact_bindings[0]["fact_field_labels"] == ["电池容量"]
 
 
+def test_note_document_cover_preference_does_not_materialize_cover_block():
+    note_document = build_note_document(
+        document_view={
+            "page_title": "封面偏好页面",
+            "blocks": [{"id": "title_1", "component_type": "TitleBlock", "content_brief": "标题"}],
+            "title_1": {"type": "TitleBlock", "title": "Mate 60"},
+        },
+        image_assets=[
+            {"url": "https://img.example/cover.jpg", "desc": "封面图", "source_type": "search"},
+            {"url": "https://img.example/detail.jpg", "desc": "细节图", "source_type": "search"},
+        ],
+    )
+    preferred = update_note_document_cover_preference(note_document, "https://img.example/cover.jpg")
+
+    assert [block["type"] for block in preferred["blocks"]] == ["TitleBlock"]
+    assert preferred["ui_state"]["cover_asset_url"] == "https://img.example/cover.jpg"
+    assert preferred["assets"][0]["role"] == "cover"
+    assert preferred["assets"][0]["used_by_blocks"] == []
+
+    rebuilt = build_note_document_from_state({
+        "note_document": preferred,
+        "image_assets": [
+            {"url": "https://img.example/cover.jpg", "desc": "封面图", "source_type": "search"},
+            {"url": "https://img.example/detail.jpg", "desc": "细节图", "source_type": "search"},
+        ],
+    })
+
+    assert [block["type"] for block in rebuilt["blocks"]] == ["TitleBlock"]
+    assert rebuilt["ui_state"]["cover_asset_url"] == "https://img.example/cover.jpg"
+    assert next(asset for asset in rebuilt["assets"] if asset["url"] == "https://img.example/cover.jpg")["role"] == "cover"
+
+
 def test_note_document_applies_retrieval_grounding_to_blocks_without_manual_meta():
     note_document = build_note_document(
         document_view={
@@ -140,9 +177,23 @@ def test_note_document_applies_retrieval_grounding_to_blocks_without_manual_meta
 
     assert spec_block["fact_bindings"][0]["kind"] == "retrieval_grounded"
     assert spec_block["fact_bindings"][0]["sources"] == ["华为官网 Mate 60"]
+    assert spec_block["fact_bindings"][0]["source_items"] == [
+        {
+            "label": "华为官网 Mate 60",
+            "url": "https://consumer.huawei.com/cn/phones/mate-60/",
+            "source_scope": "official",
+        }
+    ]
     assert "battery_capacity" in spec_block["fact_bindings"][0]["fact_fields"]
     assert story_block["fact_bindings"][0]["kind"] == "retrieval_grounded"
     assert story_block["fact_bindings"][0]["sources"] == ["用户评价合集"]
+    assert story_block["fact_bindings"][0]["source_items"] == [
+        {
+            "label": "用户评价合集",
+            "url": "https://www.bilibili.com/video/BV1xx",
+            "source_scope": "review",
+        }
+    ]
     assert any(binding["block_id"] == "spec_1" for binding in note_document["fact_bindings"])
 
 
@@ -198,6 +249,189 @@ async def test_planner_node_outputs_policy_and_block_intents():
     assert resolve_component_for_block_intent("location_info", scenario_scores={"travel": 1.0}) == "LocationBlock"
     assert "planner_agent" in result["node_prompts"]
     assert result["node_prompts"]["planner_agent"][0]["role"] == "system"
+
+
+@pytest.mark.asyncio
+async def test_planner_node_skips_hero_media_for_seeding_without_images_or_cover_request():
+    result = await planner_node(
+        {
+            "intent_result_v2": {
+                "scenario_scores": {"seeding": 0.9, "general": 0.1},
+            },
+            "active_archetype": "seeding",
+            "scenarios": ["seeding", "general"],
+            "has_controversy": True,
+            "image_assets": [],
+            "retrieved_knowledge": {
+                "battle_report": {"title": "A vs B"},
+                "core_attributes": {"battery": "5000mAh"},
+            },
+            "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
+            "document_view": {},
+        }
+    )
+
+    intent_types = [item["intent_type"] for item in result["planner_output"]["block_intents"]]
+    preferred_components = [item["preferred_component"] for item in result["planner_output"]["block_intents"]]
+    assert "hero_media" not in intent_types
+    assert "WeatherPolaroid" not in preferred_components
+
+
+@pytest.mark.asyncio
+async def test_planner_node_still_outputs_block_intents_for_create_requests_on_existing_canvas():
+    result = await planner_node(
+        {
+            "intent_result_v2": {
+                "task_type": "create",
+                "scenario_scores": {"seeding": 0.9, "general": 0.1},
+            },
+            "active_archetype": "seeding",
+            "scenarios": ["seeding", "general"],
+            "has_controversy": True,
+            "image_assets": [],
+            "retrieved_knowledge": {
+                "battle_report": {"title": "Mate 60 vs iPhone"},
+                "core_attributes": {"battery": "5000mAh"},
+            },
+            "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
+            "note_document": {
+                "document_meta": {"title": "旧页面"},
+                "theme": {"page_theme": {}, "global_vars": {}},
+                "blocks": [
+                    {
+                        "id": "cover_old",
+                        "type": "CoverSwiper",
+                        "label": "图片轮播",
+                        "semantic_role": "hero_media",
+                        "content_brief": "旧封面",
+                        "props": {"type": "CoverSwiper", "image_urls": []},
+                        "style": {},
+                        "asset_refs": [],
+                        "fact_bindings": [],
+                        "editable_targets": ["image_urls"],
+                        "asset_support": "required",
+                        "fact_binding_support": False,
+                        "order": 0,
+                    }
+                ],
+                "assets": [],
+                "fact_bindings": [],
+                "provenance": {},
+                "ui_state": {},
+                "planner": {},
+            },
+        }
+    )
+
+    intent_types = [item["intent_type"] for item in result["planner_output"]["block_intents"]]
+    assert "heading" in intent_types
+    assert "narrative_text" in intent_types
+    assert "comparison" in intent_types
+
+
+@pytest.mark.asyncio
+async def test_planner_node_rebuilds_for_main_panel_create_like_query_even_without_intent_result():
+    result = await planner_node(
+        {
+            "active_panel": "main",
+            "selected_element_id": "无 (全局修改)",
+            "active_archetype": "seeding",
+            "scenarios": ["seeding", "general"],
+            "has_controversy": True,
+            "image_assets": [],
+            "retrieved_knowledge": {
+                "battle_report": {"title": "Mate 60 vs iPhone"},
+                "core_attributes": {"battery": "5000mAh"},
+            },
+            "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
+            "note_document": {
+                "document_meta": {"title": "旧页面"},
+                "theme": {"page_theme": {}, "global_vars": {}},
+                "blocks": [
+                    {
+                        "id": "cover_old",
+                        "type": "CoverSwiper",
+                        "label": "图片轮播",
+                        "semantic_role": "hero_media",
+                        "content_brief": "旧封面",
+                        "props": {"type": "CoverSwiper", "image_urls": []},
+                        "style": {},
+                        "asset_refs": [],
+                        "fact_bindings": [],
+                        "editable_targets": ["image_urls"],
+                        "asset_support": "required",
+                        "fact_binding_support": False,
+                        "order": 0,
+                    }
+                ],
+                "assets": [],
+                "fact_bindings": [],
+                "provenance": {},
+                "ui_state": {},
+                "planner": {},
+            },
+        }
+    )
+
+    intent_types = [item["intent_type"] for item in result["planner_output"]["block_intents"]]
+    assert "heading" in intent_types
+    assert "comparison" in intent_types
+
+
+@pytest.mark.asyncio
+async def test_outline_resolver_rebuilds_existing_canvas_for_create_like_query():
+    result = await outline_resolver(
+        {
+            "active_panel": "main",
+            "selected_element_id": "无 (全局修改)",
+            "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
+            "retrieved_knowledge": {
+                "entity_name": "华为 Mate 60",
+                "summary": "这是一台亮点和争议并存的高端机。",
+                "key_selling_points": ["续航稳定", "大屏沉浸", "辨识度高"],
+            },
+            "note_document": {
+                "document_meta": {"title": "旧页面"},
+                "theme": {"page_theme": {}, "global_vars": {}},
+                "blocks": [
+                    {
+                        "id": "cover_old",
+                        "type": "CoverSwiper",
+                        "label": "图片轮播",
+                        "semantic_role": "hero_media",
+                        "content_brief": "旧封面",
+                        "props": {"type": "CoverSwiper", "image_urls": []},
+                        "style": {},
+                        "asset_refs": [],
+                        "fact_bindings": [],
+                        "editable_targets": ["image_urls"],
+                        "asset_support": "required",
+                        "fact_binding_support": False,
+                        "order": 0,
+                    }
+                ],
+                "assets": [],
+                "fact_bindings": [],
+                "provenance": {},
+                "ui_state": {},
+                "planner": {},
+            },
+            "planner_output": {
+                "block_intents": [
+                    {"intent_type": "heading", "preferred_component": "TitleBlock"},
+                    {"intent_type": "narrative_text", "preferred_component": "StoryText"},
+                    {"intent_type": "comparison", "preferred_component": "VersusCard"},
+                    {"intent_type": "interactive_opinion", "preferred_component": "PollBlock"},
+                ],
+                "scenario_scores": {"seeding": 1.0},
+            },
+        }
+    )
+
+    block_types = [block["type"] for block in result["note_document"]["blocks"]]
+    assert block_types[:2] == ["TitleBlock", "StoryText"]
+    assert "VersusCard" in block_types
+    assert result["turn_trace"]["outline"]["block_count"] >= 4
 
 
 def test_note_document_carries_patch_tracks_from_state_shape():
@@ -261,7 +495,7 @@ async def test_intent_agent_llm_path_uses_gateway_v2_schema():
             "active_archetype": "general",
         })
 
-    assert result["intent_route"] == "content_node"
+    assert result["intent_route"] == "research_agent"
     assert result["intent_result_v2"]["task_type"] == "create"
     assert result["intent_result_v2"]["needs_research"] is True
     assert result["scenario_scores"] == {"seeding": 0.8, "general": 0.2}
@@ -295,7 +529,7 @@ async def test_intent_agent_uses_deterministic_fast_path_for_style_panel_global_
         "active_archetype": "seeding",
     })
 
-    assert result["intent_route"] == "style_node"
+    assert result["intent_route"] == "theme_compiler"
     assert result["intent_result_v2"]["task_type"] == "edit"
     assert result["intent_result_v2"]["edit_scope"] == "global"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
@@ -312,7 +546,7 @@ async def test_intent_agent_uses_deterministic_fast_path_for_main_existing_canva
         "active_archetype": "daily_share",
     })
 
-    assert result["intent_route"] == "content_node"
+    assert result["intent_route"] == "note_editor"
     assert result["intent_result_v2"]["task_type"] == "edit"
     assert result["intent_result_v2"]["edit_scope"] == "global"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
@@ -329,7 +563,7 @@ async def test_intent_agent_existing_canvas_styleish_edit_maps_to_style_route():
         "active_archetype": "seeding",
     })
 
-    assert result["intent_route"] == "style_node"
+    assert result["intent_route"] == "theme_compiler"
     assert result["intent_result_v2"]["task_type"] == "edit"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
 
@@ -341,7 +575,7 @@ def test_route_intent_prefers_note_editor_for_style_panel_fast_path():
             "edit_scope": "global",
             "needs_research": False,
         },
-        "intent_route": "style_node",
+        "intent_route": "theme_compiler",
         "active_panel": "style",
         "document_view": {"blocks": [{"id": "title_1", "component_type": "TitleBlock"}]},
     })
@@ -351,7 +585,7 @@ def test_route_intent_prefers_note_editor_for_style_panel_fast_path():
 
 @pytest.mark.asyncio
 async def test_outline_resolver_node_uses_planner_block_intents_without_outline_tool_loop():
-    result = await outline_resolver_node(
+    result = await outline_resolver(
         {
             "planner_output": {
                 "scenario_scores": {"seeding": 0.8},
@@ -375,3 +609,30 @@ async def test_outline_resolver_node_uses_planner_block_intents_without_outline_
     assert [block["type"] for block in blocks][:3] == ["CoverSwiper", "TitleBlock", "StoryText"]
     assert result["turn_trace"]["outline"]["mode"] == "resolver"
     assert result["turn_trace"]["outline"]["resolution_source"] == "manifest_semantic_role"
+
+
+def test_map_components_only_dispatches_builder_tasks_when_blocks_exist():
+    sends = map_components(
+        {
+            "note_document": {
+                "document_meta": {"title": "测试页面"},
+                "theme": {"page_theme": {}, "global_vars": {}},
+                "blocks": [
+                    {"id": "title_1", "type": "TitleBlock", "content_brief": "标题"},
+                    {"id": "text_1", "type": "StoryText", "content_brief": "正文"},
+                ],
+                "assets": [],
+                "fact_bindings": [],
+                "provenance": {},
+                "ui_state": {},
+                "planner": {},
+            },
+            "planner_policy": {},
+            "retrieved_knowledge": {},
+            "image_assets": [],
+            "main_messages": [type("Msg", (), {"content": "帮我生成一篇华为 Mate 60 的对比种草笔记"})()],
+        }
+    )
+
+    assert len(sends) == 2
+    assert all(getattr(item, "node", "") == "component_builder" for item in sends)

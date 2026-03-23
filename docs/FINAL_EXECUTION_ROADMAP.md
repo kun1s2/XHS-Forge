@@ -111,19 +111,19 @@
 - CI 收尾已补齐：`.github/workflows/final-acceptance.yml` 会在 push / pull_request 上自动跑最终验收脚本，持续守住成品状态。
 
 - Agent 决策层继续定型：正式 `route_intent(...)` 现在优先消费 `intent_result_v2` 的 `task_type/edit_scope/needs_research`，旧 `intent_route` 已退居兼容兜底。
-- 大纲层进一步去历史化：`outline_node.py` 已改成现代 resolver 的兼容壳，仓库内不再保留大纲工具循环实现；正式 graph 与节点文件都已站到 resolver 口径。
+- 大纲层进一步去历史化：`outline_resolver` 的节点文件已改成现代 resolver 的兼容壳，仓库内不再保留大纲工具循环实现；正式 graph 与节点文件都已站到 resolver 口径。
 - Builder 继续 contract-first：`component_builder` 现在会注入 manifest contract snapshot 和 planner policy 摘要，输出统一走 contract layer。
 
-- 继续收掉旧六维意图信号对主题链的主导：`style_node` 现在优先消费 `planner_policy.theme_policy`（`preset + interaction_bias`），旧 `intent_result.visual_vibe/intensity_level` 降级为兼容输入。
+- 继续收掉旧六维意图信号对主题链的主导：`theme_compiler` 现在优先消费 `planner_policy.theme_policy`（`preset + interaction_bias`），旧 `intent_result.visual_vibe/intensity_level` 降级为兼容输入。
 - `note_editor` 的 `update_page_theme` fallback 现在也优先读 `planner_policy.theme_policy.preset`，不再只靠 legacy `visual_vibe` 推主题补丁。
 - `intent_agent` 的运行时摘要和 prompt snapshot 已改成 Gateway V2 视角，弱化历史 6D 叙事字段在正式主链中的存在感。
 
-- 正式主题链进一步收口：`style_node` 已移除对 `intent_result.visual_vibe/intensity_level` 的主链依赖，主题完全优先来自 `planner_policy.theme_policy`。
+- 正式主题链进一步收口：`theme_compiler` 已移除对 `intent_result.visual_vibe/intensity_level` 的主链依赖，主题完全优先来自 `planner_policy.theme_policy`。
 - `research_agent` 现在优先使用 `intent_result_v2.needs_assets` 判定是否需要搜图，旧 `intent_result.asset_request` 仅保留兼容回退。
 - `workspace` 的 inspector/document 摘要已不再回落到 `note_document.theme.visual_vibe`，正式主题展示统一为 `preset`。
 
 - `theme_compiler` 已纳入正式 runtime trace 和 `agent_backends`，Inspector/trace 现在可以明确看到主题编译来自确定性 compiler，而不是旧意图信号。
-- 新增 guardrails，禁止 `style_node / note_editor_node / research_agent` 回流到旧 `visual_vibe / intensity_level / asset_request` 主链依赖。
+- 新增 guardrails，禁止 `theme_compiler / note_editor_node / research_agent` 回流到旧 `visual_vibe / intensity_level / asset_request` 主链依赖。
 
 - `intent_agent` 已新增 deterministic fast-path：非主面板且已选中区块的局部编辑请求不再进入 LLM，直接落 Gateway V2（`deterministic_fast_path`）。
 - 这一步让正式网关更符合现代 agent 形态：局部编辑优先走协议与状态判断，而不是任何请求都先做一次意图推理。
@@ -136,7 +136,7 @@
 - `image` 面板仍刻意保留在更灵活路径上，避免把素材检索语义误收成纯编辑；正式网关现在更接近“编辑上下文走协议，开放语义才走 LLM”的现代形态。
 
 - `intent_agent` 现在还会在 `main` 面板的“已有画布显式编辑请求”上命中 deterministic fast-path：像“文本简短一点”“整体改成灰蓝风格”这类请求不再先走意图 LLM，而是直接落 Gateway V2 edit/global。
-- 同时保留了轻量路由区分：主面板已有画布编辑会按 query 语义优先映射到 `content_node / style_node / structure_node`，再由正式 graph 稳定收束到 `note_editor`。
+- 同时保留了轻量路由区分：主面板已有画布编辑会按 query 语义优先映射到 `content_node / theme_compiler / structure_node`，再由正式 graph 稳定收束到 `note_editor`。
 
 - `intent_agent` 的 LLM 慢路也已切到瘦身的 `IntentGatewayOutput` 协议，正式网关不再让模型产出旧六维 `IntentOutput` 才映射到 V2。
 - 旧 `IntentOutput` 现在只保留在兼容 helper 和历史测试上下文里；正式 `intent_agent` 已经做到“快路 V2、慢路也 V2”。
@@ -145,7 +145,7 @@
 - 搜图回填的资产描述已改成实体级标签，不再把整句用户指令原样塞进 `image_assets[*].desc`；执行层开始更像产品能力，而不是 prompt 残留拼接。
 
 - 仓库里的历史示范脚本和 campaign 测试也开始统一现代口径：`campaign_1_intent_tests / campaign_6d_radar_test / campaign_ultimate_stress_test / ignition_test` 已切到 `IntentGatewayOutput / planner_policy / resolver` 叙事，不再继续用 `visual_vibe / narrative_mode / asset_request` 当作正式主线示范。
-- 部分 `style_agent / note_editor` 测试样例也已改成优先喂 `planner_policy.theme_policy`，减少测试层面对 legacy `intent_result.visual_vibe` 的示范依赖。
+- 部分 `theme_compiler / note_editor` 测试样例也已改成优先喂 `planner_policy.theme_policy`，减少测试层面对 legacy `intent_result.visual_vibe` 的示范依赖。
 
 - 已正式删除旧意图兼容链：`IntentOutput`、`intent_result`、`intent_system.xml` 已从正式 runtime 退场；对应 refusal/persistence/chat thought 提取也同步改掉，正式网关唯一输出现在是 `intent_result_v2`。
 - `test_final_product_guards.py` 已新增护栏，防止仓库把旧意图 schema、旧 prompt 文件或 `intent_result` 兼容逻辑重新带回正式主链。
@@ -207,7 +207,7 @@
 - 这让“核心积木集合 -> block_intents -> manifest contract”的工程链更完整：
   - 不只是文档定义语义
   - resolver / builder / editor 现在有正式 helper 可以消费这些字段
-- `component_builder.build_component_contract_snapshot(...)` 现在也开始正式依赖 manifest helper，而不是自己拆 entry 字典：
+- `component_builder.build_component_contract_context(...)` 现在也开始正式依赖 manifest helper，而不是自己拆 entry 字典：
   - `label`
   - `semantic_role`
   - `asset_support`
@@ -293,8 +293,8 @@
   - 最终验收重新通过：后端 `170 passed`、guardrails `16 passed`、前端 build 通过
 - 后端主执行链也继续去旧：
   - `planner_node`
-  - `style_node`
-  - `render_node`
+  - `theme_compiler`
+  - `document_renderer`
   现在都不再直接读取旧页面状态字段，而是统一先折叠为 `NoteDocument` 执行视图再工作。
 - 对应 guard 已补：
   - `tests/test_final_product_guards.py::test_primary_execution_nodes_do_not_directly_read_legacy_dsl_state`
@@ -303,7 +303,7 @@
   - guardrails `17 passed`
   - 前端 build 通过
 - 为可读性，前端 `useChatStore.ts` 顶部的大块纯派生/摘要/协议 helper 已抽离到：
-  - [`chatStoreDerivations.ts`](/root/XHS-Forge/ai-frontend-ide/src/stores/chatStoreDerivations.ts)
+  - [`chatStoreDerivations.ts`](../ai-frontend-ide/src/stores/chatStoreDerivations.ts)
 - 现在 `useChatStore.ts` 更明确地只承担：
   - 状态定义
   - WebSocket / workspace 同步
@@ -312,7 +312,7 @@
   而不是继续混合协议解析、页面摘要、渲染派生和会话动作。
 - 后端 `note_editor_node.py` 也已完成第一轮可读性拆分：
   - 语义命中、token map、block scoring、theme fallback、组件契约文本等 helper 已抽离到
-    [`note_editor_support.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_support.py)
+    [`note_editor_support.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_support.py)
   - `note_editor_node.py` 现在更聚焦于：
     - 取当前文档状态
     - 选择结构化编辑动作
@@ -324,15 +324,15 @@
   - component builder
   - note editor orchestration
 - 后端剩余几个旧执行层节点也已继续去旧：
-  - [`verify_note_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/verify_note_node.py)
-  - [`patch_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/patch_node.py)
-  - [`enrichment_agent.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/enrichment_agent.py)
+  - [`verify_note_node.py`](../AI_Frontend_IDE/app/agents/nodes/verify_note_node.py)
+  - [`patch_node.py`](../AI_Frontend_IDE/app/agents/nodes/patch_node.py)
+  - [`enrichment_agent.py`](../AI_Frontend_IDE/app/agents/nodes/enrichment_agent.py)
 - 现在这三处不再直接读取旧页面状态字段，而是统一经由
-  [`build_legacy_execution_state_from_state(...)`](/root/XHS-Forge/AI_Frontend_IDE/app/core/note_document.py)
+  [`build_legacy_execution_state_from_state(...)`](../AI_Frontend_IDE/app/core/note_document.py)
   从 `NoteDocument` 桥接出执行 payload。
-- 对应 guard 也已扩展，防止 `planner/style/render/verify/patch/enrichment`
+- 对应 guard 也已扩展，防止 `planner/theme_compiler/document_renderer/verify/patch/enrichment`
   再回退到直接读取旧 DSL 状态。
-- [`note_editor_node.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
+- [`note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
   现在也已不再直接读取旧页面状态字段：
   - prompt 组装
   - 主编辑流程

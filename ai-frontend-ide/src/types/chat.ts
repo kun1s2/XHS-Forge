@@ -1,12 +1,22 @@
 /** WS 协议与消息类型定义 */
 
+export type WorkspaceViewMode = 'preview' | 'code' | 'prompts' | 'state' | 'assets' | 'gallery' | 'trends' | 'showcase'
+export type PreviewInteractionMode = 'browse' | 'select'
+export type WorkbenchInteractionMode = 'browse' | 'select' | 'edit' | 'diagnostics' | 'assets' | 'gallery' | 'trends' | 'showcase'
+
 export interface FactBinding {
   field: string
   fact_fields?: string[]
   fact_field_labels?: string[]
   kind?: string
   sources?: string[]
+  source_items?: Array<{
+    label: string
+    url?: string
+    source_scope?: string
+  }>
   hint?: string
+  confidence?: string
 }
 
 export type AssetSupportLevel = 'none' | 'optional' | 'required'
@@ -17,9 +27,9 @@ export interface NoteDocumentAsset {
   desc?: string
   source_type?: string
   query?: string
-  role?: string
+  role?: 'cover' | 'inline' | 'supporting' | string
   locked?: boolean
-  selection_state?: string
+  selection_state?: 'available' | 'excluded' | string
   source_reason?: string
   used_by_blocks?: string[]
 }
@@ -57,7 +67,12 @@ export interface NoteDocument {
     bindings: FactBinding[]
   }>
   provenance?: Record<string, unknown>
-  ui_state?: Record<string, unknown>
+  ui_state?: Record<string, unknown> & {
+    selected_element_id?: string | null
+    active_panel?: string
+    patch_tracks?: Record<string, unknown>
+    cover_asset_url?: string | null
+  }
   planner?: Record<string, unknown>
 }
 
@@ -205,6 +220,53 @@ export interface BenchmarkOverview {
   }>
   recommendations?: string[]
   [key: string]: unknown
+}
+
+export interface EvaluationCategory {
+  name: string
+  score: number
+  status: 'strong' | 'healthy' | 'attention' | 'weak' | 'idle' | string
+  summary?: string
+  recommendation?: string
+  suite_case_count?: number
+  covered_case_count?: number
+  coverage_rate?: number
+  metrics?: Record<string, number | string | boolean | unknown>
+}
+
+export interface EvaluationOverview {
+  generated_at?: string
+  overall_score?: number
+  overall_status?: 'strong' | 'healthy' | 'attention' | 'weak' | 'idle' | string
+  summary?: string
+  suite?: {
+    case_count?: number
+    categories?: Array<{ category: string; count: number }>
+    scenarios?: Array<{ scenario: string; count: number }>
+    observed_scenarios?: string[]
+    missing_scenarios?: string[]
+    cases?: Array<{
+      id: string
+      category: string
+      scenario: string
+      title: string
+      expectation: string
+    }>
+  }
+  categories?: EvaluationCategory[]
+  sessions?: Array<{
+    thread_id?: string
+    title?: string
+    updated_at?: string
+    scenario?: string
+    intent_route?: string
+    block_count?: number
+    changed_block_count?: number
+    warning_count?: number
+    grounding_status?: string
+    cache_freshness?: string
+  }>
+  recommendations?: string[]
 }
 
 export interface TurnTrace {
@@ -367,10 +429,83 @@ export interface ShowcaseDemoStep {
   prompt: string
 }
 
+export interface TrendItem {
+  keyword: string
+  score?: number
+  scenario_hint?: string
+  entity_type?: string
+  source?: string
+  freshness?: string
+  cache_freshness?: string
+  record_count?: number
+  recommended_prompt?: string
+}
+
+export interface BlockGalleryFixture {
+  id: string
+  title: string
+  description?: string
+  note_document: NoteDocument
+}
+
+export interface BlockGalleryComponentGuide {
+  component_type: string
+  label: string
+  semantic_role: string
+  supported_scenarios?: string[]
+  summary?: string
+  fixture: BlockGalleryFixture
+}
+
+export interface BlockGalleryScenarioGuide {
+  scenario_id: string
+  title: string
+  description?: string
+  fixture: BlockGalleryFixture
+}
+
+export interface BlockGalleryOverview {
+  generated_at?: string
+  components?: BlockGalleryComponentGuide[]
+  scenarios?: BlockGalleryScenarioGuide[]
+  fixtures?: BlockGalleryFixture[]
+  recommendations?: string[]
+}
+
+export type ConversationCheckpointActionType =
+  | 'structure_checkpoint'
+  | 'fact_gap_checkpoint'
+  | 'fact_conflict_checkpoint'
+  | 'asset_checkpoint'
+  | 'stance_decision'
+  | 'entity_disambiguation'
+
+export interface ConversationCheckpointOption {
+  label: string
+  value: string
+  description?: string
+  recommended?: boolean
+  asset_url?: string | null
+  selected_asset_ids?: string[]
+  selected_fact_value?: string | null
+}
+
+export interface ConversationCheckpointAction {
+  action_type: ConversationCheckpointActionType | string
+  checkpoint_id: string
+  title: string
+  summary?: string
+  message?: string
+  recommended_option?: string
+  blocking?: boolean
+  options: ConversationCheckpointOption[]
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  messageKind?: 'user_prompt' | 'checkpoint_decision'
   streaming?: boolean
   imageUrls?: string[]
   timestamp?: number
@@ -389,6 +524,9 @@ export interface ChatMessage {
   turnTrace?: TurnTrace
   inspectorSummary?: InspectorSummary
   benchmarkOverview?: BenchmarkOverview
+  evaluationOverview?: EvaluationOverview
+  blockGalleryOverview?: BlockGalleryOverview
+  actionRequired?: ConversationCheckpointAction
   /** ✨ 思维链实时透传记录 */
   thoughts?: { node: string; text: string; streaming?: boolean }[]
 }
@@ -428,6 +566,10 @@ export interface WSEvent {
   inspectorSummary?: InspectorSummary
   benchmark_overview?: BenchmarkOverview
   benchmarkOverview?: BenchmarkOverview
+  evaluation_overview?: EvaluationOverview
+  evaluationOverview?: EvaluationOverview
+  block_gallery_overview?: BlockGalleryOverview
+  blockGalleryOverview?: BlockGalleryOverview
 }
 
 export interface WSPayload {
@@ -439,6 +581,12 @@ export interface WSPayload {
   creator_persona?: string | null
   /** 全局图库资产池，每次发信同步到后端 */
   current_assets?: ImageAsset[]
-  /** 待打标的新图片 URL，后端塞进 pending_images 由 asset_node 识图后写入图库 */
+  /** 待打标的新图片 URL，后端塞进 pending_images 由 asset_processor 识图后写入图库 */
   image_urls?: string[]
+  type?: 'submit_checkpoint_decision' | 'submit_stance' | 'submit_disambiguation'
+  action_type?: string
+  checkpoint_id?: string
+  decision?: string
+  selected_asset_ids?: string[]
+  selected_fact_value?: string | null
 }

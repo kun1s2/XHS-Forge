@@ -62,7 +62,7 @@
                     { "id": "social_1", "component_type": "InteractionsBar", "content_brief": "点赞互动引导" }
                 ],
                 "components": {
-                    "swiper_1": { "type": "CoverSwiper", "image_urls": ["url1"] },
+                    "swiper_1": { "type": "CoverSwiper", "image_urls": ["真实图片URL1", "真实图片URL2"] },
                     "title_1": { "type": "TitleBlock", "title": "✨逃离城市！这片绝美海滩不能错过" },
                     "location_1": { "type": "LocationBlock", "location": "阿那亚海滩" },
                     "text_1": { "type": "StoryText", "paragraphs": ["海风吹走了一周的班味..."] },

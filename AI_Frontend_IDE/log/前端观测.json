@@ -1,16 +1,16 @@
 {
-  "captured_at": "2026-03-20 17:08:52",
-  "thread_id": "thread_on94zkzl77",
+  "captured_at": "2026-03-23 10:05:57",
+  "thread_id": "thread_l1fodyuh47",
   "event_type": "health_snapshot",
   "message": "state_changed",
   "payload": {
     "current_node": "",
     "selected_component_id": "",
     "has_renderable_document": true,
-    "render_blocks": 1,
-    "note_document_blocks": 1,
-    "node_prompt_count": 0,
-    "has_source_code": false,
-    "has_preview_url": false
+    "render_blocks": 6,
+    "note_document_blocks": 6,
+    "node_prompt_count": 3,
+    "has_source_code": true,
+    "has_preview_url": true
   }
 }

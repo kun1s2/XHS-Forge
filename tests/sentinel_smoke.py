@@ -1,10 +1,10 @@
 import asyncio
 import json
 import os
-from app.agents.nodes.render_node import render_node
+from app.agents.nodes.document_renderer_node import document_renderer
 from app.agents.nodes.intent_node import intent_agent
-from app.agents.nodes.outline_node import outline_agent
-from app.agents.nodes.style_node import style_agent
+from app.agents.nodes.outline_resolver_node import outline_resolver_preview
+from app.agents.nodes.theme_compiler_node import theme_compiler
 from app.agents.nodes.component_builder import component_builder_node
 from app.agents.state import UIProjectState, ComponentTaskState
 from langchain_core.messages import HumanMessage
@@ -49,12 +49,12 @@ async def _run_recursive_render_stress():
             "perf_text": {"paragraphs": ["测试性能文案"]},
             "spec_1": {"title": "测试规格", "core_features": ["参数A"]}
         },
-        "block_style_map": {} # style_node 会负责填充
+        "block_style_map": {} # theme_compiler 会负责填充
     }
     
-    # 模拟经过 style_node 处理
-    result_styled = await style_agent(state)
-    html_result = await render_node(result_styled)
+    # 模拟经过 theme_compiler 处理
+    result_styled = await theme_compiler(state)
+    html_result = await document_renderer(result_styled)
     html = html_result.get("final_html", "")
     
     # 断言：检查递归渲染是否完整
@@ -82,7 +82,7 @@ async def _run_content_collision_check():
 async def _run_semantic_mapping_vibe():
     print("\n🔍 [火控校验 3] 语义化样式压力测试...")
     styles = ["neon", "glassmorphism", "flat-dark"]
-    from app.agents.nodes.style_node import _build_block_style
+    from app.agents.nodes.theme_compiler_node import _build_block_style
 
     for vibe in styles:
         style_patch = _build_block_style("ProductCard", 0.8, vibe)

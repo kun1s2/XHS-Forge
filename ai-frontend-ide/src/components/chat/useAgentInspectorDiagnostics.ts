@@ -2,6 +2,8 @@ import { computed, onMounted, ref, type Ref } from 'vue'
 import type {
   AgentMeta,
   BenchmarkOverview,
+  EvaluationOverview,
+  EvaluationCategory,
   ExecutionTrace,
   FactBinding,
   InspectorSummary,
@@ -28,6 +30,7 @@ type DiagnosticsOptions = {
   inspectorSummary: AnyRef<InspectorSummary | Record<string, unknown>>
   agentMeta: AnyRef<AgentMeta | Record<string, unknown>>
   benchmarkOverview: AnyRef<BenchmarkOverview | Record<string, unknown>>
+  evaluationOverview: AnyRef<EvaluationOverview | Record<string, unknown>>
 }
 
 const TRACE_WARNING_LABELS: Record<string, string> = {
@@ -58,6 +61,7 @@ const TRACE_ACTION_LABELS: Record<string, string> = {
   error: '执行失败',
   workspace_import_asset: '素材入池',
   workspace_set_cover: '设为封面',
+  workspace_remove_asset: '删除素材',
   workspace_confirm_fact: '确认事实',
   workspace_rollback_component: '组件回滚',
   workspace_select_region: '锁定区块',
@@ -82,11 +86,13 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     inspectorSummary,
     agentMeta,
     benchmarkOverview,
+    evaluationOverview,
   } = options
 
   const agentMetaState = computed<AgentMeta>(() => (agentMeta.value || {}) as AgentMeta)
   const inspectorSummaryState = computed<InspectorSummary>(() => (inspectorSummary.value || agentMetaState.value.inspector_summary || {}) as InspectorSummary)
   const benchmarkOverviewState = computed<BenchmarkOverview>(() => (benchmarkOverview.value || {}) as BenchmarkOverview)
+  const evaluationOverviewState = computed<EvaluationOverview>(() => (evaluationOverview.value || {}) as EvaluationOverview)
   const inspectorFocus = computed(() => (inspectorSummaryState.value?.focus || {}) as Record<string, unknown>)
   const inspectorDocument = computed(() => (inspectorSummaryState.value?.document || {}) as Record<string, unknown>)
   const inspectorExecution = computed(() => (inspectorSummaryState.value?.execution || {}) as Record<string, unknown>)
@@ -221,9 +227,55 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     },
   ])
   const benchmarkGeneratedAt = computed(() => String(benchmarkOverviewState.value?.generated_at || ''))
+  const evaluationCategories = computed<EvaluationCategory[]>(() => Array.isArray(evaluationOverviewState.value?.categories) ? evaluationOverviewState.value.categories : [])
+  const evaluationSuite = computed(() => (evaluationOverviewState.value?.suite || {}) as Record<string, unknown>)
+  const evaluationSessions = computed(() => Array.isArray(evaluationOverviewState.value?.sessions) ? evaluationOverviewState.value.sessions : [])
+  const evaluationRecommendations = computed(() => Array.isArray(evaluationOverviewState.value?.recommendations) ? evaluationOverviewState.value.recommendations : [])
+  const evaluationSummary = computed(() => String(evaluationOverviewState.value?.summary || ''))
+  const evaluationOverallScore = computed(() => Number(evaluationOverviewState.value?.overall_score || 0))
+  const evaluationOverallStatus = computed(() => String(evaluationOverviewState.value?.overall_status || 'idle'))
+  const evaluationGeneratedAt = computed(() => String(evaluationOverviewState.value?.generated_at || ''))
+  const evaluationScenarioRows = computed(() => Array.isArray(evaluationSuite.value?.scenarios) ? evaluationSuite.value.scenarios : [])
+  const evaluationCategoryRows = computed(() => Array.isArray(evaluationSuite.value?.categories) ? evaluationSuite.value.categories : [])
+  const evaluationMissingScenarios = computed(() => Array.isArray(evaluationSuite.value?.missing_scenarios) ? evaluationSuite.value.missing_scenarios : [])
+  const evaluationObservedScenarios = computed(() => Array.isArray(evaluationSuite.value?.observed_scenarios) ? evaluationSuite.value.observed_scenarios : [])
+  const evaluationCards = computed(() => [
+    {
+      title: '总分',
+      value: evaluationOverallScore.value.toFixed(1),
+      helper: `状态 ${evaluationOverallStatus.value || 'idle'}`,
+      tone: evaluationOverallStatus.value === 'strong' ? 'emerald' : evaluationOverallStatus.value === 'healthy' ? 'cyan' : evaluationOverallStatus.value === 'attention' ? 'amber' : 'rose',
+    },
+    {
+      title: '评测集',
+      value: Number(evaluationSuite.value?.case_count || 0),
+      helper: `${evaluationObservedScenarios.value.length} 个场景已覆盖`,
+      tone: 'violet',
+    },
+    {
+      title: '分类数',
+      value: evaluationCategories.value.length,
+      helper: '路由 / 规划 / 执行 / RAG / 缓存 / 系统',
+      tone: 'cyan',
+    },
+    {
+      title: '建议数',
+      value: evaluationRecommendations.value.length,
+      helper: evaluationMissingScenarios.value.length ? `缺失场景 ${evaluationMissingScenarios.value.join(' / ')}` : '评估样本覆盖正常',
+      tone: 'amber',
+    },
+  ])
+
+  const getEvaluationStatusClasses = (status: string) => {
+    if (status === 'strong') return 'border-emerald-700/30 bg-emerald-950/15 text-emerald-300'
+    if (status === 'healthy') return 'border-cyan-700/30 bg-cyan-950/15 text-cyan-300'
+    if (status === 'attention') return 'border-amber-700/30 bg-amber-950/15 text-amber-300'
+    return 'border-rose-700/30 bg-rose-950/15 text-rose-300'
+  }
 
   onMounted(() => {
     void chatStore.fetchBenchmarkOverview()
+    void chatStore.fetchEvaluationOverview()
   })
 
   const knowledge = computed<RetrievedKnowledge>(() => (agentMetaState.value.retrieved_knowledge || {}) as RetrievedKnowledge)
@@ -545,6 +597,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     agentMetaState,
     inspectorSummaryState,
     benchmarkOverviewState,
+    evaluationOverviewState,
     inspectorFocus,
     inspectorDocument,
     inspectorExecution,
@@ -577,6 +630,20 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     benchmarkEntityRows,
     benchmarkCards,
     benchmarkGeneratedAt,
+    evaluationCategories,
+    evaluationSuite,
+    evaluationSessions,
+    evaluationRecommendations,
+    evaluationSummary,
+    evaluationOverallScore,
+    evaluationOverallStatus,
+    evaluationGeneratedAt,
+    evaluationScenarioRows,
+    evaluationCategoryRows,
+    evaluationMissingScenarios,
+    evaluationObservedScenarios,
+    evaluationCards,
+    getEvaluationStatusClasses,
     knowledge,
     factSources,
     factConflicts,

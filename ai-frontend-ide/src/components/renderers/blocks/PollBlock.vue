@@ -9,37 +9,50 @@ const props = defineProps<{
     option_a?: string
     option_b?: string
     option_c?: string
-    vote_counts?: number[]
-    total_votes?: number
+    option_cards?: Array<{ label?: string; stance?: string; vote_hint?: string; why_it_matters?: string }>
     explanation?: string
+    vote_counts?: number[]
   }
   style?: any
 }>()
 
 const question = computed(() => props.data.question || '你更站哪一边？')
+const optionCards = computed(() => {
+  if (Array.isArray(props.data.option_cards) && props.data.option_cards.length) {
+    return props.data.option_cards.map((item, idx) => ({
+      label: String(item?.label || item?.option || `选项 ${idx + 1}`),
+      stance: String(item?.stance || `立场 ${idx + 1}`),
+      voteHint: String(item?.vote_hint || ''),
+      whyItMatters: String(item?.why_it_matters || ''),
+    }))
+  }
+  const rawOptions = [props.data.option_a, props.data.option_b, props.data.option_c].filter(Boolean)
+  return rawOptions.map((option, idx) => ({
+    label: String(option),
+    stance: idx === 0 ? '主推理由' : idx === 1 ? '现实代价' : `立场 ${idx + 1}`,
+    voteHint: idx === 0 ? '更适合承接第一购买理由。' : idx === 1 ? '更适合承接现实妥协点。' : '适合承接轻量互动表达。',
+    whyItMatters: idx === 0 ? '让用户快速表达“我就是被这个点打动”。' : idx === 1 ? '把真正会犹豫的点显性化。' : '补一个额外偏好维度。',
+  }))
+})
+
 const options = computed(() => {
   if (Array.isArray(props.data.options) && props.data.options.length) return props.data.options
-  return [props.data.option_a, props.data.option_b, props.data.option_c].filter(Boolean)
+  return optionCards.value.map((item) => item.label)
 })
 
 const selectedOption = ref<number | null>(null)
-
-const seededVotes = computed(() => {
-  if (Array.isArray(props.data.vote_counts) && props.data.vote_counts.length === options.value.length) {
-    return props.data.vote_counts.map((value) => Math.max(1, Number(value) || 1))
-  }
-  return options.value.map((option, idx) => {
-    const seed = Array.from(String(option)).reduce((sum, char) => sum + char.charCodeAt(0), 0) + idx * 17
-    return 34 + (seed % 29)
-  })
-})
+const voteCounts = ref<number[]>([])
 
 watch(options, () => {
   selectedOption.value = null
-})
+  if (Array.isArray(props.data.vote_counts) && props.data.vote_counts.length === options.value.length) {
+    voteCounts.value = props.data.vote_counts.map((item) => Number(item || 0))
+    return
+  }
+  const seedBase = `${question.value}|${options.value.join('|')}`.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+  voteCounts.value = options.value.map((_, idx) => 32 + ((seedBase + idx * 17) % 41))
+}, { immediate: true })
 
-const displayedVotes = computed(() => seededVotes.value.map((count, idx) => (selectedOption.value === idx ? count + 4 : count)))
-const totalVotes = computed(() => displayedVotes.value.reduce((sum, count) => sum + count, 0))
 const cssClasses = computed(() => props.style?.css_classes || '')
 const inlineStyles = computed(() => props.style?.inline_styles || {})
 const cardStyle = computed(() => ({
@@ -49,52 +62,55 @@ const cardStyle = computed(() => ({
 }))
 
 const handleVote = (idx: number) => {
+  const previous = selectedOption.value
+  if (previous !== null && voteCounts.value[previous] > 0) {
+    voteCounts.value[previous] -= 1
+  }
   selectedOption.value = idx
+  voteCounts.value[idx] = (voteCounts.value[idx] || 0) + 1
 }
 
-const getPercentage = (idx: number) => {
-  if (!totalVotes.value) return 0
-  return Math.round((displayedVotes.value[idx] / totalVotes.value) * 100)
-}
+const selectedCard = computed(() => {
+  if (selectedOption.value === null) return null
+  return optionCards.value[selectedOption.value] || null
+})
+
+const totalVotes = computed(() => voteCounts.value.reduce((sum, item) => sum + Number(item || 0), 0))
+
+const optionMetrics = computed(() => {
+  const total = totalVotes.value || 1
+  return options.value.map((label, idx) => {
+    const count = Number(voteCounts.value[idx] || 0)
+    const percent = Math.round((count / total) * 100)
+    return {
+      label,
+      count,
+      percent,
+    }
+  })
+})
 
 const leadingOption = computed(() => {
-  if (!displayedVotes.value.length) return null
-  const max = Math.max(...displayedVotes.value)
-  const idx = displayedVotes.value.findIndex(value => value === max)
-  if (idx === -1) return null
-  return { label: options.value[idx], percent: getPercentage(idx), idx }
+  if (!optionMetrics.value.length) return null
+  return optionMetrics.value.reduce((best, current) => (current.count > best.count ? current : best), optionMetrics.value[0])
 })
 
-const selectedSummary = computed(() => {
-  if (selectedOption.value === null) {
-    return '先表达你的倾向，系统再展示这张互动卡的演示态分布。'
+const participationSummary = computed(() => {
+  if (selectedOption.value === null || !selectedCard.value) {
+    return '点一下表达你的倾向，系统会立刻给出当前投票分布。'
   }
-  const label = options.value[selectedOption.value] || '当前选项'
-  const percent = getPercentage(selectedOption.value)
-  const leader = leadingOption.value
-  if (leader && leader.idx === selectedOption.value) {
-    return `你当前站在「${label}」这边，在演示态分布里也是当前最强倾向（${percent}%）。`
-  }
-  return `你当前选择了「${label}」，演示态分布占比约 ${percent}%。`
-})
-
-const signalTone = computed(() => {
-  if (selectedOption.value === null) return '还没站队'
-  return leadingOption.value?.idx === selectedOption.value ? '你命中了当前更强的倾向' : '你选择了更少数但也成立的一边'
-})
-
-const supportLabel = computed(() => {
-  if (!leadingOption.value) return '等待互动'
-  if (leadingOption.value.percent >= 50) return '当前呈现出明显主流倾向'
-  return '当前分布更像分流题，而不是压倒性结论'
+  const currentMetric = optionMetrics.value[selectedOption.value]
+  return `你刚刚把「${selectedCard.value.label}」的占比推到了 ${currentMetric?.percent || 0}% ，当前总参与 ${totalVotes.value} 人。`
 })
 </script>
 
 <template>
   <div
-    :class="['w-full rounded-[32px] border p-6 animate-in fade-in zoom-in duration-500', cssClasses]"
+    :class="['relative w-full overflow-hidden rounded-[32px] border p-6 animate-in fade-in zoom-in duration-500', cssClasses]"
     :style="{ ...cardStyle, ...inlineStyles }"
   >
+    <div class="pointer-events-none absolute inset-0 opacity-80" :style="{ background: 'radial-gradient(circle at top left, color-mix(in srgb, var(--primary-vibe) 16%, white 84%) 0%, transparent 30%), radial-gradient(circle at bottom right, rgba(15,23,42,0.05) 0%, transparent 38%)' }"></div>
+
     <div class="flex items-start justify-between gap-4">
       <div class="flex items-start gap-3">
         <div
@@ -104,10 +120,10 @@ const supportLabel = computed(() => {
           ⚖
         </div>
         <div>
-          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">Opinion Poll</div>
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">互动提问</div>
           <h3 class="mt-2 text-base font-black leading-tight" :style="{ color: 'var(--text-color)' }">{{ question }}</h3>
           <p class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-            {{ props.data.explanation || '它不是平台真票数，而是一张帮助用户快速站队、表达倾向的互动语义块。' }}
+            {{ props.data.explanation || '把分歧点说透之后，再给读者一个清晰的站队入口。' }}
           </p>
         </div>
       </div>
@@ -115,7 +131,7 @@ const supportLabel = computed(() => {
         class="rounded-full border px-3 py-1 text-[10px] font-bold"
         :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)', color: 'var(--text-muted)' }"
       >
-        {{ selectedOption === null ? '点击站队' : '已记录你的倾向' }}
+        {{ selectedOption === null ? '点击表达倾向' : '已记录你的选择' }}
       </div>
     </div>
 
@@ -124,16 +140,12 @@ const supportLabel = computed(() => {
         v-for="(opt, idx) in options"
         :key="idx"
         type="button"
-        class="group relative block w-full overflow-hidden rounded-[22px] border text-left transition-all duration-300 hover:-translate-y-0.5"
-        :style="{ borderColor: selectedOption === idx ? 'var(--primary-vibe)' : 'var(--card-border)', background: 'var(--card-bg-soft)' }"
+        class="group relative block w-full overflow-hidden rounded-[22px] border text-left transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(15,23,42,0.08)]"
+        :style="{ borderColor: selectedOption === idx ? 'var(--primary-vibe)' : 'var(--card-border)', background: selectedOption === idx ? 'color-mix(in srgb, var(--primary-vibe) 7%, white 93%)' : 'var(--card-bg-soft)' }"
         @click="handleVote(idx)"
       >
-        <div
-          class="absolute inset-y-0 left-0 rounded-[22px] transition-all duration-500"
-          :style="{ width: selectedOption === null ? '0%' : `${getPercentage(idx)}%`, background: 'color-mix(in srgb, var(--primary-vibe) 16%, white 84%)' }"
-        ></div>
-        <div class="relative flex items-center justify-between gap-3 px-4 py-4">
-          <div class="flex items-center gap-3">
+        <div class="relative flex items-start justify-between gap-3 px-4 py-4">
+          <div class="flex items-start gap-3">
             <div
               class="flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-black"
               :style="{
@@ -144,69 +156,71 @@ const supportLabel = computed(() => {
             >
               {{ String.fromCharCode(65 + idx) }}
             </div>
-            <span class="text-sm font-bold leading-tight" :style="{ color: 'var(--text-color)' }">{{ opt }}</span>
+            <div class="min-w-0">
+              <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">{{ optionCards[idx]?.stance || `立场 ${idx + 1}` }}</div>
+              <div class="mt-1 text-sm font-bold leading-tight" :style="{ color: 'var(--text-color)' }">{{ opt }}</div>
+              <div class="mt-1 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+                {{ optionCards[idx]?.whyItMatters || optionCards[idx]?.voteHint || '适合承接这一边为什么成立。' }}
+              </div>
+              <div class="mt-3">
+                <div class="flex items-center justify-between text-[10px]" :style="{ color: 'var(--text-muted)' }">
+                  <span>{{ optionMetrics[idx]?.percent || 0 }}%</span>
+                  <span>{{ optionMetrics[idx]?.count || 0 }} 票</span>
+                </div>
+                <div class="mt-1 h-2 overflow-hidden rounded-full" :style="{ background: 'rgba(15,23,42,0.08)' }">
+                  <div
+                    class="h-full rounded-full transition-all duration-300"
+                    :style="{
+                      width: `${optionMetrics[idx]?.percent || 0}%`,
+                      background: selectedOption === idx
+                        ? 'linear-gradient(90deg, var(--primary-vibe), color-mix(in srgb, var(--primary-vibe) 72%, white 28%))'
+                        : 'linear-gradient(90deg, color-mix(in srgb, var(--primary-vibe) 40%, white 60%), color-mix(in srgb, var(--primary-vibe) 16%, white 84%))',
+                    }"
+                  ></div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <span v-if="selectedOption !== null" class="text-[11px] font-black" :style="{ color: 'var(--primary-vibe)' }">{{ getPercentage(idx) }}%</span>
-            <span
-              v-if="selectedOption === idx"
-              class="rounded-full px-2 py-1 text-[10px] font-black"
-              :style="{ background: 'color-mix(in srgb, var(--primary-vibe) 14%, white 86%)', color: 'var(--primary-vibe)' }"
-            >
-              你的选择
-            </span>
-          </div>
+          <span
+            v-if="selectedOption === idx"
+            class="rounded-full px-2 py-1 text-[10px] font-black"
+            :style="{ background: 'color-mix(in srgb, var(--primary-vibe) 14%, white 86%)', color: 'var(--primary-vibe)' }"
+          >
+            已选
+          </span>
         </div>
       </button>
     </div>
 
-    <div class="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-      <div class="rounded-[22px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
-        <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Interaction Signal</div>
-        <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
-          {{ selectedSummary }}
-        </div>
-        <div class="mt-2 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-          {{ selectedOption === null ? '在不同场景里，它可以承接站队、选择、偏好表达，而不是伪装成真实投票产品。' : signalTone }}
-        </div>
-      </div>
-      <div class="rounded-[22px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
-        <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Current Split</div>
-        <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
-          {{ selectedOption === null ? '等待你的选择' : `${totalVotes} 份演示态样本` }}
-        </div>
-        <div class="mt-1 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-          {{ supportLabel }}
-        </div>
-        <div class="mt-3 space-y-2">
-          <div v-for="(opt, idx) in options" :key="`mini-${idx}`">
-            <div class="flex items-center justify-between gap-3 text-[11px] font-semibold" :style="{ color: 'var(--text-muted)' }">
-              <span class="truncate">{{ opt }}</span>
-              <span>{{ selectedOption === null ? '--' : `${getPercentage(idx)}%` }}</span>
-            </div>
-            <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200/60">
-              <div
-                class="h-full rounded-full transition-all duration-500"
-                :style="{ width: selectedOption === null ? '0%' : `${getPercentage(idx)}%`, background: idx === selectedOption ? 'var(--primary-vibe)' : 'color-mix(in srgb, var(--primary-vibe) 38%, white 62%)' }"
-              ></div>
-            </div>
+    <div
+      class="mt-5 rounded-[24px] border px-4 py-4"
+      :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">投票结果</div>
+          <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
+            {{ leadingOption ? `当前多数倾向：${leadingOption.label}` : '等待第一票' }}
           </div>
         </div>
+        <div class="rounded-full border px-3 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', color: 'var(--text-muted)', background: 'var(--card-bg-soft)' }">
+          总投票 {{ totalVotes }}
+        </div>
+      </div>
+      <div class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+        {{ participationSummary }}
       </div>
     </div>
 
-    <div class="mt-4 rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
-      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Usage Note</div>
-          <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
-            这块适合承接偏好表达，不该伪装成真实平台投票
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)', color: 'var(--text-muted)' }">适合：站队 / 选择 / 偏好</span>
-          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--primary-vibe)' }">不适合：假装真实票仓</span>
-        </div>
+    <div
+      v-if="selectedCard"
+      class="mt-5 rounded-[24px] border px-4 py-4"
+      :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }"
+    >
+      <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">你的参与反馈</div>
+      <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ selectedCard.label }}</div>
+      <div class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
+        {{ selectedCard.voteHint || selectedCard.whyItMatters || '你已经给出了这轮内容里更偏向哪一边的判断。' }}
       </div>
     </div>
   </div>

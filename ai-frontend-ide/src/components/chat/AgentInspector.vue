@@ -19,9 +19,10 @@ const {
   inspectorSummary,
   agentMeta,
   benchmarkOverview,
+  evaluationOverview,
 } = storeToRefs(chatStore)
 
-const activeTab = ref<'meta' | 'dsl' | 'plan' | 'rag' | 'benchmark' | 'patch' | 'trace'>('meta')
+const activeTab = ref<'meta' | 'dsl' | 'plan' | 'rag' | 'evaluation' | 'benchmark' | 'patch' | 'trace'>('meta')
 const JsonTree = AgentInspectorJsonTree
 
 const tabs = [
@@ -29,6 +30,7 @@ const tabs = [
   { id: 'trace', name: '本轮追踪', icon: '📍' },
   { id: 'plan', name: '策略规划', icon: '🧭' },
   { id: 'rag', name: '事实与检索', icon: '🔍' },
+  { id: 'evaluation', name: '评估', icon: '🧪' },
   { id: 'benchmark', name: 'Benchmark', icon: '📊' },
   { id: 'patch', name: '补丁历史', icon: '💉' },
   { id: 'dsl', name: '原始协议', icon: '🛠️' },
@@ -126,6 +128,19 @@ const {
   benchmarkEntityRows,
   benchmarkCards,
   benchmarkGeneratedAt,
+  evaluationCategories,
+  evaluationRecommendations,
+  evaluationSummary,
+  evaluationOverallScore,
+  evaluationOverallStatus,
+  evaluationGeneratedAt,
+  evaluationScenarioRows,
+  evaluationCategoryRows,
+  evaluationMissingScenarios,
+  evaluationObservedScenarios,
+  evaluationCards,
+  evaluationSessions,
+  getEvaluationStatusClasses,
   getTraceEventToneClasses,
   getTraceMarkerClasses,
   getDiagnosticToneClasses,
@@ -156,6 +171,7 @@ const {
   inspectorSummary,
   agentMeta,
   benchmarkOverview,
+  evaluationOverview,
 })
 </script>
 
@@ -194,7 +210,7 @@ const {
     </div>
 
     <!-- 头部 Tabs -->
-    <div class="shrink-0 border-b border-[#333] bg-[#252526] px-4 py-3 lg:px-5">
+    <div class="sticky top-0 z-20 shrink-0 border-b border-[#333] bg-[linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,0.96))] px-4 py-3 backdrop-blur-xl lg:px-5">
       <div class="flex flex-wrap gap-2">
         <button 
           v-for="tab in tabs" 
@@ -202,7 +218,7 @@ const {
           @click="activeTab = tab.id"
           :class="[
             'px-3 py-2 text-[10px] font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 border',
-            activeTab === tab.id ? 'border-blue-500/40 text-blue-300 bg-blue-950/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]' : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-[#2d2d2d]'
+            activeTab === tab.id ? 'border-blue-500/40 text-blue-300 bg-blue-950/20 shadow-[0_10px_24px_rgba(37,99,235,0.14),inset_0_1px_0_rgba(255,255,255,0.03)] -translate-y-[1px]' : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-[#2d2d2d]'
           ]"
         >
           <span>{{ tab.icon }}</span>
@@ -212,7 +228,7 @@ const {
     </div>
 
     <!-- 内容区 -->
-    <div class="flex-1 overflow-y-auto p-4 lg:p-5 xl:p-6 custom-scrollbar bg-[#1e1e1e]">
+    <div class="flex-1 overflow-y-auto p-4 lg:p-5 xl:p-6 custom-scrollbar bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.05),_transparent_26%),linear-gradient(180deg,_#1e1e1e,_#1b1b1c)]">
       
       <!-- Tab 1: 灵感架构 -->
       <div v-if="activeTab === 'meta'" class="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -934,6 +950,182 @@ const {
                 <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
                   <div class="text-[8px] uppercase tracking-wider text-gray-500">Warnings</div>
                   <div class="mt-1 text-[11px] font-bold text-amber-300">{{ session.warning_count || 0 }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'evaluation'" class="space-y-3 animate-in fade-in duration-300">
+        <div class="rounded-2xl border border-emerald-800/20 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.14),_transparent_38%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 space-y-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center rounded-full border px-2 py-1 text-[9px] font-bold" :class="getEvaluationStatusClasses(evaluationOverallStatus)">
+                  评估总览
+                </span>
+                <span v-if="evaluationGeneratedAt" class="inline-flex items-center rounded-full border border-slate-700/30 bg-slate-950/20 px-2 py-1 text-[9px] font-bold text-slate-200">
+                  {{ evaluationGeneratedAt }}
+                </span>
+              </div>
+              <div class="text-[12px] font-bold text-gray-100">固定评测集 + 最近会话样本：统一评估路由、规划、执行、RAG、缓存和系统稳定性</div>
+              <div class="text-[10px] leading-relaxed text-gray-400">
+                {{ evaluationSummary || '这里展示的是正式评估结果，不是单轮 trace。' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <div v-for="card in evaluationCards" :key="card.title" class="rounded-2xl border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" :class="getOverviewCardClasses(card.tone)">
+            <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ card.title }}</div>
+            <div class="mt-2 text-[13px] font-bold text-gray-100">{{ card.value }}</div>
+            <div class="mt-1 text-[9px] leading-relaxed text-gray-500">{{ card.helper }}</div>
+          </div>
+        </div>
+
+        <div class="grid gap-3 xl:grid-cols-[1.3fr_0.7fr]">
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 bg-emerald-900/10 text-emerald-300 p-2 rounded-lg border border-emerald-800/20">
+              <span>📐</span>
+              <span class="font-bold">六类评估结果</span>
+            </div>
+            <div class="grid gap-2">
+              <div v-for="category in evaluationCategories" :key="category.name" class="rounded-2xl border border-[#333] bg-[#252526] p-3">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0 space-y-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-[11px] font-bold text-gray-100">{{ category.name }}</span>
+                      <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold" :class="getEvaluationStatusClasses(category.status)">
+                        {{ category.status }}
+                      </span>
+                    </div>
+                    <div class="text-[10px] leading-relaxed text-gray-400">{{ category.summary }}</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-[9px] uppercase tracking-widest text-gray-500">Score</div>
+                    <div class="text-[16px] font-bold text-gray-100">{{ Number(category.score || 0).toFixed(1) }}</div>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid gap-2 md:grid-cols-2">
+                  <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2 text-[9px] leading-relaxed text-gray-300">
+                    <div class="uppercase tracking-widest text-gray-500">评测集覆盖</div>
+                    <div class="mt-1 font-mono text-emerald-300">
+                      {{ category.covered_case_count || 0 }} / {{ category.suite_case_count || 0 }}
+                      · {{ Math.round(Number(category.coverage_rate || 0) * 100) }}%
+                    </div>
+                  </div>
+                  <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2 text-[9px] leading-relaxed text-gray-300">
+                    <div class="uppercase tracking-widest text-gray-500">系统建议</div>
+                    <div class="mt-1">{{ category.recommendation }}</div>
+                  </div>
+                </div>
+
+                <div v-if="category.metrics" class="mt-3 flex flex-wrap gap-1.5">
+                  <span
+                    v-for="(metricValue, metricKey) in category.metrics"
+                    :key="`${category.name}-${String(metricKey)}`"
+                    class="rounded-full border border-[#3a3a3a] bg-black/10 px-2 py-1 text-[9px] font-bold text-gray-300"
+                  >
+                    {{ String(metricKey) }} · {{ typeof metricValue === 'number' ? Number(metricValue).toFixed(3).replace(/\\.000$/, '') : metricValue }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 bg-cyan-900/10 text-cyan-300 p-2 rounded-lg border border-cyan-800/20">
+                <span>🧱</span>
+                <span class="font-bold">评测集结构</span>
+              </div>
+              <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 space-y-3">
+                <div>
+                  <div class="text-[10px] uppercase tracking-widest text-gray-500">按维度</div>
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    <span v-for="row in evaluationCategoryRows" :key="row.category" class="rounded-full border border-cyan-700/30 bg-cyan-950/10 px-2 py-1 text-[9px] font-bold text-cyan-300">
+                      {{ row.category }} · {{ row.count }}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-widest text-gray-500">按场景</div>
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    <span v-for="row in evaluationScenarioRows" :key="row.scenario" class="rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 text-[9px] font-bold text-violet-300">
+                      {{ row.scenario }} · {{ row.count }}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-widest text-gray-500">已覆盖场景</div>
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    <span v-for="scenario in evaluationObservedScenarios" :key="scenario" class="rounded-full border border-emerald-700/30 bg-emerald-950/10 px-2 py-1 text-[9px] font-bold text-emerald-300">
+                      {{ scenario }}
+                    </span>
+                    <span v-if="!evaluationObservedScenarios.length" class="text-[9px] text-gray-500">暂无样本</span>
+                  </div>
+                </div>
+                <div v-if="evaluationMissingScenarios.length">
+                  <div class="text-[10px] uppercase tracking-widest text-gray-500">缺失场景</div>
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    <span v-for="scenario in evaluationMissingScenarios" :key="scenario" class="rounded-full border border-amber-700/30 bg-amber-950/10 px-2 py-1 text-[9px] font-bold text-amber-300">
+                      {{ scenario }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="evaluationRecommendations.length" class="space-y-2">
+              <div class="flex items-center gap-2 bg-amber-900/10 text-amber-300 p-2 rounded-lg border border-amber-800/20">
+                <span>🧠</span>
+                <span class="font-bold">评估建议</span>
+              </div>
+              <div class="grid gap-2">
+                <div v-for="(item, idx) in evaluationRecommendations" :key="idx" class="rounded-2xl border border-[#333] bg-[#252526] p-3 text-[10px] leading-relaxed text-gray-300">
+                  {{ item }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="evaluationSessions.length" class="space-y-2">
+          <div class="flex items-center gap-2 bg-violet-900/10 text-violet-300 p-2 rounded-lg border border-violet-800/20">
+            <span>🗂️</span>
+            <span class="font-bold">最近评估样本</span>
+          </div>
+          <div class="grid gap-2 md:grid-cols-2">
+            <div v-for="session in evaluationSessions" :key="session.thread_id" class="rounded-2xl border border-[#333] bg-[#252526] p-3">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-[10px] font-bold text-gray-200">{{ session.title || session.thread_id }}</div>
+                  <div class="mt-1 text-[9px] text-gray-500">{{ session.thread_id }} · {{ session.updated_at }}</div>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span class="rounded-full border border-cyan-700/30 bg-cyan-950/10 px-2 py-1 text-[8px] font-bold text-cyan-300">{{ session.scenario || 'general' }}</span>
+                  <span class="rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 text-[8px] font-bold text-violet-300">{{ session.intent_route || '等待指令' }}</span>
+                </div>
+              </div>
+              <div class="mt-3 grid grid-cols-4 gap-2 text-center">
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Blocks</div>
+                  <div class="mt-1 text-[11px] font-bold text-slate-200">{{ session.block_count || 0 }}</div>
+                </div>
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Changed</div>
+                  <div class="mt-1 text-[11px] font-bold text-cyan-300">{{ session.changed_block_count || 0 }}</div>
+                </div>
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Warnings</div>
+                  <div class="mt-1 text-[11px] font-bold text-amber-300">{{ session.warning_count || 0 }}</div>
+                </div>
+                <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-2">
+                  <div class="text-[8px] uppercase tracking-wider text-gray-500">Grounding</div>
+                  <div class="mt-1 text-[11px] font-bold text-emerald-300">{{ session.grounding_status || 'unknown' }}</div>
                 </div>
               </div>
             </div>

@@ -39,10 +39,15 @@ class ComponentData(BaseModel):
     subtitle: Optional[str] = Field(None, description="副标题内容")
     paragraphs: Optional[List[str]] = Field(None, description="正文文本段落")
     paragraph_meta: Optional[List[Dict[str, Any]]] = Field(None, description="正文段落元数据，如来源、是否已确认、提示说明")
+    sections: Optional[List[Dict[str, Any]]] = Field(None, description="正文分节结构，适合让前端直接渲染更清楚的段落层次")
     
-    # ✨ 为 VersusCard 补上专属武器！
-    proText: Optional[str] = Field(None, description="红榜/优势描述（仅 VersusCard 可用，严禁写成数组）")
-    conText: Optional[str] = Field(None, description="黑榜/劣势描述（仅 VersusCard 可用，严禁写成数组）")
+    # ✨ 对比卡使用结构化正反方内容；proText/conText 仅保留给旧数据兜底。
+    proText: Optional[str] = Field(None, description="旧版对比卡正方长文（仅兼容历史数据）")
+    conText: Optional[str] = Field(None, description="旧版对比卡反方长文（仅兼容历史数据）")
+    pros: Optional[Dict[str, Any]] = Field(None, description="对比卡正方结构化内容，如 summary/points/fit_for")
+    cons: Optional[Dict[str, Any]] = Field(None, description="对比卡反方结构化内容，如 summary/points/fit_for")
+    decision_hint: Optional[str] = Field(None, description="对比卡的最终分流建议")
+    risk_note: Optional[str] = Field(None, description="对比卡的风险提醒或阅读边界")
     
     # ✨ Generative UI 升维字段
     align: Optional[str] = Field(None, description="文本对齐 (left/center)")
@@ -65,11 +70,13 @@ class ComponentData(BaseModel):
     # 1. 📊 雷达图 (RadarChartBlock)
     dimensions: Optional[List[str]] = Field(None, description="评估维度数组，如 ['性能', '续航', '拍照']")
     scores: Optional[List[int]] = Field(None, description="维度对应的分数数组 (0-100)")
+    metrics: Optional[List[Dict[str, Any]]] = Field(None, description="雷达图结构化维度，含 value/reason/confidence/evidence")
     
     # 2. 🗳️ 互动投票卡 (PollBlock)
     question: Optional[str] = Field(None, description="极具争议性的投票问题")
     option_a: Optional[str] = Field(None, description="正方选项，极具煽动性")
     option_b: Optional[str] = Field(None, description="反方选项，极具煽动性")
+    option_cards: Optional[List[Dict[str, Any]]] = Field(None, description="投票卡结构化选项，含 stance/vote_hint/why_it_matters")
     
     # 3. 🎁 惊喜礼盒 (GiftBox) 专属
     box_cover_text: Optional[str] = Field(None, description="礼盒外部的引导文案，如'点击拆开粉丝福利'")
@@ -95,6 +102,7 @@ class ComponentData(BaseModel):
     reviews: Optional[List[str]] = Field(None, description="真实网友评价的短句数组")
     core_features: Optional[List[str]] = Field(None, description="核心参数/特性列表（用于 ProductSpecCard）")
     feature_meta: Optional[List[Dict[str, Any]]] = Field(None, description="参数卡条目元数据，如来源、是否已确认、提示说明")
+    spec_items: Optional[List[Dict[str, Any]]] = Field(None, description="参数卡结构化条目，含 label/value/decision_impact/status")
     likes: Optional[Union[str, int]] = Field(None, description="点赞数（如 1.2w）")
     collects: Optional[Union[str, int]] = Field(None, description="收藏数")
     comments: Optional[Union[str, int]] = Field(None, description="评论数")

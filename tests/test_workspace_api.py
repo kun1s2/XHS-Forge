@@ -1,9 +1,13 @@
 from datetime import datetime
+from types import SimpleNamespace
 
-from app.schemas.responses import WorkspaceDataResponse
+from app.schemas.responses import BlockGalleryOverviewResponse, EvaluationOverviewResponse, TrendListResponse, WorkspaceDataResponse
 from langchain_core.messages import HumanMessage
+import pytest
 
-from app.api.workspace import _build_benchmark_overview, _build_inspector_summary, _extract_session_title, _format_checkpoint_timestamp, _pick_row_value, dedupe_assets, format_messages
+from app.api.workspace import _build_benchmark_overview, _build_evaluation_overview, _build_inspector_summary, _extract_session_title, _format_checkpoint_timestamp, _pick_row_value, dedupe_assets, format_messages, rollback_thread_to_checkpoint
+from app.schemas.requests import ThreadRollbackRequest
+from app.services.block_gallery import get_block_gallery_component, get_block_gallery_overview, get_block_gallery_scenario
 
 
 def test_format_checkpoint_timestamp_accepts_datetime():
@@ -35,13 +39,14 @@ def test_workspace_data_response_accepts_structured_messages_and_prompts():
         inspector_summary={"status": "active"},
         oss_url=None,
         source_code="<html></html>",
-        checkpoints=[],
+        checkpoints=[{"checkpoint_id": "ckpt_1", "intent": "create", "node": "document_renderer", "timestamp": "2026-03-23T01:00:00"}],
     )
 
     assert response.messages["main"][0]["role"] == "user"
     assert response.node_prompts["intent_agent"][0]["role"] == "system"
     assert response.image_assets[0]["source_type"] == "search"
     assert response.agent_backends["note_editor"] == "structured_function_calling"
+    assert response.checkpoints[0].node == "document_renderer"
 
 
 def test_format_messages_flattens_multimodal_human_message():
@@ -55,6 +60,20 @@ def test_format_messages_flattens_multimodal_human_message():
     assert formatted[0]["role"] == "user"
     assert formatted[0]["content"] == "帮我生成一篇 Mate 60 笔记"
     assert formatted[0]["imageUrls"] == ["https://img.example/1.jpg"]
+
+
+def test_format_messages_assigns_checkpoint_to_user_turns():
+    formatted = format_messages(
+        [
+            HumanMessage(content="第一轮"),
+            HumanMessage(content="第二轮"),
+        ],
+        turn_anchor_map={0: "ckpt_1", 1: "ckpt_2"},
+    )
+
+    assert formatted[0]["checkpointId"] == "ckpt_1"
+    assert formatted[1]["checkpointId"] == "ckpt_2"
+    assert formatted[0]["messageKind"] == "user_prompt"
 
 
 def test_dedupe_assets_merges_same_url_entries():
@@ -144,6 +163,108 @@ def test_workspace_data_response_no_longer_requires_legacy_page_or_style_fields(
     dumped = response.model_dump()
     assert "document_view" not in dumped
     assert "block_style_map" not in dumped
+
+
+class _FakeSnapshot:
+    def __init__(self, values, checkpoint_id="ckpt_latest"):
+        self.values = values
+        self.config = {"configurable": {"checkpoint_id": checkpoint_id}}
+
+
+class _FakeRollbackAgent:
+    def __init__(self, target_values, latest_values):
+        self.target_snapshot = _FakeSnapshot(target_values, checkpoint_id="ckpt_target")
+        self.latest_snapshot = _FakeSnapshot(latest_values, checkpoint_id="ckpt_latest")
+        self.updated = []
+
+    async def aget_state(self, config):
+        configurable = (config or {}).get("configurable") or {}
+        if configurable.get("checkpoint_id") == "ckpt_target":
+            return self.target_snapshot
+        return self.latest_snapshot
+
+    async def aupdate_state(self, config, values, as_node=None):
+        self.updated.append({"config": config, "values": values, "as_node": as_node})
+        latest_values = dict(values)
+        latest_values.setdefault("note_document", {"document_meta": {"title": "回滚后页面"}, "blocks": [], "assets": []})
+        self.latest_snapshot = _FakeSnapshot(latest_values, checkpoint_id="ckpt_after_rollback")
+
+
+@pytest.mark.asyncio
+async def test_thread_rollback_endpoint_restores_checkpoint_state():
+    target_values = {
+        "main_messages": [HumanMessage(content="旧问题")],
+        "note_document": {"document_meta": {"title": "旧页面"}, "blocks": [], "assets": []},
+    }
+    latest_values = {
+        "main_messages": [HumanMessage(content="新问题")],
+        "note_document": {"document_meta": {"title": "新页面"}, "blocks": [], "assets": []},
+    }
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(agent=_FakeRollbackAgent(target_values, latest_values))))
+
+    response = await rollback_thread_to_checkpoint(
+        "thread_123",
+        ThreadRollbackRequest(checkpoint_id="ckpt_target", panel="main"),
+        request,
+    )
+
+    assert response.status == "success"
+    assert request.app.state.agent.updated[0]["values"]["note_document"]["document_meta"]["title"] == "旧页面"
+
+
+def test_evaluation_overview_response_accepts_structured_payload():
+    response = EvaluationOverviewResponse(
+        data={
+            "overall_score": 88.5,
+            "overall_status": "healthy",
+            "categories": [{"name": "路由评估", "score": 90.0, "status": "strong"}],
+            "recommendations": ["当前路由链稳定。"],
+        }
+    )
+
+    assert response.data["overall_status"] == "healthy"
+    assert response.data["categories"][0]["name"] == "路由评估"
+
+
+def test_trend_list_response_accepts_structured_trend_items():
+    response = TrendListResponse(
+        trends=[
+            {
+                "keyword": "华为 Mate 60",
+                "score": 12.0,
+                "scenario_hint": "seeding",
+                "entity_type": "product_topic",
+                "source": "system_preload",
+                "freshness": "fresh",
+                "cache_freshness": "fresh",
+                "record_count": 3,
+                "recommended_prompt": "帮我生成一篇关于「华为 Mate 60」的对比种草笔记，信息要靠谱，结论要鲜明，不要默认补和主题无关的风景配图。",
+            }
+        ]
+    )
+
+    assert response.trends[0].keyword == "华为 Mate 60"
+    assert response.trends[0].scenario_hint == "seeding"
+    assert response.trends[0].recommended_prompt
+
+
+def test_block_gallery_overview_response_accepts_structured_payload():
+    payload = get_block_gallery_overview()
+    response = BlockGalleryOverviewResponse(data=payload)
+
+    assert response.data["components"]
+    assert response.data["scenarios"]
+    assert response.data["components"][0]["fixture"]["note_document"]["blocks"]
+
+
+def test_block_gallery_component_and_scenario_fixtures_are_accessible():
+    component = get_block_gallery_component("VersusCard")
+    scenario = get_block_gallery_scenario("seeding_compare")
+
+    assert component is not None
+    assert component["fixture"]["note_document"]["blocks"][0]["type"] == "VersusCard"
+    assert scenario is not None
+    assert len(scenario["fixture"]["note_document"]["blocks"]) >= 3
 
 
 
@@ -433,4 +554,73 @@ def test_build_benchmark_overview_handles_empty_snapshot_list():
 
     assert overview["session_count"] == 0
     assert overview["sessions"] == []
+    assert overview["recommendations"]
+
+
+def test_build_evaluation_overview_aggregates_six_dimensions():
+    overview = _build_evaluation_overview([
+        {
+            "thread_id": "thread_eval",
+            "title": "Mate 60 页面",
+            "updated_at": "2026-03-22T10:00:00",
+            "values": {
+                "intent_route": "note_editor",
+                "agent_backends": {"intent_agent": "deterministic_fast_path"},
+                "planner_output": {
+                    "block_intents": [
+                        {"intent": "hero_media"},
+                        {"intent": "evidence_summary"},
+                    ]
+                },
+                "planner_policy": {
+                    "theme_policy": {"preset": "seed_hot"},
+                    "layout_policy": {"preferred_block_intents": ["hero_media", "evidence_summary"]},
+                    "fact_policy": {"grounding": "strict"},
+                    "asset_policy": {"mode": "cover_first"},
+                },
+                "note_document": {
+                    "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+                    "blocks": [
+                        {"id": "cover_1", "type": "CoverSwiper"},
+                        {"id": "spec_1", "type": "ProductSpecCard"},
+                    ],
+                    "assets": [],
+                    "fact_bindings": [],
+                },
+                "turn_trace": {
+                    "warnings": [],
+                    "changed_blocks": [{"id": "spec_1", "changed_fields": ["props"]}],
+                    "note_editor": {
+                        "action": "update_block",
+                        "target_block_id": "spec_1",
+                        "structured": True,
+                    },
+                },
+                "retrieved_knowledge": {
+                    "retrieval_summary": {
+                        "cache_hit": True,
+                        "cache_freshness": "fresh",
+                        "cache_ttl_seconds": 7200,
+                        "cache_remaining_ttl_seconds": 3600,
+                        "live_search_used": False,
+                        "grounding_status": "grounded",
+                        "citation_count": 2,
+                    },
+                    "retrieval_eval": {
+                        "citation_coverage": 0.9,
+                        "grounding_score": 0.88,
+                    },
+                    "fact_sources": [{"title": "官方页"}],
+                },
+            },
+        }
+    ])
+
+    assert overview["overall_score"] > 0
+    assert overview["overall_status"] in {"strong", "healthy", "attention", "weak"}
+    assert len(overview["categories"]) == 6
+    category_names = {item["name"] for item in overview["categories"]}
+    assert category_names == {"路由评估", "规划评估", "执行评估", "RAG 评估", "缓存评估", "系统级评估"}
+    assert overview["suite"]["case_count"] >= 6
+    assert overview["sessions"][0]["intent_route"] == "note_editor"
     assert overview["recommendations"]

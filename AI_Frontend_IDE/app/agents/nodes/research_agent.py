@@ -5,8 +5,15 @@ from app.agents.tools_registry import TOOL_POOL
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.query_heuristics import wants_image_search
 from app.services.rag_ingestion import ingest_retrieved_knowledge
-from app.services.rag_policy import build_query_variants, choose_retrieval_policy, rerank_fact_sources
+from app.services.rag_policy import build_query_variants_for_profile, choose_retrieval_policy, rerank_fact_sources
 from app.services.rag_knowledge import evaluate_retrieval_quality
+from app.services.retrieval_profiles import (
+    infer_retrieval_profile,
+    extract_fact_slots,
+    compute_missing_fields,
+    compute_missing_slot_keys,
+    build_followup_query_variants,
+)
 from app.tools.network_search import search_network_structured_async
 from app.tools.serpapi_search import search_google_images
 from langchain_core.messages import AIMessage
@@ -83,10 +90,16 @@ async def research_agent(state: UIProjectState) -> dict:
     if not main_msgs: return {}
     user_query = _extract_user_text(main_msgs[-1].content)
     entity_name = normalize_entity_name(user_query)
+    retrieval_profile = infer_retrieval_profile(
+        user_query=user_query,
+        entity_name=entity_name or user_query,
+        active_archetype=str(state.get("active_archetype") or ""),
+    )
     retrieval_policy = choose_retrieval_policy(
         user_query=user_query,
         cache_keywords=[],
         needs_assets=_infer_asset_mode_from_query(user_query),
+        retrieval_profile=retrieval_profile,
     )
 
     # 1. 缓存嗅探
@@ -96,6 +109,7 @@ async def research_agent(state: UIProjectState) -> dict:
         user_query=user_query,
         cache_keywords=hit_keywords,
         needs_assets=_infer_asset_mode_from_query(user_query),
+        retrieval_profile=retrieval_profile,
     )
     if hit_keywords:
         cached = await cache_service.get_hot_knowledge(hit_keywords[0])
@@ -133,6 +147,8 @@ async def research_agent(state: UIProjectState) -> dict:
                 "cache_age_seconds": int(cache_snapshot.get("age_seconds") or 0),
                 "cache_ttl_seconds": int(cache_snapshot.get("ttl_seconds") or 0),
                 "cache_remaining_ttl_seconds": int(cache_snapshot.get("remaining_ttl_seconds") or 0),
+                "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
+                "retrieval_domain": retrieval_profile.get("domain") or "general",
             })
             next_knowledge["retrieval_summary"] = retrieval_summary
             next_knowledge["retrieval_eval"] = retrieval_eval
@@ -150,21 +166,26 @@ async def research_agent(state: UIProjectState) -> dict:
         user_query=user_query,
         cache_keywords=hit_keywords,
         needs_assets=asset_mode,
+        retrieval_profile=retrieval_profile,
     )
 
     # 3. 并发取证决策
     search_tool = TOOL_POOL["network_search"]
-    query_variants = build_query_variants(user_query=user_query, entity_name=entity_name or user_query)
-    official_query = query_variants[0]["query"]
-    review_query = query_variants[1]["query"]
+    query_variants = build_query_variants_for_profile(
+        user_query=user_query,
+        entity_name=entity_name or user_query,
+        retrieval_profile=retrieval_profile,
+    )
+    official_query = next((item["query"] for item in query_variants if item.get("scope") == "official"), query_variants[0]["query"])
+    review_query = next((item["query"] for item in query_variants if item.get("scope") == "review"), query_variants[min(1, len(query_variants) - 1)]["query"])
     
-    # 任务 A: 文本事实（对于 content_node 是刚需）
-    # 在这里可以拆分为两个关键词进行并发，模拟 plan-and-solve 降延迟
-    # 如果失败，底层 tool 自己应该有容错，如果还想强制限制：
+    # 任务 A: 文本事实（这是后续页面骨架与组件填充的刚需）
     search_task_1 = search_tool.ainvoke({"query": official_query})
     search_task_2 = search_tool.ainvoke({"query": review_query})
-    structured_task_1 = search_network_structured_async(official_query, num=4)
-    structured_task_2 = search_network_structured_async(review_query, num=4)
+    structured_tasks = [
+        search_network_structured_async(item["query"], num=4)
+        for item in query_variants
+    ]
     
     # 任务 B: 图片打捞（柔性触发）
     # 只有当意图探测开启了 SEARCH 模式才启动
@@ -176,12 +197,20 @@ async def research_agent(state: UIProjectState) -> dict:
 
     official_results: list[dict[str, Any]] = []
     review_results: list[dict[str, Any]] = []
+    raw_web_content_1 = ""
+    raw_web_content_2 = ""
     try:
         results = await asyncio.wait_for(
-            asyncio.gather(search_task_1, search_task_2, structured_task_1, structured_task_2, image_task),
+            asyncio.gather(search_task_1, search_task_2, *structured_tasks, image_task),
             timeout=25.0,
         )
-        raw_web_content_1, raw_web_content_2, official_results, review_results, real_image_urls = results
+        raw_web_content_1, raw_web_content_2, *structured_results, real_image_urls = results
+        structured_results_map = {
+            query_variants[idx]["scope"]: structured_results[idx]
+            for idx in range(min(len(query_variants), len(structured_results)))
+        }
+        official_results = structured_results_map.get("official") or []
+        review_results = structured_results_map.get("review") or []
         raw_web_content = f"""【官方资料】:
 {raw_web_content_1}
 【用户评价】:
@@ -192,6 +221,7 @@ async def research_agent(state: UIProjectState) -> dict:
         real_image_urls = []
         official_results = []
         review_results = []
+        structured_results_map = {}
 
     # 构造虚假的 AIMessage 包含 tool_calls
     print(f"✅ [搜证完毕] 已获取真实文本与 {len(real_image_urls) if real_image_urls else 0} 条图片直链。")
@@ -209,24 +239,88 @@ async def research_agent(state: UIProjectState) -> dict:
         knowledge={"fact_sources": fact_sources, "retrieval_hits": []},
     )
     fact_sources = rerank_fact_sources(fact_sources, preview_records.get("records") or [])
-    retrieval_hits = [
-        {
-            "scope": "official",
-            "query": official_query,
-            "count": len(official_results),
-            "titles": [str(item.get("title") or "").strip() for item in official_results[:4] if item.get("title")],
-        },
-        {
-            "scope": "review",
-            "query": review_query,
-            "count": len(review_results),
-            "titles": [str(item.get("title") or "").strip() for item in review_results[:4] if item.get("title")],
-        },
-    ]
+    retrieval_hits = []
+    for item in query_variants:
+        scope = item["scope"]
+        results_for_scope = structured_results_map.get(scope) or []
+        retrieval_hits.append({
+            "scope": scope,
+            "query": item["query"],
+            "count": len(results_for_scope),
+            "titles": [str(entry.get("title") or "").strip() for entry in results_for_scope[:4] if entry.get("title")],
+        })
+    slot_labels = dict(retrieval_profile.get("slot_labels") or {})
+    fact_slots = extract_fact_slots(profile_name=str(retrieval_profile.get("profile_name") or ""), results_by_scope=structured_results_map)
+    missing_slot_keys_before_followup = compute_missing_slot_keys(
+        slot_labels=slot_labels,
+        fact_slots=fact_slots,
+    )
+    missing_fields_before_followup = compute_missing_fields(
+        slot_labels=slot_labels,
+        fact_slots=fact_slots,
+    )
+
+    followup_query_variants = build_followup_query_variants(
+        user_query=user_query,
+        entity_name=entity_name or user_query,
+        retrieval_profile=retrieval_profile,
+        missing_slot_keys=missing_slot_keys_before_followup,
+    )
+    followup_results_map: dict[str, list[dict[str, Any]]] = {}
+    followup_sources: list[dict[str, Any]] = []
+    followup_sections: list[str] = []
+    if followup_query_variants:
+        print(f"🧩 [缺字段补搜] 首轮仍缺字段 {missing_fields_before_followup}，追加 {len(followup_query_variants)} 路定向补搜。")
+        try:
+            followup_batches = await asyncio.wait_for(
+                asyncio.gather(*[
+                    search_network_structured_async(item["query"], num=3)
+                    for item in followup_query_variants
+                ]),
+                timeout=18.0,
+            )
+            for idx, item in enumerate(followup_query_variants):
+                scope = str(item.get("scope") or "followup")
+                results_for_scope = followup_batches[idx] or []
+                if not results_for_scope:
+                    continue
+                followup_results_map.setdefault(scope, []).extend(results_for_scope)
+                summary_text, sources = _format_structured_results(scope, item["query"], results_for_scope)
+                if summary_text:
+                    followup_sections.append(f"【补搜 {scope}】:\n{summary_text}")
+                followup_sources.extend(sources)
+        except Exception as followup_error:
+            print(f"⚠️ [缺字段补搜] 第二轮补搜失败: {followup_error}")
+
+    for scope, rows in followup_results_map.items():
+        structured_results_map.setdefault(scope, [])
+        structured_results_map[scope].extend(rows)
+
+    fact_sources = rerank_fact_sources(
+        _dedupe_fact_sources([*fact_sources, *followup_sources]),
+        preview_records.get("records") or [],
+    )
+    for item in followup_query_variants:
+        results_for_scope = followup_results_map.get(str(item.get("scope") or "")) or []
+        retrieval_hits.append({
+            "scope": str(item.get("scope") or ""),
+            "query": item["query"],
+            "count": len(results_for_scope),
+            "titles": [str(entry.get("title") or "").strip() for entry in results_for_scope[:4] if entry.get("title")],
+            "followup": True,
+        })
+
+    fact_slots = extract_fact_slots(profile_name=str(retrieval_profile.get("profile_name") or ""), results_by_scope=structured_results_map)
+    missing_fields = compute_missing_fields(
+        slot_labels=slot_labels,
+        fact_slots=fact_slots,
+    )
     retrieval_summary = {
         "strategy": "live_search_with_citations",
         "policy_name": retrieval_policy.get("policy_name") or "cache_then_live_grounded",
         "policy_path": retrieval_policy.get("policy_path") or "cache_first_then_live_search",
+        "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
+        "retrieval_domain": retrieval_profile.get("domain") or "general",
         "cache_hit": False,
         "cache_freshness": "miss",
         "cache_age_seconds": 0,
@@ -236,7 +330,7 @@ async def research_agent(state: UIProjectState) -> dict:
         "ingest_mode": "task_triggered_ingest",
         "query": user_query,
         "entity_name": entity_name or user_query,
-        "query_variants": [official_query, review_query],
+        "query_variants": [item["query"] for item in query_variants],
         "asset_mode": asset_mode.lower(),
         "image_query": image_query if should_search_images else "",
         "source_count": len(fact_sources),
@@ -247,19 +341,26 @@ async def research_agent(state: UIProjectState) -> dict:
         "grounding_status": "grounded" if fact_sources else ("visual_only" if final_assets else "weak"),
         "no_hit_reason": "" if fact_sources else "本轮联网搜证没有拿到足够稳定的结构化来源，后续输出应偏保守。",
         "rerank_applied": True,
+        "missing_fields": missing_fields,
+        "missing_fields_before_followup": missing_fields_before_followup,
+        "followup_search_used": bool(followup_query_variants),
+        "followup_query_variants": [item["query"] for item in followup_query_variants],
     }
     combined_text_facts = f"""【官方资料】:
 {raw_web_content_1}
 {official_summary if official_summary else ""}
 【用户评价】:
 {raw_web_content_2}
-{review_summary if review_summary else ""}"""
+{review_summary if review_summary else ""}
+{chr(10).join(followup_sections) if followup_sections else ""}"""
     knowledge = {
         "entity_name": entity_name or user_query,
         "is_fact_ready": True,
         "battle_report": None,
         "text_facts": str(combined_text_facts),
         "fact_sources": fact_sources,
+        "fact_slots": fact_slots,
+        "missing_fields": missing_fields,
         "retrieval_hits": retrieval_hits,
         "retrieval_summary": retrieval_summary,
     }

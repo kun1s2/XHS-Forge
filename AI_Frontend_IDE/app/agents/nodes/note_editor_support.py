@@ -162,8 +162,10 @@ EDITABLE_TARGET_TOKEN_MAP = {
     "core_features": ["参数", "规格", "配置", "证据", "事实"],
     "image_urls": ["封面", "配图", "图片", "首图"],
     "image_url": ["封面", "配图", "图片", "首图"],
-    "protext": ["优点", "正方", "支持"],
-    "context": ["反方", "缺点", "槽点", "理由", "背景"],
+    "pros": ["优点", "正方", "支持", "左边", "左侧观点"],
+    "cons": ["反方", "缺点", "槽点", "右边", "右侧观点"],
+    "decision_hint": ["结论", "怎么选", "建议"],
+    "risk_note": ["风险", "边界", "提醒"],
     "quote": ["引用", "金句"],
     "events": ["时间轴", "流程"],
 }
@@ -171,7 +173,7 @@ EDITABLE_TARGET_TOKEN_MAP = {
 ACTION_EDITABLE_TARGET_MAP = {
     "rewrite_paragraph": {"paragraphs"},
     "update_page_title": {"title", "subtitle"},
-    "update_block": {"title", "subtitle", "paragraphs", "question", "option_a", "option_b", "core_features", "image_url", "image_urls", "protext", "context", "quote", "events"},
+    "update_block": {"title", "subtitle", "paragraphs", "question", "option_a", "option_b", "core_features", "image_url", "image_urls", "pros", "cons", "decision_hint", "risk_note", "quote", "events"},
     "append_block": set(),
 }
 
@@ -565,14 +567,28 @@ def _extract_rewritable_payload_fields(payload: dict[str, Any]) -> dict[str, Any
         "option_b",
         "desc",
         "quote",
-        "proText",
-        "conText",
         "paragraphs",
     ]:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             rewritable[key] = value
         elif isinstance(value, list) and value and all(isinstance(item, str) for item in value):
+            rewritable[key] = value
+    for key in ["pros", "cons"]:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            summary = str(value.get("summary") or "").strip()
+            points = [str(item).strip() for item in (value.get("points") or []) if str(item).strip()]
+            fit_for = str(value.get("fit_for") or "").strip()
+            if summary or points or fit_for:
+                rewritable[key] = {
+                    "summary": summary,
+                    "points": points,
+                    "fit_for": fit_for,
+                }
+    for key in ["decision_hint", "risk_note"]:
+        value = str(payload.get(key) or "").strip()
+        if value:
             rewritable[key] = value
     return rewritable
 

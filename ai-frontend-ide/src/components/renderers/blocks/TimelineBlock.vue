@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import FactBindingFooter from './FactBindingFooter.vue'
 
 const props = defineProps<{
   node: any;
@@ -34,5 +35,7 @@ const timelineItems = computed(() => {
       </div>
 
     </div>
+
+    <FactBindingFooter :node="node" />
   </div>
 </template>

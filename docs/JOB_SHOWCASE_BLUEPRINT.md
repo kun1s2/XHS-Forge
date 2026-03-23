@@ -4,8 +4,8 @@
 
 配套文档：
 
-1. [`INTERVIEW_DELIVERY_PACK.md`](/root/XHS-Forge/docs/INTERVIEW_DELIVERY_PACK.md)
-2. [`AGENT_HANDOFF_2026-03-19.md`](/root/XHS-Forge/docs/AGENT_HANDOFF_2026-03-19.md)
+1. [`INTERVIEW_DELIVERY_PACK.md`](./INTERVIEW_DELIVERY_PACK.md)
+2. [`AGENT_HANDOFF_2026-03-19.md`](./AGENT_HANDOFF_2026-03-19.md)
 
 ## 1. 项目定位
 
@@ -88,7 +88,7 @@
 
 对求职项目来说，更好的讲法是：
 
-`intent -> editor runtime -> verifier -> render`
+`intent -> editor runtime -> verifier -> document_renderer`
 
 配套两个基础设施亮点：
 

@@ -10,8 +10,8 @@
 3. 哪些字段后续还应该继续增强
 
 配套文档：
-- [`BLOCK_SEMANTIC_ROLES.md`](/root/XHS-Forge/docs/BLOCK_SEMANTIC_ROLES.md)
-- [`MODERN_AGENT_TARGET_SYSTEM.md`](/root/XHS-Forge/docs/MODERN_AGENT_TARGET_SYSTEM.md)
+- [`BLOCK_SEMANTIC_ROLES.md`](./BLOCK_SEMANTIC_ROLES.md)
+- [`MODERN_AGENT_TARGET_SYSTEM.md`](./MODERN_AGENT_TARGET_SYSTEM.md)
 
 ## Manifest Design Rules
 

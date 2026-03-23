@@ -2,12 +2,15 @@ import asyncio
 from types import SimpleNamespace
 
 from app.api.workspace import (
+    AssetPreferenceRequest,
     AssetMutationRequest,
     FactConfirmationRequest,
     confirm_workspace_fact,
     import_workspace_asset,
+    remove_workspace_asset,
     search_workspace_images,
     set_workspace_cover_asset,
+    update_workspace_asset_preferences,
 )
 from app.core.note_document import build_note_document
 
@@ -75,14 +78,14 @@ def test_workspace_cover_endpoint_updates_cover_block_and_imports_asset():
     assert response.message == "已设为封面图"
     patch = agent.updated[0]["values"]
     assert patch["image_assets"][0]["url"] == "https://img.example/cover.jpg"
-    assert patch["note_document"]["blocks"][0]["type"] == "CoverSwiper"
-    assert patch["note_document"]["blocks"][1]["type"] == "TitleBlock"
-    assert patch["note_document"]["blocks"][1]["props"]["title"] == "旧标题"
-    cover_block = patch["note_document"]["blocks"][0]
-    assert cover_block["props"]["image_urls"] == ["https://img.example/cover.jpg"]
+    assert [block["type"] for block in patch["note_document"]["blocks"]] == ["TitleBlock"]
+    assert patch["note_document"]["blocks"][0]["props"]["title"] == "旧标题"
+    assert patch["note_document"]["ui_state"]["cover_asset_url"] == "https://img.example/cover.jpg"
+    assert patch["note_document"]["assets"][0]["role"] == "cover"
+    assert patch["note_document"]["assets"][0]["used_by_blocks"] == []
     trace_patch = agent.updated[-1]["values"]["turn_trace"]["workspace_action"]
     assert trace_patch["action"] == "workspace_set_cover"
-    assert trace_patch["target_block_id"] == cover_block["id"]
+    assert trace_patch["target_block_id"] == "global"
     assert isinstance(agent.updated[-1]["values"]["turn_trace"]["changed_blocks"], list)
 
 
@@ -153,3 +156,101 @@ def test_workspace_import_asset_also_updates_note_document():
     assert patch["note_document"]["assets"][0]["url"] == "https://img.example/lib.jpg"
     assert patch["note_document"]["document_meta"]["title"] == "示例"
     assert agent.updated[-1]["values"]["turn_trace"]["workspace_action"]["action"] == "workspace_import_asset"
+
+
+def test_workspace_remove_asset_clears_cover_preference_and_block_references():
+    agent = FakeAgent({
+        "image_assets": [
+            {"url": "https://img.example/cover.jpg", "desc": "封面图", "source_type": "search", "role": "cover"},
+            {"url": "https://img.example/detail.jpg", "desc": "细节图", "source_type": "search", "role": "supporting"},
+        ],
+        "note_document": build_note_document(
+            document_view={
+                "page_title": "示例",
+                "blocks": [
+                    {"id": "cover_1", "component_type": "CoverSwiper", "content_brief": "封面"},
+                    {"id": "title_1", "component_type": "TitleBlock", "content_brief": "标题"},
+                ],
+                "cover_1": {"type": "CoverSwiper", "image_urls": ["https://img.example/cover.jpg"]},
+                "title_1": {"type": "TitleBlock", "title": "示例标题"},
+            },
+            block_style_map={},
+            image_assets=[
+                {"url": "https://img.example/cover.jpg", "desc": "封面图", "source_type": "search", "role": "cover"},
+                {"url": "https://img.example/detail.jpg", "desc": "细节图", "source_type": "search", "role": "supporting"},
+            ],
+        ),
+    })
+    agent.snapshot.values["note_document"]["ui_state"]["cover_asset_url"] = "https://img.example/cover.jpg"
+    request = _build_request(agent)
+
+    response = asyncio.run(remove_workspace_asset("thread-1", "https://img.example/cover.jpg", request))
+
+    assert response.message == "素材已删除"
+    patch = agent.updated[0]["values"]
+    assert patch["image_assets"][0]["__replace__"] is True
+    assert [asset["url"] for asset in patch["image_assets"][1:]] == ["https://img.example/detail.jpg"]
+    assert patch["note_document"]["ui_state"]["cover_asset_url"] is None
+    assert [asset["url"] for asset in patch["note_document"]["assets"]] == ["https://img.example/detail.jpg"]
+    cover_block = patch["note_document"]["blocks"][0]
+    assert cover_block["type"] == "CoverSwiper"
+    assert cover_block["props"]["image_urls"] == []
+    assert cover_block["asset_refs"] == []
+    assert agent.updated[-1]["values"]["turn_trace"]["workspace_action"]["action"] == "workspace_remove_asset"
+
+
+def test_workspace_asset_preferences_can_mark_inline_locked_and_excluded():
+    agent = FakeAgent({
+        "image_assets": [
+            {"url": "https://img.example/cover.jpg", "desc": "封面图", "source_type": "search", "role": "cover", "selection_state": "available", "locked": False},
+            {"url": "https://img.example/body.jpg", "desc": "正文图", "source_type": "search", "role": "supporting", "selection_state": "available", "locked": False},
+        ],
+        "note_document": build_note_document(
+            document_view={"page_title": "示例", "blocks": []},
+            block_style_map={},
+            image_assets=[
+                {"url": "https://img.example/cover.jpg", "desc": "封面图", "source_type": "search", "role": "cover", "selection_state": "available", "locked": False},
+                {"url": "https://img.example/body.jpg", "desc": "正文图", "source_type": "search", "role": "supporting", "selection_state": "available", "locked": False},
+            ],
+        ),
+    })
+    agent.snapshot.values["note_document"]["ui_state"]["cover_asset_url"] = "https://img.example/cover.jpg"
+    request = _build_request(agent)
+
+    response = asyncio.run(
+        update_workspace_asset_preferences(
+            "thread-1",
+            AssetPreferenceRequest(
+                url="https://img.example/cover.jpg",
+                role="inline",
+                locked=True,
+                selection_state="available",
+            ),
+            request,
+        )
+    )
+
+    assert response.message == "素材偏好已更新"
+    patch = agent.updated[0]["values"]
+    body_asset = next(item for item in patch["image_assets"][1:] if item["url"] == "https://img.example/cover.jpg")
+    assert body_asset["role"] == "inline"
+    assert body_asset["locked"] is True
+    assert patch["note_document"]["ui_state"]["cover_asset_url"] is None
+
+    response = asyncio.run(
+        update_workspace_asset_preferences(
+            "thread-1",
+            AssetPreferenceRequest(
+                url="https://img.example/body.jpg",
+                selection_state="excluded",
+            ),
+            request,
+        )
+    )
+
+    assert response.message == "素材偏好已更新"
+    patch = agent.updated[2]["values"]
+    excluded_asset = next(item for item in patch["image_assets"][1:] if item["url"] == "https://img.example/body.jpg")
+    assert excluded_asset["selection_state"] == "excluded"
+    assert excluded_asset["locked"] is False
+    assert agent.updated[-1]["values"]["turn_trace"]["workspace_action"]["action"] == "workspace_update_asset_preferences"

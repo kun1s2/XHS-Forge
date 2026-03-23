@@ -93,34 +93,34 @@ bash scripts/final_acceptance.sh
 ## Repo Map
 
 - Backend runtime:
-  - [`AI_Frontend_IDE/app/agents/graph.py`](/root/XHS-Forge/AI_Frontend_IDE/app/agents/graph.py)
+  - [`AI_Frontend_IDE/app/agents/graph.py`](AI_Frontend_IDE/app/agents/graph.py)
 - Core protocol:
-  - [`AI_Frontend_IDE/app/core/note_document.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/note_document.py)
-  - [`AI_Frontend_IDE/app/core/component_manifest.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/component_manifest.py)
+  - [`AI_Frontend_IDE/app/core/note_document.py`](AI_Frontend_IDE/app/core/note_document.py)
+  - [`AI_Frontend_IDE/app/core/component_manifest.py`](AI_Frontend_IDE/app/core/component_manifest.py)
 - Prompt / context engineering:
-  - [`AI_Frontend_IDE/app/core/prompt_engineering.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/prompt_engineering.py)
-  - [`AI_Frontend_IDE/app/core/context_engineering.py`](/root/XHS-Forge/AI_Frontend_IDE/app/core/context_engineering.py)
+  - [`AI_Frontend_IDE/app/core/prompt_engineering.py`](AI_Frontend_IDE/app/core/prompt_engineering.py)
+  - [`AI_Frontend_IDE/app/core/context_engineering.py`](AI_Frontend_IDE/app/core/context_engineering.py)
 - RAG backend:
-  - [`AI_Frontend_IDE/app/services/rag_service.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/rag_service.py)
-  - [`AI_Frontend_IDE/app/services/rag_ingestion.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/rag_ingestion.py)
-  - [`AI_Frontend_IDE/app/services/rag_policy.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/rag_policy.py)
-  - [`AI_Frontend_IDE/app/services/cache_service.py`](/root/XHS-Forge/AI_Frontend_IDE/app/services/cache_service.py)
+  - [`AI_Frontend_IDE/app/services/rag_service.py`](AI_Frontend_IDE/app/services/rag_service.py)
+  - [`AI_Frontend_IDE/app/services/rag_ingestion.py`](AI_Frontend_IDE/app/services/rag_ingestion.py)
+  - [`AI_Frontend_IDE/app/services/rag_policy.py`](AI_Frontend_IDE/app/services/rag_policy.py)
+  - [`AI_Frontend_IDE/app/services/cache_service.py`](AI_Frontend_IDE/app/services/cache_service.py)
 - Frontend workbench:
-  - [`ai-frontend-ide/src/stores/useChatStore.ts`](/root/XHS-Forge/ai-frontend-ide/src/stores/useChatStore.ts)
-  - [`ai-frontend-ide/src/components/chat/AgentInspector.vue`](/root/XHS-Forge/ai-frontend-ide/src/components/chat/AgentInspector.vue)
+  - [`ai-frontend-ide/src/stores/useChatStore.ts`](ai-frontend-ide/src/stores/useChatStore.ts)
+  - [`ai-frontend-ide/src/components/chat/AgentInspector.vue`](ai-frontend-ide/src/components/chat/AgentInspector.vue)
 
 ## Delivery Docs
 
 - 架构图 / 流程图：
-  - [`docs/ARCHITECTURE_AND_FLOW.md`](/root/XHS-Forge/docs/ARCHITECTURE_AND_FLOW.md)
+  - [`docs/ARCHITECTURE_AND_FLOW.md`](docs/ARCHITECTURE_AND_FLOW.md)
 - Demo script：
-  - [`docs/DEMO_SCRIPT.md`](/root/XHS-Forge/docs/DEMO_SCRIPT.md)
+  - [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
 - 面试讲稿：
-  - [`docs/INTERVIEW_TALK_TRACK.md`](/root/XHS-Forge/docs/INTERVIEW_TALK_TRACK.md)
+  - [`docs/INTERVIEW_TALK_TRACK.md`](docs/INTERVIEW_TALK_TRACK.md)
 - 简历项目描述：
-  - [`docs/RESUME_PROJECT_DESCRIPTION.md`](/root/XHS-Forge/docs/RESUME_PROJECT_DESCRIPTION.md)
+  - [`docs/RESUME_PROJECT_DESCRIPTION.md`](docs/RESUME_PROJECT_DESCRIPTION.md)
 - 交付总览：
-  - [`docs/INTERVIEW_DELIVERY_PACK.md`](/root/XHS-Forge/docs/INTERVIEW_DELIVERY_PACK.md)
+  - [`docs/INTERVIEW_DELIVERY_PACK.md`](docs/INTERVIEW_DELIVERY_PACK.md)
 
 ## Architecture Summary
 

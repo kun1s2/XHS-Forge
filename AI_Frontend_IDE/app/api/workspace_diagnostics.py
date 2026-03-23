@@ -1,7 +1,8 @@
-"""Presentation builders for workspace-facing diagnostics and benchmark views.
+"""工作台诊断与评估面板的展示模型构造器。
 
-These helpers keep `workspace.py` focused on routing / state mutation while the
-heavier aggregation logic for Inspector and Benchmark stays in one place.
+这里统一负责把运行时 state、会话快照和追踪信息压缩成 Inspector 与
+Benchmark 需要的展示数据，避免 `workspace.py` 同时承担 API 路由和
+复杂聚合逻辑。
 """
 
 from __future__ import annotations
@@ -10,11 +11,12 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
+from app.core.evaluation_catalog import build_evaluation_suite_summary
 from app.core.note_document import build_note_document_from_state
 
 
 def dedupe_assets(assets: list) -> list[dict]:
-    """Merge repeated asset entries by URL while preserving richer metadata."""
+    """按 URL 去重素材，同时尽量保留更完整的元数据。"""
     deduped: dict[str, dict] = {}
     for asset in assets or []:
         if not isinstance(asset, dict):
@@ -31,6 +33,7 @@ def dedupe_assets(assets: list) -> list[dict]:
 
 
 def build_inspector_summary(values: dict) -> dict:
+    """构造 AgentInspector 单轮诊断面板所需的数据模型。"""
     note_document = values.get("note_document") or build_note_document_from_state(values)
     blocks = list((note_document or {}).get("blocks") or [])
     assets = dedupe_assets(list((note_document or {}).get("assets") or []) or values.get("image_assets", []) or [])
@@ -180,6 +183,7 @@ def build_inspector_summary(values: dict) -> dict:
 
 
 def _safe_float(value: Any) -> float:
+    """把任意值安全转成浮点数。"""
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -187,6 +191,7 @@ def _safe_float(value: Any) -> float:
 
 
 def _safe_int(value: Any) -> int:
+    """把任意值安全转成整数。"""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -194,12 +199,14 @@ def _safe_int(value: Any) -> int:
 
 
 def _ratio(numerator: float, denominator: float) -> float:
+    """安全计算比率，避免除零。"""
     if denominator <= 0:
         return 0.0
     return numerator / denominator
 
 
 def _top_counter_rows(counter: Counter, limit: int = 6, *, key_name: str = "name") -> list[dict]:
+    """把 Counter 结果转成前端更容易消费的排行列表。"""
     rows = []
     for name, count in counter.most_common(limit):
         if not name:
@@ -209,6 +216,7 @@ def _top_counter_rows(counter: Counter, limit: int = 6, *, key_name: str = "name
 
 
 def _pick_row_value(row: Any, key: str, index: int = 0):
+    """兼容 dict / SQL row / tuple 三种读取方式。"""
     if isinstance(row, dict):
         return row.get(key)
     if hasattr(row, "_mapping"):
@@ -220,6 +228,7 @@ def _pick_row_value(row: Any, key: str, index: int = 0):
 
 
 def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> dict:
+    """把多轮会话快照聚合成 Benchmark 面板。"""
     session_count = len(session_snapshots)
     if session_count == 0:
         return {
@@ -435,7 +444,376 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
     }
 
 
+def _score_to_status(score: float) -> str:
+    """把 0-100 分数映射成统一状态标签。"""
+    if score >= 85:
+        return "strong"
+    if score >= 70:
+        return "healthy"
+    if score >= 55:
+        return "attention"
+    return "weak"
+
+
+def _bounded_score(value: float) -> float:
+    """把任意分数收敛到 0-100。"""
+    return max(0.0, min(100.0, value))
+
+
+def _build_category_evaluation(
+    *,
+    name: str,
+    score: float,
+    metrics: dict[str, Any],
+    summary: str,
+    recommendation: str,
+    case_count: int,
+    covered_case_count: int,
+) -> dict[str, Any]:
+    """统一构造单个评估维度的展示结构。"""
+    safe_score = round(_bounded_score(score), 1)
+    return {
+        "name": name,
+        "score": safe_score,
+        "status": _score_to_status(safe_score),
+        "summary": summary,
+        "recommendation": recommendation,
+        "suite_case_count": case_count,
+        "covered_case_count": covered_case_count,
+        "coverage_rate": round(_ratio(covered_case_count, case_count or 1), 3),
+        "metrics": metrics,
+    }
+
+
+def build_evaluation_overview(session_snapshots: list[dict], title_resolver) -> dict:
+    """把最近一批会话聚合成正式评估面板。
+
+    这层和 benchmark 的区别在于：benchmark 更像运行画像；evaluation 更强调
+    六类核心能力是否达到“能稳定讲、能稳定回归”的水平。
+    """
+    suite_summary = build_evaluation_suite_summary()
+    case_rows = list(suite_summary.get("cases") or [])
+    category_case_counter = Counter(str(item.get("category") or "") for item in case_rows)
+    scenario_case_counter = Counter(str(item.get("scenario") or "") for item in case_rows)
+    session_count = len(session_snapshots)
+
+    if session_count == 0:
+        return {
+            "generated_at": datetime.now().isoformat(),
+            "overall_score": 0.0,
+            "overall_status": "idle",
+            "summary": "当前还没有可评估的会话数据。",
+            "suite": {
+                **suite_summary,
+                "observed_scenarios": [],
+                "missing_scenarios": [row["scenario"] for row in suite_summary.get("scenarios", [])],
+            },
+            "categories": [],
+            "sessions": [],
+            "recommendations": ["先生成几轮 seeding / travel / daily_share 页面，再观察评估面板。"],
+        }
+
+    route_decision_count = 0
+    route_followthrough_count = 0
+    fast_path_count = 0
+    planner_session_count = 0
+    planning_policy_count = 0
+    planning_alignment_count = 0
+    execution_success_count = 0
+    execution_warning_free_count = 0
+    execution_targeted_count = 0
+    retrieval_session_count = 0
+    grounded_session_count = 0
+    citation_coverage_total = 0.0
+    grounding_score_total = 0.0
+    no_hit_guarded_count = 0
+    cache_session_count = 0
+    cache_hit_count = 0
+    fresh_cache_count = 0
+    ttl_visible_count = 0
+    system_observed_count = 0
+    system_generated_count = 0
+    runtime_count_total = 0
+    warning_session_count = 0
+
+    sessions: list[dict[str, Any]] = []
+    observed_scenarios: set[str] = set()
+
+    for snapshot in session_snapshots:
+        values = snapshot.get("values") or {}
+        thread_id = str(snapshot.get("thread_id") or "")
+        title = str(snapshot.get("title") or title_resolver(values, thread_id))
+        updated_at = str(snapshot.get("updated_at") or datetime.now().isoformat())
+        note_document = values.get("note_document") or build_note_document_from_state(values)
+        summary = snapshot.get("inspector_summary") or build_inspector_summary(values)
+        focus = summary.get("focus") if isinstance(summary.get("focus"), dict) else {}
+        document = summary.get("document") if isinstance(summary.get("document"), dict) else {}
+        execution = summary.get("execution") if isinstance(summary.get("execution"), dict) else {}
+        builder = summary.get("builder") if isinstance(summary.get("builder"), dict) else {}
+        retrieval = summary.get("retrieval") if isinstance(summary.get("retrieval"), dict) else {}
+
+        intent_route = str(focus.get("intent_route") or values.get("intent_route") or "").strip()
+        block_count = _safe_int(document.get("block_count") or len(note_document.get("blocks") or []))
+        changed_block_count = _safe_int(execution.get("changed_block_count"))
+        warning_count = _safe_int(execution.get("warning_count"))
+        runtime_count = _safe_int(execution.get("runtime_count"))
+        planner_output = values.get("planner_output") if isinstance(values.get("planner_output"), dict) else {}
+        planner_policy = values.get("planner_policy") if isinstance(values.get("planner_policy"), dict) else {}
+        block_intents = [item for item in (planner_output.get("block_intents") or []) if isinstance(item, dict)]
+        theme_policy = planner_policy.get("theme_policy") if isinstance(planner_policy.get("theme_policy"), dict) else {}
+        layout_policy = planner_policy.get("layout_policy") if isinstance(planner_policy.get("layout_policy"), dict) else {}
+        fact_policy = planner_policy.get("fact_policy") if isinstance(planner_policy.get("fact_policy"), dict) else {}
+        asset_policy = planner_policy.get("asset_policy") if isinstance(planner_policy.get("asset_policy"), dict) else {}
+        scenarios = [str(item) for item in ((note_document.get("document_meta") or {}).get("scenarios") or focus.get("scenarios") or []) if str(item)]
+        observed_scenarios.update(scenarios)
+
+        if intent_route and intent_route != "等待指令":
+            route_decision_count += 1
+            if block_count > 0 or changed_block_count > 0 or bool(retrieval.get("live_search_used")) or bool(retrieval.get("cache_hit")):
+                route_followthrough_count += 1
+        if str((values.get("agent_backends") or {}).get("intent_agent") or "") == "deterministic_fast_path":
+            fast_path_count += 1
+
+        if block_intents:
+            planner_session_count += 1
+            if block_count > 0:
+                planning_alignment_count += 1
+        if any([theme_policy, layout_policy, fact_policy, asset_policy]):
+            planning_policy_count += 1
+
+        if block_count > 0 or changed_block_count > 0:
+            execution_success_count += 1
+        if warning_count == 0:
+            execution_warning_free_count += 1
+        if changed_block_count > 0 and str(execution.get("target_block_id") or "global") not in {"", "暂无动作"}:
+            execution_targeted_count += 1
+
+        retrieval_active = any([
+            _safe_int(retrieval.get("citation_count")) > 0,
+            _safe_int(retrieval.get("hit_count")) > 0,
+            _safe_int(retrieval.get("record_count")) > 0,
+            bool(retrieval.get("live_search_used")),
+            bool(retrieval.get("cache_hit")),
+        ])
+        if retrieval_active:
+            retrieval_session_count += 1
+            citation_coverage_total += _safe_float(retrieval.get("citation_coverage"))
+            grounding_score_total += _safe_float(retrieval.get("grounding_score"))
+            if str(retrieval.get("grounding_status") or "") == "grounded":
+                grounded_session_count += 1
+            if str(retrieval.get("no_hit_reason") or "").strip():
+                no_hit_guarded_count += 1
+
+        cache_active = bool(retrieval.get("cache_hit")) or bool(retrieval.get("live_search_used")) or str(retrieval.get("cache_freshness") or "") not in {"", "unknown"}
+        if cache_active:
+            cache_session_count += 1
+            if bool(retrieval.get("cache_hit")):
+                cache_hit_count += 1
+            if str(retrieval.get("cache_freshness") or "") == "fresh":
+                fresh_cache_count += 1
+            if _safe_int(retrieval.get("cache_ttl_seconds")) > 0 or _safe_int(retrieval.get("cache_remaining_ttl_seconds")) > 0:
+                ttl_visible_count += 1
+
+        if runtime_count > 0:
+            system_observed_count += 1
+            runtime_count_total += runtime_count
+        if block_count > 0:
+            system_generated_count += 1
+        if warning_count > 0:
+            warning_session_count += 1
+
+        sessions.append({
+            "thread_id": thread_id,
+            "title": title,
+            "updated_at": updated_at,
+            "scenario": scenarios[0] if scenarios else "general",
+            "intent_route": intent_route or "等待指令",
+            "block_count": block_count,
+            "changed_block_count": changed_block_count,
+            "warning_count": warning_count,
+            "grounding_status": str(retrieval.get("grounding_status") or "unknown"),
+            "cache_freshness": str(retrieval.get("cache_freshness") or "unknown"),
+        })
+
+    route_decision_rate = _ratio(route_decision_count, session_count)
+    route_followthrough_rate = _ratio(route_followthrough_count, route_decision_count or 1)
+    fast_path_rate = _ratio(fast_path_count, session_count)
+    route_score = _bounded_score((route_decision_rate * 0.45 + route_followthrough_rate * 0.4 + fast_path_rate * 0.15) * 100)
+
+    planning_coverage_rate = _ratio(planner_session_count, session_count)
+    planning_policy_rate = _ratio(planning_policy_count, session_count)
+    planning_alignment_rate = _ratio(planning_alignment_count, planner_session_count or 1)
+    planning_score = _bounded_score((planning_coverage_rate * 0.4 + planning_policy_rate * 0.25 + planning_alignment_rate * 0.35) * 100)
+
+    execution_success_rate = _ratio(execution_success_count, session_count)
+    execution_warning_free_rate = _ratio(execution_warning_free_count, session_count)
+    execution_targeted_rate = _ratio(execution_targeted_count, execution_success_count or 1)
+    execution_score = _bounded_score((execution_success_rate * 0.45 + execution_warning_free_rate * 0.3 + execution_targeted_rate * 0.25) * 100)
+
+    rag_retrieval_rate = _ratio(retrieval_session_count, session_count)
+    rag_citation_coverage = _ratio(citation_coverage_total, retrieval_session_count or 1)
+    rag_grounding_score = _ratio(grounding_score_total, retrieval_session_count or 1)
+    rag_grounded_rate = _ratio(grounded_session_count, retrieval_session_count or 1)
+    rag_guard_rate = _ratio(no_hit_guarded_count, retrieval_session_count or 1)
+    rag_score = _bounded_score((rag_retrieval_rate * 0.15 + rag_citation_coverage * 0.35 + rag_grounding_score * 0.35 + max(rag_grounded_rate, rag_guard_rate) * 0.15) * 100)
+
+    cache_hit_rate = _ratio(cache_hit_count, cache_session_count or 1)
+    cache_fresh_rate = _ratio(fresh_cache_count, cache_session_count or 1)
+    cache_ttl_visibility_rate = _ratio(ttl_visible_count, cache_session_count or 1)
+    cache_score = _bounded_score((cache_hit_rate * 0.45 + cache_fresh_rate * 0.3 + cache_ttl_visibility_rate * 0.25) * 100)
+
+    system_generation_rate = _ratio(system_generated_count, session_count)
+    system_observed_rate = _ratio(system_observed_count, session_count)
+    system_warning_free_rate = _ratio(session_count - warning_session_count, session_count)
+    avg_runtime_nodes = _ratio(runtime_count_total, system_observed_count or 1)
+    runtime_health = min(avg_runtime_nodes / 4.0, 1.0) if avg_runtime_nodes > 0 else 0.0
+    system_score = _bounded_score((system_generation_rate * 0.4 + system_observed_rate * 0.2 + system_warning_free_rate * 0.25 + runtime_health * 0.15) * 100)
+
+    category_evaluations = [
+        _build_category_evaluation(
+            name="路由评估",
+            score=route_score,
+            metrics={
+                "decision_rate": round(route_decision_rate, 3),
+                "followthrough_rate": round(route_followthrough_rate, 3),
+                "fast_path_rate": round(fast_path_rate, 3),
+                "evaluated_session_count": session_count,
+            },
+            summary="看请求是否被送进正确链路，以及路由之后是否真的落到了对应执行路径。",
+            recommendation=(
+                "继续补强 deterministic fast-path 和编辑类 followthrough 断言。"
+                if route_score < 80 else
+                "当前路由链比较稳定，可以直接在面试中展示 create/edit/research 的分流能力。"
+            ),
+            case_count=category_case_counter["route"],
+            covered_case_count=category_case_counter["route"] if route_decision_count else 0,
+        ),
+        _build_category_evaluation(
+            name="规划评估",
+            score=planning_score,
+            metrics={
+                "planning_coverage_rate": round(planning_coverage_rate, 3),
+                "policy_presence_rate": round(planning_policy_rate, 3),
+                "intent_alignment_rate": round(planning_alignment_rate, 3),
+                "planner_session_count": planner_session_count,
+            },
+            summary="看 planner 是否稳定产出 block intents 与 policy，并能和最终文档结构对齐。",
+            recommendation=(
+                "优先补 planner block intents 覆盖率和 policy presence。"
+                if planning_score < 80 else
+                "规划层已经比较稳定，适合用来解释为什么不是所有逻辑都交给单个 agent。"
+            ),
+            case_count=category_case_counter["planning"],
+            covered_case_count=category_case_counter["planning"] if planner_session_count else 0,
+        ),
+        _build_category_evaluation(
+            name="执行评估",
+            score=execution_score,
+            metrics={
+                "execution_success_rate": round(execution_success_rate, 3),
+                "warning_free_rate": round(execution_warning_free_rate, 3),
+                "targeted_change_rate": round(execution_targeted_rate, 3),
+                "builder_component_sessions": execution_success_count,
+            },
+            summary="看 note_editor、builder、verifier 是否把改动准确落到目标区块与字段。",
+            recommendation=(
+                "优先降低 warning rate 与 builder fallback。"
+                if execution_score < 80 else
+                "执行层已经足够稳，可以直接展示 changed blocks / warnings / builder traces。"
+            ),
+            case_count=category_case_counter["execution"],
+            covered_case_count=category_case_counter["execution"] if execution_success_count else 0,
+        ),
+        _build_category_evaluation(
+            name="RAG 评估",
+            score=rag_score,
+            metrics={
+                "retrieval_rate": round(rag_retrieval_rate, 3),
+                "citation_coverage": round(rag_citation_coverage, 3),
+                "grounding_score": round(rag_grounding_score, 3),
+                "grounded_session_rate": round(rag_grounded_rate, 3),
+                "guarded_no_hit_rate": round(rag_guard_rate, 3),
+            },
+            summary="看检索是否命中、citation 是否覆盖，以及 grounded/no-hit 是否可解释。",
+            recommendation=(
+                "优先继续补 block/field 级 citation 与 no-hit 保守策略。"
+                if rag_score < 85 else
+                "RAG 已经达到可展示水位，适合现场展示 query -> hit -> citation -> grounding 的完整链路。"
+            ),
+            case_count=category_case_counter["rag"],
+            covered_case_count=category_case_counter["rag"] if retrieval_session_count else 0,
+        ),
+        _build_category_evaluation(
+            name="缓存评估",
+            score=cache_score,
+            metrics={
+                "cache_hit_rate": round(cache_hit_rate, 3),
+                "fresh_cache_rate": round(cache_fresh_rate, 3),
+                "ttl_visibility_rate": round(cache_ttl_visibility_rate, 3),
+                "cache_session_count": cache_session_count,
+            },
+            summary="看 preload / cache 是否真的在提升速度、复用热点知识，并且暴露 freshness 与 TTL。",
+            recommendation=(
+                "继续扩 system_preload 覆盖面，并优先让热点实体命中 fresh cache。"
+                if cache_score < 80 else
+                "缓存链已经具备面试亮点，可以直接展示 cache hit、freshness 和 TTL 诊断。"
+            ),
+            case_count=category_case_counter["cache"],
+            covered_case_count=category_case_counter["cache"] if cache_session_count else 0,
+        ),
+        _build_category_evaluation(
+            name="系统级评估",
+            score=system_score,
+            metrics={
+                "generation_rate": round(system_generation_rate, 3),
+                "observability_rate": round(system_observed_rate, 3),
+                "warning_free_rate": round(system_warning_free_rate, 3),
+                "avg_runtime_nodes": round(avg_runtime_nodes, 2),
+            },
+            summary="看整套 agent 系统是否稳定生成、保留 trace，并具备足够好的运行画像。",
+            recommendation=(
+                "优先补更多固定 showcase 样例，继续提高 generation rate 与观测覆盖。"
+                if system_score < 85 else
+                "系统级闭环已经比较完整，适合把 Benchmark + Evaluation 一起当成工程能力展示。"
+            ),
+            case_count=category_case_counter["system"],
+            covered_case_count=category_case_counter["system"] if system_observed_count else 0,
+        ),
+    ]
+
+    overall_score = round(_ratio(sum(item["score"] for item in category_evaluations), len(category_evaluations) or 1), 1)
+    overall_status = _score_to_status(overall_score)
+    missing_scenarios = [
+        row["scenario"]
+        for row in suite_summary.get("scenarios", [])
+        if row["scenario"] not in observed_scenarios
+    ]
+    recommendations = [
+        item["recommendation"]
+        for item in category_evaluations
+        if item["status"] in {"attention", "weak"}
+    ] or ["当前六类评估都处在健康区间，可以直接把这张面板当成面试里的系统评估页。"]
+
+    sessions.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+
+    return {
+        "generated_at": datetime.now().isoformat(),
+        "overall_score": overall_score,
+        "overall_status": overall_status,
+        "summary": "六类评估统一覆盖路由、规划、执行、RAG、缓存与系统稳定性。",
+        "suite": {
+            **suite_summary,
+            "observed_scenarios": sorted(observed_scenarios),
+            "missing_scenarios": missing_scenarios,
+        },
+        "categories": category_evaluations,
+        "sessions": sessions[:8],
+        "recommendations": recommendations[:6],
+    }
+
+
 async def fetch_latest_session_snapshots(agent, title_resolver) -> list[dict]:
+    """读取最近一批会话快照，供 benchmark 聚合使用。"""
     saver = agent.checkpointer
     query = """
         SELECT thread_id, MAX(checkpoint_id) as last_cid

@@ -115,10 +115,10 @@ def looks_like_existing_canvas_edit(user_text: str | None) -> bool:
 
 def infer_existing_canvas_edit_route(user_text: str | None) -> str:
     if contains_any_token(user_text, STYLE_ROUTE_TOKENS):
-        return "style_node"
+        return "theme_compiler"
     if contains_any_token(user_text, STRUCTURE_ROUTE_TOKENS):
         return "structure_node"
-    return "content_node"
+    return "note_editor"
 
 
 def mentions_paragraph_reference(user_text: str | None) -> bool:

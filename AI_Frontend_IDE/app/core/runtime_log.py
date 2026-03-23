@@ -52,7 +52,7 @@ def summarize_node_output(node_name: str, output: Any) -> str:
 
     summary_parts: list[str] = []
 
-    if node_name == 'render':
+    if node_name == 'document_renderer':
         html = output.get('final_html') or ''
         oss_url = output.get('final_oss_url') or ''
         note_document = output.get('note_document') or {}

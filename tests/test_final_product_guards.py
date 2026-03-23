@@ -9,6 +9,7 @@ TEST_ROOT = ROOT / "tests"
 FRONTEND_COMPONENTS_ROOT = ROOT / "ai-frontend-ide" / "src" / "components"
 FRONTEND_STORE_PATH = ROOT / "ai-frontend-ide" / "src" / "stores" / "useChatStore.ts"
 FRONTEND_PREVIEW_PATH = ROOT / "ai-frontend-ide" / "src" / "components" / "canvas" / "PreviewIframe.vue"
+FRONTEND_TYPES_PATH = ROOT / "ai-frontend-ide" / "src" / "types" / "chat.ts"
 
 
 def _scan_text_files(base: Path, suffixes: tuple[str, ...]) -> list[Path]:
@@ -57,21 +58,20 @@ def test_store_contains_no_legacy_page_or_style_cache_state():
 
 
 def test_frontend_ws_types_no_longer_expose_legacy_page_or_style_aliases():
-    path = ROOT / "ai-frontend-ide" / "src" / "types" / "chat.ts"
-    text = path.read_text(encoding="utf-8")
+    text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
     assert "pageData?:" not in text
     assert "styleData?:" not in text
 
 
 def test_frontend_note_document_types_stay_first_class():
-    path = ROOT / "ai-frontend-ide" / "src" / "types" / "chat.ts"
-    text = path.read_text(encoding="utf-8")
+    text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
     assert "export interface NoteDocument " in text
     assert "export interface PlannerOutput " in text
     assert "export interface PlannerPolicy " in text
     assert "export interface TurnTrace " in text
     assert "export interface InspectorSummary " in text
     assert "export interface BenchmarkOverview " in text
+    assert "export interface EvaluationOverview " in text
     assert "noteDocument?: NoteDocument" in text
     assert "note_document?: NoteDocument" in text
     assert "plannerOutput?: PlannerOutput" in text
@@ -79,7 +79,136 @@ def test_frontend_note_document_types_stay_first_class():
     assert "turnTrace?: TurnTrace" in text
     assert "inspectorSummary?: InspectorSummary" in text
     assert "benchmarkOverview?: BenchmarkOverview" in text
+    assert "evaluationOverview?: EvaluationOverview" in text
     assert "noteDocument?: Record<string, unknown>" not in text
+
+
+def test_block_gallery_is_exposed_in_workspace_api_frontend_store_and_types():
+    workspace_path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
+    types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+    workspace_text = workspace_path.read_text(encoding="utf-8")
+
+    assert '"/block-gallery/overview"' in workspace_text
+    assert "fetchBlockGalleryOverview" in store_text
+    assert "blockGalleryOverview" in store_text
+    assert "积木大全" in preview_text
+    assert "BlockGalleryPanel" in preview_text
+    assert "export interface BlockGalleryOverview " in types_text
+    assert "export interface BlockGalleryFixture " in types_text
+
+
+def test_block_gallery_preview_is_read_only_and_matches_formal_preview_shell_width():
+    gallery_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "BlockGalleryPanel.vue"
+    renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "XForgeRenderer.vue"
+    dynamic_renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "DynamicRenderer.vue"
+
+    gallery_text = gallery_path.read_text(encoding="utf-8")
+    renderer_text = renderer_path.read_text(encoding="utf-8")
+    dynamic_renderer_text = dynamic_renderer_path.read_text(encoding="utf-8")
+
+    assert ':interactive="false"' in gallery_text
+    assert "max-width: min(100%, 580px);" in gallery_text
+    assert "interactive?: boolean;" in renderer_text
+    assert "const isInteractive = computed(() => props.interactive !== false);" in renderer_text
+    assert ':interactive="true"' in dynamic_renderer_text
+
+
+def test_preview_exposes_explicit_select_mode_and_renderer_uses_selection_overlay():
+    renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "XForgeRenderer.vue"
+    dynamic_renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "DynamicRenderer.vue"
+
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
+    types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+    renderer_text = renderer_path.read_text(encoding="utf-8")
+    dynamic_renderer_text = dynamic_renderer_path.read_text(encoding="utf-8")
+
+    assert "export type PreviewInteractionMode = 'browse' | 'select'" in types_text
+    assert "const previewInteractionMode = ref<PreviewInteractionMode>('browse')" in store_text
+    assert "const setPreviewInteractionMode = (mode: PreviewInteractionMode)" in store_text
+    assert "开启选择模式" in preview_text
+    assert "退出选择模式" in preview_text
+    assert "当前点击积木会直接选中并高亮" in preview_text
+    assert "当前是浏览模式，组件原生交互优先" in preview_text
+    assert "selectionEnabled?: boolean;" in renderer_text
+    assert "data-selection-overlay" in renderer_text
+    assert "点击选择" in renderer_text
+    assert "已选中" in renderer_text
+    assert ':selection-enabled="previewInteractionMode === \'select\'"' in dynamic_renderer_text
+
+
+def test_runtime_note_blocks_no_longer_render_developer_guidance_copy_inside_user_content():
+    block_root = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks"
+    target_files = (
+        "CoverSwiper.vue",
+        "VersusCard.vue",
+        "PollBlock.vue",
+        "ProductSpecCard.vue",
+        "StoryText.vue",
+    )
+    forbidden_tokens = (
+        "QUICK REFINE",
+        "Usage Note",
+        "COMPARISON READING",
+        "BALANCE SIGNAL",
+        "READING POSTURE",
+        "DECISION SIGNAL",
+        "RISK NOTE",
+        "Interaction Mood",
+        "Current Split",
+        "Opinion Clash",
+        "Story Rhythm",
+        "Hero Media",
+        "Current Frame",
+        "Narrative Flow",
+        "Cover Story",
+        "Source Signal",
+        "Decision Impact",
+    )
+
+    offenders: list[str] = []
+    for filename in target_files:
+        text = (block_root / filename).read_text(encoding="utf-8")
+        hit_tokens = [token for token in forbidden_tokens if token in text]
+        if hit_tokens:
+            offenders.append(f"{filename}: {hit_tokens}")
+    assert offenders == [], f"Runtime note blocks should not render developer guidance copy inside user-facing content: {offenders}"
+
+
+def test_fact_binding_support_blocks_render_shared_grounding_footer():
+    block_root = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks"
+    fact_binding_blocks = (
+        "StoryText.vue",
+        "ProductSpecCard.vue",
+        "RadarChartBlock.vue",
+        "VersusCard.vue",
+        "LocationBlock.vue",
+        "QuoteBlock.vue",
+        "TimelineBlock.vue",
+    )
+
+    footer_text = (block_root / "FactBindingFooter.vue").read_text(encoding="utf-8")
+    assert "来源" in footer_text
+    assert "证据条数" in footer_text
+    assert ":href=\"source.url || undefined\"" in footer_text
+
+    for filename in fact_binding_blocks:
+        text = (block_root / filename).read_text(encoding="utf-8")
+        assert "FactBindingFooter" in text, f"{filename} should expose block-level grounding footer"
+        assert '<FactBindingFooter :node="node" />' in text, f"{filename} should render unified grounding footer"
+
+
+def test_visual_fixtures_and_block_gallery_use_local_demo_assets_for_media_examples():
+    visual_fixtures_path = ROOT / "ai-frontend-ide" / "src" / "visualFixtures.ts"
+    block_gallery_path = ROOT / "AI_Frontend_IDE" / "app" / "services" / "block_gallery.py"
+
+    visual_text = visual_fixtures_path.read_text(encoding="utf-8")
+    gallery_text = block_gallery_path.read_text(encoding="utf-8")
+
+    assert "/demo-assets/" in visual_text
+    assert "/demo-assets/" in gallery_text
 
 
 def test_frontend_store_workspace_snapshot_no_longer_reads_legacy_page_or_style_aliases():
@@ -95,11 +224,298 @@ def test_preview_iframe_avoids_legacy_any_fallback_for_note_document_and_prompt_
     assert "Array<Record<string, any>>" not in text
 
 
+def test_preview_shell_no_longer_forces_420px_narrow_mobile_canvas():
+    dynamic_renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "DynamicRenderer.vue"
+    html_renderer_path = ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "document_renderer_node.py"
+
+    dynamic_renderer_text = dynamic_renderer_path.read_text(encoding="utf-8")
+    html_renderer_text = html_renderer_path.read_text(encoding="utf-8")
+
+    assert "max-w-[420px]" not in dynamic_renderer_text
+    assert "max-width: 420px" not in dynamic_renderer_text
+    assert "max-width: 420px" not in html_renderer_text
+
+
+def test_weather_polaroid_no_longer_uses_random_scenery_placeholder():
+    path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "WeatherPolaroid.vue"
+    text = path.read_text(encoding="utf-8")
+    assert "picsum.photos" not in text
+    assert "Somewhere in the world" not in text
+
+
+def test_visual_regression_lab_restores_page_scrolling():
+    path = ROOT / "ai-frontend-ide" / "src" / "components" / "visual" / "VisualRegressionLab.vue"
+    text = path.read_text(encoding="utf-8")
+    assert "element.style.overflow = 'auto'" in text
+    assert "element.style.height = 'auto'" in text
+    assert "element.style.minHeight = '100vh'" in text
+
+
 def test_agent_inspector_avoids_agent_meta_any_shortcuts():
     path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "AgentInspector.vue"
     text = path.read_text(encoding="utf-8")
     assert "chatStore.agentMeta as any" not in text
     assert "retrieved_knowledge as any" not in text
+
+
+def test_chat_panel_keeps_editor_guidance_in_workbench_not_embedded_inspector():
+    path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue"
+    text = path.read_text(encoding="utf-8")
+    assert "AgentInspector" not in text
+    assert "编辑助手" in text
+    assert "创作对话" in text
+    assert "interactionMode === 'edit' && selectedComponentId" in text
+
+
+def test_workbench_mode_is_store_driven_and_preview_panel_no_longer_owns_local_view_mode():
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
+
+    assert "const workspaceMode = ref<WorkspaceViewMode>('preview')" in store_text
+    assert "const interactionMode = computed<WorkbenchInteractionMode>" in store_text
+    assert "const setWorkspaceMode = (mode: WorkspaceViewMode)" in store_text
+    assert "const viewMode = ref<" not in preview_text
+    assert "workspaceMode === 'preview'" in preview_text
+    assert "@click=\"setWorkspaceMode('preview')\"" in preview_text
+
+
+def test_retrieval_gap_fill_is_registered_as_formal_block_aware_followup_search_step():
+    graph_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "graph.py").read_text(encoding="utf-8")
+    retrieval_profile_text = (ROOT / "AI_Frontend_IDE" / "app" / "services" / "retrieval_profiles.py").read_text(encoding="utf-8")
+    gap_fill_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "retrieval_gap_fill_node.py").read_text(encoding="utf-8")
+    context_text = (ROOT / "AI_Frontend_IDE" / "app" / "core" / "context_engineering.py").read_text(encoding="utf-8")
+
+    assert 'workflow.add_node("retrieval_gap_fill"' in graph_text
+    assert 'workflow.add_edge("structure_checkpoint", "retrieval_gap_fill")' in graph_text
+    assert 'workflow.add_edge("retrieval_gap_fill", "fact_gap_checkpoint")' in graph_text
+    assert "get_component_required_slot_keys" in retrieval_profile_text
+    assert "critical_slot_keys" in retrieval_profile_text
+    assert "missing_slot_keys" in gap_fill_text
+    assert "critical_missing_fields" in gap_fill_text
+    assert "retrieval_gap_fill_with_limit" in gap_fill_text
+    assert "build_followup_query_variants" in gap_fill_text
+    assert '"fact_slots"' in context_text
+    assert '"missing_fields"' in context_text
+
+
+def test_conversational_checkpoints_are_registered_in_graph_and_chat_panel():
+    graph_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "graph.py").read_text(encoding="utf-8")
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    chat_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue").read_text(encoding="utf-8")
+    chat_types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+    chat_api_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "chat.py").read_text(encoding="utf-8")
+
+    for token in (
+        '"structure_checkpoint"',
+        '"fact_gap_checkpoint"',
+        '"asset_checkpoint"',
+        '"fact_conflict_checkpoint"',
+    ):
+        assert token in graph_text
+
+    assert 'workflow.add_edge("planner", "structure_checkpoint")' in graph_text
+    assert 'workflow.add_edge("fact_gap_checkpoint", "asset_checkpoint")' in graph_text
+    assert 'workflow.add_edge("asset_checkpoint", "fact_conflict_checkpoint")' in graph_text
+    assert 'workflow.add_edge("fact_conflict_checkpoint", "outline_resolver")' in graph_text
+    assert "export interface ConversationCheckpointAction " in chat_types_text
+    assert "actionRequired?: ConversationCheckpointAction" in chat_types_text
+    assert "submitCheckpointDecision" in store_text
+    assert "ConversationCheckpointCard" in chat_panel_text
+    assert "submit_checkpoint_decision" in chat_api_text
+
+
+def test_graph_interrupt_checkpoints_are_not_logged_as_failures_by_performance_wrapper():
+    graph_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "graph.py").read_text(encoding="utf-8")
+    assert "from langgraph.errors import GraphInterrupt" in graph_text
+    assert 'except GraphInterrupt:' in graph_text
+    assert "等待用户确认" in graph_text
+
+
+def test_asset_checkpoint_deduplicates_assets_by_url_and_uses_distinguishable_labels():
+    checkpoint_text = (ROOT / "AI_Frontend_IDE" / "app" / "services" / "conversational_checkpoints.py").read_text(encoding="utf-8")
+    checkpoint_card_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ConversationCheckpointCard.vue").read_text(encoding="utf-8")
+    assert "seen_asset_urls" in checkpoint_text
+    assert "_asset_checkpoint_label" in checkpoint_text
+    assert "第{position}张" in checkpoint_text
+    assert 'v-if="option.asset_url"' in checkpoint_card_text
+    assert '<img :src="option.asset_url"' in checkpoint_card_text
+
+
+def test_history_actions_live_under_user_messages_and_use_formal_thread_rollback_and_fork():
+    chat_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue").read_text(encoding="utf-8")
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    workspace_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py").read_text(encoding="utf-8")
+    state_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "state.py").read_text(encoding="utf-8")
+
+    assert "回到这里" in chat_panel_text
+    assert "从这里分支" in chat_panel_text
+    assert "回退到此版本" not in chat_panel_text
+    assert "branchFromCheckpoint" in store_text
+    assert 'fetch(`${baseUrl}/workspace/${threadId.value}/rollback`' in store_text
+    assert 'fetch(`${baseUrl}/workspace/fork`' in store_text
+    assert '@router.post("/{thread_id}/rollback"' in workspace_text
+    assert "turn_anchors:" in state_text
+
+
+def test_story_and_spec_blocks_expose_field_level_sources_inside_user_reading_flow():
+    story_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "StoryText.vue").read_text(encoding="utf-8")
+    spec_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "ProductSpecCard.vue").read_text(encoding="utf-8")
+    drilldown_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "SourceDrilldownPanel.vue").read_text(encoding="utf-8")
+    note_document_text = (ROOT / "AI_Frontend_IDE" / "app" / "core" / "note_document.py").read_text(encoding="utf-8")
+
+    assert "SourceDrilldownPanel" in story_text
+    assert "查看段落依据" in story_text
+    assert "SourceDrilldownPanel" in spec_text
+    assert "查看参数依据" in spec_text
+    assert "来源链接" in drilldown_text
+    assert "绑定说明" in drilldown_text
+    assert "_project_fact_bindings_into_props" in note_document_text
+    assert '"source_items": deepcopy(meta.get("source_items") or [])' in note_document_text
+
+
+def test_workspace_trends_endpoint_no_longer_uses_hardcoded_demo_fallback():
+    path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
+    text = path.read_text(encoding="utf-8")
+    forbidden_samples = (
+        "索尼 A7C2",
+        "赛博朋克风测评",
+        "春天第一杯咖啡",
+    )
+    offenders = [sample for sample in forbidden_samples if sample in text]
+    assert offenders == [], f"Hot trends endpoint should not hardcode demo fallback topics: {offenders}"
+
+
+def test_cover_selection_no_longer_materializes_cover_swiper_before_agent_generation():
+    workspace_path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
+    store_path = ROOT / "ai-frontend-ide" / "src" / "stores" / "useChatStore.ts"
+
+    workspace_text = workspace_path.read_text(encoding="utf-8")
+    store_text = store_path.read_text(encoding="utf-8")
+
+    assert "将指定素材标记为封面偏好" in workspace_text
+    assert 'cover_block = next((block for block in blocks if block.get("type") == "CoverSwiper"), None)' not in workspace_text
+    assert '"type": "CoverSwiper"' not in workspace_text.split('async def set_workspace_cover_asset', 1)[1].split('async def confirm_workspace_fact', 1)[0]
+    assert "docBlocks.unshift(docCoverBlock)" not in store_text
+    assert "type: 'CoverSwiper'" not in store_text.split('const applyCoverAssetLocally =', 1)[1].split('const setAssetAsCover =', 1)[0]
+
+
+def test_asset_deletion_and_upload_flows_are_formalized():
+    workspace_path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
+    store_path = ROOT / "ai-frontend-ide" / "src" / "stores" / "useChatStore.ts"
+    chat_panel_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue"
+
+    workspace_text = workspace_path.read_text(encoding="utf-8")
+    store_text = store_path.read_text(encoding="utf-8")
+    chat_panel_text = chat_panel_path.read_text(encoding="utf-8")
+
+    assert '@router.delete("/{thread_id}/assets"' in workspace_text
+    assert 'action="workspace_remove_asset"' in workspace_text
+    assert "const deleteAssetFromLibrary = async" in store_text
+    assert "method: 'DELETE'" in store_text
+    assert "await chatStore.importAssetToLibrary({ url, desc: '用户上传图片', source_type: 'upload' })" in chat_panel_text
+
+
+def test_asset_library_exposes_formal_usage_controls_and_backend_preferences_endpoint():
+    asset_library_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "AssetLibrary.vue").read_text(encoding="utf-8")
+    preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    workspace_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py").read_text(encoding="utf-8")
+
+    assert "改成正文图" in asset_library_text
+    assert "标记必用" in asset_library_text
+    assert "暂不使用" in asset_library_text
+    assert "@preference=\"updateAssetPreference\"" in preview_text
+    assert "const updateAssetPreference = async" in preview_text
+    assert "const updateAssetPreferences = async" in store_text
+    assert '@router.patch("/{thread_id}/assets/preferences"' in workspace_text
+    assert "update_note_document_asset_preferences" in workspace_text
+
+
+def test_chat_panel_hot_trends_no_longer_uses_one_size_fits_all_deep_seeding_prompt():
+    chat_panel_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue"
+    trend_panel_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "TrendPanel.vue"
+    chat_panel_text = chat_panel_path.read_text(encoding="utf-8")
+    trend_panel_text = trend_panel_path.read_text(encoding="utf-8")
+
+    assert "帮我针对「${trend}」做一个深度种草笔记" not in trend_panel_text
+    assert "trend.recommended_prompt" in trend_panel_text
+    assert "chatStore.sendMessage(prompt)" in trend_panel_text
+    assert "Hot Trends" not in chat_panel_text
+    assert "hotTrends.length > 0" not in chat_panel_text
+
+
+def test_trend_panel_is_exposed_in_right_workbench_instead_of_chat_stream():
+    preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
+    trend_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "TrendPanel.vue").read_text(encoding="utf-8")
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+
+    assert "@click=\"setWorkspaceMode('trends')\"" in preview_text
+    assert "workspaceMode === 'trends'" in preview_text
+    assert "TrendPanel" in preview_text
+    assert "Trend Desk" in trend_panel_text
+    assert "开启追踪" in trend_panel_text
+    assert "填到左侧输入框" in trend_panel_text
+    assert "const workspaceMode = ref<WorkspaceViewMode>('preview')" in store_text
+    assert "if (mode === 'trends')" in store_text
+    assert "'trends'" in types_text
+
+
+def test_component_builder_and_note_document_filter_placeholder_image_urls():
+    builder_path = ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "component_builder.py"
+    note_document_path = ROOT / "AI_Frontend_IDE" / "app" / "core" / "note_document.py"
+    cache_service_path = ROOT / "AI_Frontend_IDE" / "app" / "services" / "cache_service.py"
+
+    builder_text = builder_path.read_text(encoding="utf-8")
+    note_document_text = note_document_path.read_text(encoding="utf-8")
+    cache_service_text = cache_service_path.read_text(encoding="utf-8")
+
+    assert "def _is_placeholder_image_url" in builder_text
+    assert "def _sanitize_component_media_payload" in builder_text
+    assert "example.com" in builder_text
+    assert "picsum.photos" in builder_text
+    assert "placeholder" in builder_text
+    assert "not _is_placeholder_image_url(asset.get(\"url\"))" in builder_text
+
+    assert "def _sanitize_block_media_props" in note_document_text
+    assert "not _is_placeholder_image_url(item)" in note_document_text
+    assert "not _is_placeholder_image_url(ref)" in note_document_text
+    assert "_sanitize_cached_note_document" in cache_service_text
+    assert "build_note_document_from_state({\"note_document\": raw})" in cache_service_text
+
+
+def test_xforge_renderer_allows_child_interactions_without_losing_block_selection():
+    renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "XForgeRenderer.vue"
+    preview_path = ROOT / "ai-frontend-ide" / "src" / "components" / "canvas" / "PreviewIframe.vue"
+    dynamic_renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "DynamicRenderer.vue"
+    text = renderer_path.read_text(encoding="utf-8")
+    preview_text = preview_path.read_text(encoding="utf-8")
+    dynamic_renderer_text = dynamic_renderer_path.read_text(encoding="utf-8")
+
+    assert "@click.capture" not in text
+    assert "@click=\"handleSelect\"" in text
+    assert "selectionEnabled?: boolean;" in text
+    assert "data-selection-overlay" in text
+    assert "点击选择" in text
+    assert "已选中" in text
+    assert "开启选择模式" in preview_text
+    assert "退出选择模式" in preview_text
+    assert ':selection-enabled="previewInteractionMode === \'select\'"' in dynamic_renderer_text
+
+
+def test_poll_block_and_chat_panel_expose_real_interaction_feedback_and_precise_edit_actions():
+    poll_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "PollBlock.vue").read_text(encoding="utf-8")
+    chat_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue").read_text(encoding="utf-8")
+    guidance_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "chatEditingGuidance.ts").read_text(encoding="utf-8")
+
+    assert "投票结果" in poll_text
+    assert "总投票" in poll_text
+    assert "participationSummary" in poll_text
+    assert "精准修改" in chat_panel_text
+    assert "runSelectedDirectAction" in chat_panel_text
+    assert "只改这个对比卡左侧的观点和细节" in guidance_text
+    assert "只改这个投票块的问题句式" in guidance_text
+    assert "只改这个封面轮播的首图文案和说明" in guidance_text
 
 
 def test_benchmark_panel_is_exposed_in_frontend_and_workspace_api():
@@ -114,6 +530,20 @@ def test_benchmark_panel_is_exposed_in_frontend_and_workspace_api():
     assert "Benchmark" in inspector_text
     assert "fetchBenchmarkOverview" in store_text
     assert '"/benchmark/overview"' in workspace_text
+
+
+def test_evaluation_panel_is_exposed_in_frontend_and_workspace_api():
+    inspector_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "AgentInspector.vue"
+    store_path = ROOT / "ai-frontend-ide" / "src" / "stores" / "useChatStore.ts"
+    workspace_path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
+
+    inspector_text = inspector_path.read_text(encoding="utf-8")
+    store_text = store_path.read_text(encoding="utf-8")
+    workspace_text = workspace_path.read_text(encoding="utf-8")
+
+    assert "评估" in inspector_text
+    assert "fetchEvaluationOverview" in store_text
+    assert '"/evaluation/overview"' in workspace_text
 
 
 def test_workspace_title_extraction_no_longer_reads_legacy_page_title():
@@ -144,7 +574,7 @@ def test_formal_graph_no_longer_contains_outline_react_tool_loop():
         'workflow.add_node("outline_node"',
         'workflow.add_node("outline_tools"',
         'workflow.add_edge("outline_tools", "outline_node")',
-        'should_continue_outlining',
+        'continue_outline_resolution',
         'OUTLINE_TOOLS',
     )
     offenders = [token for token in forbidden if token in text]
@@ -157,8 +587,8 @@ def test_primary_execution_nodes_do_not_directly_read_legacy_dsl_state():
         ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "intent_node.py",
         ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "structure_node.py",
         ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "planner_node.py",
-        ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "style_node.py",
-        ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "render_node.py",
+        ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "theme_compiler_node.py",
+        ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "document_renderer_node.py",
         ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "note_editor_node.py",
         ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "verify_note_node.py",
         ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "patch_node.py",
@@ -209,17 +639,17 @@ def test_runtime_note_document_builder_no_longer_reads_legacy_layout_state():
     assert 'state.get("block_style_map")' not in text
     assert "state.get('block_style_map')" not in text
 
-def test_outline_node_module_no_longer_contains_react_tool_loop_implementation():
-    outline_path = APP_ROOT / "agents" / "nodes" / "outline_node.py"
+def test_outline_resolver_module_no_longer_contains_react_tool_loop_implementation():
+    outline_path = APP_ROOT / "agents" / "nodes" / "outline_resolver_node.py"
     text = outline_path.read_text(encoding="utf-8")
     forbidden = ("OUTLINE_TOOLS", ".bind_tools(", "ReAct")
     offenders = [token for token in forbidden if token in text]
-    assert offenders == [], f"outline_node module regressed to legacy ReAct implementation: {offenders}"
+    assert offenders == [], f"outline_resolver module regressed to legacy ReAct implementation: {offenders}"
 
 
 def test_modern_runtime_nodes_do_not_regress_to_legacy_theme_or_asset_signals():
     targets = {
-        "AI_Frontend_IDE/app/agents/nodes/style_node.py": ("visual_vibe", "intensity_level"),
+        "AI_Frontend_IDE/app/agents/nodes/theme_compiler_node.py": ("visual_vibe", "intensity_level"),
         "AI_Frontend_IDE/app/agents/nodes/note_editor_node.py": ("visual_vibe",),
         "AI_Frontend_IDE/app/agents/nodes/research_agent.py": ("asset_request",),
     }
@@ -277,3 +707,63 @@ def test_formal_runtime_uses_single_primary_text_llm_configuration():
     if env_bad:
         offenders.append(f"AI_Frontend_IDE/.env.example: {env_bad}")
     assert offenders == [], f"Formal runtime should use a single primary text model configuration: {offenders}"
+
+
+def test_trend_quick_send_uses_all_current_assets_as_runtime_image_context():
+    trend_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "TrendPanel.vue").read_text(encoding="utf-8")
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    chat_api_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "chat.py").read_text(encoding="utf-8")
+
+    assert "chatStore.sendMessage(prompt)" in trend_panel_text
+    assert "current_assets: assets" in store_text
+    assert "image_urls: stagedImageUrls" in store_text
+    assert "def _build_runtime_image_assets" in chat_api_text
+    assert '"image_assets": _build_runtime_image_assets(payload)' in chat_api_text
+
+
+def test_versus_card_uses_container_width_instead_of_viewport_breakpoints():
+    text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "VersusCard.vue").read_text(encoding="utf-8")
+    assert "ResizeObserver" in text
+    assert "layoutMode.value = width >= 760 ? 'split' : 'stack'" in text
+    assert "md:grid md:grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)]" not in text
+
+
+def test_xforge_renderer_uses_container_measurement_instead_of_window_breakpoint_only():
+    text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "XForgeRenderer.vue").read_text(encoding="utf-8")
+    assert "const containerWidth = ref" in text
+    assert "ResizeObserver" in text
+    assert "getCurrentBreakpoint(containerWidth.value)" in text
+    assert "const windowWidth = window.innerWidth;" not in text
+
+
+def test_research_agent_and_profiles_support_missing_field_followup_search():
+    profile_text = (ROOT / "AI_Frontend_IDE" / "app" / "services" / "retrieval_profiles.py").read_text(encoding="utf-8")
+    research_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "research_agent.py").read_text(encoding="utf-8")
+
+    assert "def compute_missing_slot_keys" in profile_text
+    assert "def build_followup_query_variants" in profile_text
+    assert "followup_queries" in profile_text
+    assert "missing_fields_before_followup" in research_text
+    assert "followup_search_used" in research_text
+    assert "followup_query_variants" in research_text
+
+
+def test_decision_blocks_keep_structured_rendering_paths():
+    manifest_text = (ROOT / "ai-frontend-ide" / "src" / "config" / "componentManifest.json").read_text(encoding="utf-8")
+    story_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "StoryText.vue").read_text(encoding="utf-8")
+    spec_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "ProductSpecCard.vue").read_text(encoding="utf-8")
+    radar_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "RadarChartBlock.vue").read_text(encoding="utf-8")
+    poll_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "PollBlock.vue").read_text(encoding="utf-8")
+    versus_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "VersusCard.vue").read_text(encoding="utf-8")
+
+    assert '"optional_props": ["paragraph_meta", "sections"]' in manifest_text
+    assert '"optional_props": ["feature_meta", "spec_items"]' in manifest_text
+    assert '"optional_props": ["metrics"]' in manifest_text
+    assert '"required_props": ["title", "pros", "cons"]' in manifest_text
+    assert '"optional_props": ["decision_hint", "risk_note"]' in manifest_text
+    assert '"optional_props": ["option_cards", "explanation"]' in manifest_text
+    assert "props.data?.sections" in story_text
+    assert "props.data?.spec_items" in spec_text
+    assert "props.data.metrics" in radar_text
+    assert "props.data.option_cards" in poll_text
+    assert "props.data.decision_hint" in versus_text
