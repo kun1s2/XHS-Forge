@@ -33,5 +33,7 @@ class ChatWSPayload(BaseModel):
     )
     # 本轮新上传的图片 URL，仅供 asset_node 打标，不再承担“已选素材”语义
     image_urls: Optional[List[str]] = Field(default_factory=list, description="本轮新上传、待打标的新图片 URL 列表")
+    message_kind: Optional[str] = Field("user_prompt", description="当前消息的交互类型，用于 agent 叙事和定向协作")
     # ✨ 长期记忆新增
     creator_persona: Optional[str] = Field("硬核数码博主", description="创作者人设")
+    custom_note: Optional[str] = Field(None, description="checkpoint 的其他补充说明")

@@ -3,7 +3,7 @@ import pytest
 import json
 from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessage, ToolMessage
-from AI_Frontend_IDE.app.agents.nodes.enrichment_agent import enrichment_node_v2
+from AI_Frontend_IDE.app.agents.nodes.enrichment_agent import enrichment_node
 from AI_Frontend_IDE.app.agents.state import UIProjectState
 from AI_Frontend_IDE.app.core.note_document import build_note_document
 
@@ -34,7 +34,7 @@ async def test_enrichment_empty_run_no_tools():
     }
 
     with patch("AI_Frontend_IDE.app.agents.nodes.enrichment_agent.create_controlled_agent", return_value=mock_agent):
-        result = await enrichment_node_v2(state)
+        result = await enrichment_node(state)
 
     assert result["note_document"] == state["note_document"]
     assert result["image_assets"] == []
@@ -107,7 +107,7 @@ async def test_enrichment_parallel_tools_and_safe_merge():
     }
 
     with patch("AI_Frontend_IDE.app.agents.nodes.enrichment_agent.create_controlled_agent", return_value=mock_agent):
-        result = await enrichment_node_v2(state)
+        result = await enrichment_node(state)
 
     final = result["note_document"]
     product = next(block for block in final["blocks"] if block["id"] == "product_1")

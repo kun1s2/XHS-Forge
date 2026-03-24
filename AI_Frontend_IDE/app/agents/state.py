@@ -168,22 +168,25 @@ class UIProjectState(TypedDict):
     # ✨ 核心恢复：系统总线消息池 (LangGraph 工具调用专用)
     messages: Annotated[list[BaseMessage], add_messages]
     
-    # 兼容与路由
+    # 顶层业务路由
     intent_route: str 
-    # ✨ 核心新增：场景标签数组，支持混合场景 (如: ["travel", "food"])
+    # 当前正式产品只保留数码购买决策主场景（seeding）
     scenarios: List[str]
-    # ✨ 核心新增：当前激活的业务原型 (Archetype)
+    # 当前激活的正式业务场景
     active_archetype: str
     active_panel: str 
     selected_element_id: Optional[str]
     
-    intent_result_v2: Optional[Any]
+    intent_decision: Optional[Any]
     planner_output: Optional[Any]
+    knowledge_plan: Annotated[dict, merge_state_patch]
     planner_policy: Annotated[dict, merge_state_patch]
     scenario_scores: Annotated[dict, merge_state_patch]
     conversation_checkpoint: Annotated[dict, merge_state_patch]
     checkpoint_progress: Annotated[dict, merge_state_patch]
     checkpoint_decision: Annotated[dict, merge_state_patch]
+    representation_preferences: Annotated[dict, merge_state_patch]
+    user_provided_facts: Annotated[dict, merge_state_patch]
     note_document: Annotated[dict, merge_state_patch]
     turn_trace: Annotated[dict, merge_state_patch]
     agent_backends: Annotated[dict, merge_state_patch]
@@ -224,8 +227,10 @@ class UIProjectState(TypedDict):
     
     final_oss_url: Optional[str]
     # 生成的 HTML 源码，供前端「源码」面板展示与时间胶囊回滚
-    final_html: Optional[str]
-
+    final_html: Optional[str]    
+    # ✨ 反思机制：质量评估反馈
+    critique_feedback: Optional[Dict[str, Any]]  # 包含评分、问题列表和改进建议
+    needs_revision: bool  # 是否需要返工修改
 # ✨ 战役 D：为并发任务定义的专用子状态
 class ComponentTaskState(TypedDict):
     component_id: str
@@ -238,3 +243,4 @@ class ComponentTaskState(TypedDict):
     image_assets: List[Dict[str, Any]]
     planner_policy: Dict[str, Any]
     content_messages: List[BaseMessage]
+    user_provided_facts: Dict[str, Any]

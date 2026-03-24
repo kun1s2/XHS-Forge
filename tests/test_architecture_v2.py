@@ -24,6 +24,7 @@ from app.core.note_document import (
     note_document_to_document_view,
     update_note_document_cover_preference,
 )
+from app.core.request_semantics import payload_requests_create
 from app.core.schema import IntentGatewayOutput, NoteDocument
 
 
@@ -68,7 +69,7 @@ def test_note_document_round_trip_from_legacy_payloads():
         image_assets=[{"url": "https://img.example/1.jpg", "desc": "封面图", "source_type": "search"}],
         selected_element_id="story_1",
         active_panel="main",
-        scenarios=["seeding", "daily_share"],
+        scenarios=["seeding", "travel"],
         active_archetype="seeding",
         retrieved_knowledge={"confirmed_facts": {"battery_capacity": {"value": "5000mAh"}}},
         planner_output={"block_intents": [{"intent_type": "heading"}]},
@@ -197,7 +198,7 @@ def test_note_document_applies_retrieval_grounding_to_blocks_without_manual_meta
     assert any(binding["block_id"] == "spec_1" for binding in note_document["fact_bindings"])
 
 
-def test_intent_gateway_result_normalization_fills_general_when_missing_scores():
+def test_intent_gateway_result_normalization_fills_seeding_when_missing_scores():
     normalized = _normalize_gateway_result(
         IntentGatewayOutput(
             thought_process="分析",
@@ -214,14 +215,14 @@ def test_intent_gateway_result_normalization_fills_general_when_missing_scores()
     assert normalized["task_type"] == "create"
     assert normalized["needs_research"] is True
     assert normalized["needs_assets"] == "search"
-    assert normalized["scenario_scores"] == {"general": 1.0}
+    assert normalized["scenario_scores"] == {"seeding": 1.0}
 
 
 @pytest.mark.asyncio
 async def test_planner_node_outputs_policy_and_block_intents():
     result = await planner_node(
         {
-            "intent_result_v2": {
+            "intent_decision": {
                 "scenario_scores": {"travel": 0.6, "seeding": 0.4},
             },
             "active_archetype": "travel",
@@ -245,7 +246,7 @@ async def test_planner_node_outputs_policy_and_block_intents():
     assert "hero_media" in intent_types
     assert "location_info" in intent_types
     assert "comparison" in intent_types
-    assert resolve_component_for_block_intent("evidence_summary", scenario_scores={"seeding": 0.8}) == "RadarChartBlock"
+    assert resolve_component_for_block_intent("fact_list", scenario_scores={"seeding": 1.0}) == "ProductSpecCard"
     assert resolve_component_for_block_intent("location_info", scenario_scores={"travel": 1.0}) == "LocationBlock"
     assert "planner_agent" in result["node_prompts"]
     assert result["node_prompts"]["planner_agent"][0]["role"] == "system"
@@ -255,11 +256,11 @@ async def test_planner_node_outputs_policy_and_block_intents():
 async def test_planner_node_skips_hero_media_for_seeding_without_images_or_cover_request():
     result = await planner_node(
         {
-            "intent_result_v2": {
-                "scenario_scores": {"seeding": 0.9, "general": 0.1},
+            "intent_decision": {
+                "scenario_scores": {"seeding": 1.0},
             },
             "active_archetype": "seeding",
-            "scenarios": ["seeding", "general"],
+            "scenarios": ["seeding"],
             "has_controversy": True,
             "image_assets": [],
             "retrieved_knowledge": {
@@ -281,12 +282,12 @@ async def test_planner_node_skips_hero_media_for_seeding_without_images_or_cover
 async def test_planner_node_still_outputs_block_intents_for_create_requests_on_existing_canvas():
     result = await planner_node(
         {
-            "intent_result_v2": {
+            "intent_decision": {
                 "task_type": "create",
-                "scenario_scores": {"seeding": 0.9, "general": 0.1},
+                "scenario_scores": {"seeding": 1.0},
             },
             "active_archetype": "seeding",
-            "scenarios": ["seeding", "general"],
+            "scenarios": ["seeding"],
             "has_controversy": True,
             "image_assets": [],
             "retrieved_knowledge": {
@@ -336,7 +337,7 @@ async def test_planner_node_rebuilds_for_main_panel_create_like_query_even_witho
             "active_panel": "main",
             "selected_element_id": "无 (全局修改)",
             "active_archetype": "seeding",
-            "scenarios": ["seeding", "general"],
+            "scenarios": ["seeding"],
             "has_controversy": True,
             "image_assets": [],
             "retrieved_knowledge": {
@@ -481,7 +482,7 @@ async def test_intent_agent_llm_path_uses_gateway_v2_schema():
         edit_scope="none",
         needs_research=True,
         needs_assets="search",
-        scenario_scores={"seeding": 0.8, "general": 0.2},
+        scenario_scores={"seeding": 1.0},
         risk_flags=[],
     )
 
@@ -492,13 +493,13 @@ async def test_intent_agent_llm_path_uses_gateway_v2_schema():
             "main_messages": [type("Msg", (), {"content": "帮我做一篇 Mate 60 种草笔记"})()],
             "document_view": {},
             "selected_element_id": None,
-            "active_archetype": "general",
+            "active_archetype": "seeding",
         })
 
     assert result["intent_route"] == "research_agent"
-    assert result["intent_result_v2"]["task_type"] == "create"
-    assert result["intent_result_v2"]["needs_research"] is True
-    assert result["scenario_scores"] == {"seeding": 0.8, "general": 0.2}
+    assert result["intent_decision"]["task_type"] == "create"
+    assert result["intent_decision"]["needs_research"] is True
+    assert result["scenario_scores"] == {"seeding": 1.0}
     assert result["agent_backends"]["intent_agent"] == "structured_function_calling"
 
 
@@ -509,14 +510,14 @@ async def test_intent_agent_uses_deterministic_fast_path_for_selected_block_edit
         "content_messages": [type("Msg", (), {"content": "把这一段改得更简短一点"})()],
         "document_view": {"blocks": [{"id": "story_1", "component_type": "StoryText"}]},
         "selected_element_id": "story_1",
-        "active_archetype": "daily_share",
+        "active_archetype": "travel",
     })
 
     assert result["intent_route"] == "patch_node"
-    assert result["intent_result_v2"]["task_type"] == "edit"
-    assert result["intent_result_v2"]["edit_scope"] == "selected_paragraph"
+    assert result["intent_decision"]["task_type"] == "edit"
+    assert result["intent_decision"]["edit_scope"] == "selected_paragraph"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
-    assert result["scenario_scores"] == {"daily_share": 1.0}
+    assert result["scenario_scores"] == {"travel": 1.0}
 
 
 @pytest.mark.asyncio
@@ -530,8 +531,8 @@ async def test_intent_agent_uses_deterministic_fast_path_for_style_panel_global_
     })
 
     assert result["intent_route"] == "theme_compiler"
-    assert result["intent_result_v2"]["task_type"] == "edit"
-    assert result["intent_result_v2"]["edit_scope"] == "global"
+    assert result["intent_decision"]["task_type"] == "edit"
+    assert result["intent_decision"]["edit_scope"] == "global"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
     assert result["scenario_scores"] == {"seeding": 1.0}
 
@@ -543,14 +544,52 @@ async def test_intent_agent_uses_deterministic_fast_path_for_main_existing_canva
         "main_messages": [type("Msg", (), {"content": "文本简短一点"})()],
         "document_view": {"blocks": [{"id": "story_1", "component_type": "StoryText"}]},
         "selected_element_id": None,
-        "active_archetype": "daily_share",
+        "active_archetype": "travel",
     })
 
     assert result["intent_route"] == "note_editor"
-    assert result["intent_result_v2"]["task_type"] == "edit"
-    assert result["intent_result_v2"]["edit_scope"] == "global"
+    assert result["intent_decision"]["task_type"] == "edit"
+    assert result["intent_decision"]["edit_scope"] == "global"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
-    assert result["scenario_scores"] == {"daily_share": 1.0}
+
+
+@pytest.mark.asyncio
+async def test_intent_agent_routes_existing_canvas_image_requests_to_research_agent():
+    result = await intent_agent({
+        "active_panel": "main",
+        "main_messages": [type("Msg", (), {"content": "怎么没有图片，加一些图片"})()],
+        "document_view": {"blocks": [{"id": "story_1", "component_type": "StoryText"}]},
+        "selected_element_id": None,
+        "active_archetype": "seeding",
+    })
+
+    assert result["intent_route"] == "research_agent"
+    assert result["intent_decision"]["task_type"] == "edit"
+    assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
+
+
+@pytest.mark.asyncio
+async def test_intent_agent_uses_capability_fast_path_for_help_queries():
+    result = await intent_agent({
+        "active_panel": "main",
+        "main_messages": [type("Msg", (), {"content": "你有什么功能？"})()],
+        "document_view": {},
+        "selected_element_id": None,
+        "active_archetype": "seeding",
+    })
+
+    assert result["intent_route"] == "direct_chat_node"
+    assert result["intent_decision"]["task_type"] == "inspect"
+    assert result["intent_decision"]["edit_scope"] == "none"
+    assert result["agent_backends"]["intent_agent"] == "deterministic_capability_fast_path"
+
+
+def test_payload_requests_create_returns_false_for_capability_queries():
+    assert payload_requests_create(
+        content="你有什么功能?",
+        panel="main",
+        selected_element_id="无 (全局修改)",
+    ) is False
 
 
 @pytest.mark.asyncio
@@ -564,13 +603,13 @@ async def test_intent_agent_existing_canvas_styleish_edit_maps_to_style_route():
     })
 
     assert result["intent_route"] == "theme_compiler"
-    assert result["intent_result_v2"]["task_type"] == "edit"
+    assert result["intent_decision"]["task_type"] == "edit"
     assert result["agent_backends"]["intent_agent"] == "deterministic_fast_path"
 
 
 def test_route_intent_prefers_note_editor_for_style_panel_fast_path():
     route = route_intent({
-        "intent_result_v2": {
+        "intent_decision": {
             "task_type": "edit",
             "edit_scope": "global",
             "needs_research": False,

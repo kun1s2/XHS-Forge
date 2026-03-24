@@ -13,7 +13,16 @@ const props = defineProps<{
     decision_hint?: string
     risk_note?: string
   }
+  recentChange?: { fields?: string[] } | null
 }>()
+const recentFields = computed(() => new Set((props.recentChange?.fields || []).map((item) => String(item))))
+const localHighlightStyle = (active: boolean) => active
+  ? {
+      borderColor: 'rgba(251,191,36,0.48)',
+      boxShadow: '0 0 0 1px rgba(251,191,36,0.18), 0 16px 34px rgba(251,191,36,0.12)',
+      transform: 'translateY(-1px)',
+    }
+  : {}
 
 const title = computed(() => props.data.title || '两种选择，拉开的是体验方向')
 const proSummary = computed(() => props.data.pros?.summary || props.data.proText || '更适合偏好主推荐路线的人')
@@ -82,7 +91,7 @@ onBeforeUnmount(() => {
         :style="{ background: 'radial-gradient(circle at top left, color-mix(in srgb, var(--primary-vibe) 14%, white 86%) 0%, transparent 34%), radial-gradient(circle at bottom right, rgba(15,23,42,0.05) 0%, transparent 42%)' }"
       ></div>
 
-      <div class="relative flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div class="relative flex flex-col gap-3 rounded-[24px] p-2 lg:flex-row lg:items-end lg:justify-between" :style="localHighlightStyle(recentFields.has('title'))">
         <div class="max-w-2xl">
           <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">路线对比</div>
           <h3 class="mt-2 text-xl font-black leading-tight lg:text-2xl" :style="{ color: 'var(--text-color)' }">{{ title }}</h3>
@@ -105,7 +114,7 @@ onBeforeUnmount(() => {
       >
         <section
           class="rounded-[26px] border p-5"
-          :style="{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--pro-color) 88%, white 12%) 0%, color-mix(in srgb, var(--pro-color) 70%, #020617 30%) 100%)', borderColor: 'rgba(255,255,255,0.14)' }"
+          :style="{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--pro-color) 88%, white 12%) 0%, color-mix(in srgb, var(--pro-color) 70%, #020617 30%) 100%)', borderColor: 'rgba(255,255,255,0.14)', ...localHighlightStyle(recentFields.has('pros')) }"
         >
           <div class="flex items-center justify-between gap-3">
             <div>
@@ -145,7 +154,7 @@ onBeforeUnmount(() => {
 
         <section
           class="rounded-[26px] border p-5"
-          :style="{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--con-color) 86%, white 14%) 0%, color-mix(in srgb, var(--con-color) 72%, #020617 28%) 100%)', borderColor: 'rgba(255,255,255,0.14)' }"
+          :style="{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--con-color) 86%, white 14%) 0%, color-mix(in srgb, var(--con-color) 72%, #020617 28%) 100%)', borderColor: 'rgba(255,255,255,0.14)', ...localHighlightStyle(recentFields.has('cons')) }"
         >
           <div class="flex items-center justify-between gap-3">
             <div>
@@ -175,7 +184,7 @@ onBeforeUnmount(() => {
         </section>
       </div>
 
-      <div class="mt-4 rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
+      <div class="mt-4 rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', ...localHighlightStyle(recentFields.has('decision')) }">
         <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">怎么选</div>
         <div class="mt-2 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
           先看哪一边更接近你的使用路线，再看自己能不能接受对应的代价。

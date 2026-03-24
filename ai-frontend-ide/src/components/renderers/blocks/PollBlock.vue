@@ -14,7 +14,16 @@ const props = defineProps<{
     vote_counts?: number[]
   }
   style?: any
+  recentChange?: { fields?: string[] } | null
 }>()
+const recentFields = computed(() => new Set((props.recentChange?.fields || []).map((item) => String(item))))
+const highlightBoxStyle = (active: boolean) => active
+  ? {
+      borderColor: 'rgba(251,191,36,0.58)',
+      background: 'linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.92) 100%)',
+      boxShadow: '0 0 0 1px rgba(251,191,36,0.18), 0 16px 32px rgba(251,191,36,0.12)',
+    }
+  : {}
 
 const question = computed(() => props.data.question || '你更站哪一边？')
 const optionCards = computed(() => {
@@ -111,7 +120,7 @@ const participationSummary = computed(() => {
   >
     <div class="pointer-events-none absolute inset-0 opacity-80" :style="{ background: 'radial-gradient(circle at top left, color-mix(in srgb, var(--primary-vibe) 16%, white 84%) 0%, transparent 30%), radial-gradient(circle at bottom right, rgba(15,23,42,0.05) 0%, transparent 38%)' }"></div>
 
-    <div class="flex items-start justify-between gap-4">
+    <div class="flex items-start justify-between gap-4 rounded-[24px] p-2" :style="highlightBoxStyle(recentFields.has('question'))">
       <div class="flex items-start gap-3">
         <div
           class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-white"
@@ -135,7 +144,7 @@ const participationSummary = computed(() => {
       </div>
     </div>
 
-    <div class="mt-5 space-y-3">
+    <div class="mt-5 space-y-3 rounded-[24px] p-2" :style="highlightBoxStyle(recentFields.has('options'))">
       <button
         v-for="(opt, idx) in options"
         :key="idx"

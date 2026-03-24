@@ -41,8 +41,8 @@ async def test_intent_gateway_global_evaluation():
     # 断言 1: 正确路由与 archetype
     assert result["intent_route"] == "research_agent"
     assert result["active_archetype"] == "seeding"
-    assert result["intent_result_v2"]["task_type"] == "create"
-    assert result["intent_result_v2"]["edit_scope"] == "none"
+    assert result["intent_decision"]["task_type"] == "create"
+    assert result["intent_decision"]["edit_scope"] == "none"
     # 断言 2: Token 防御 — 防止意图网关 Token 泄露；若有人误传全量 document_view，CI 将熔断
     if result.get("node_prompts", {}).get("intent_agent"):
         human_content = str(result["node_prompts"]["intent_agent"])
@@ -68,8 +68,8 @@ async def test_intent_gateway_fast_path():
 
         # 断言 1: 极速路由命中
         assert result["intent_route"] == "patch_node"
-        assert result["intent_result_v2"]["task_type"] == "edit"
-        assert result["intent_result_v2"]["edit_scope"] == "selected_block"
+        assert result["intent_decision"]["task_type"] == "edit"
+        assert result["intent_decision"]["edit_scope"] == "selected_block"
         # 断言 2: 未调用 LLM
         mock_get_llm.assert_not_called()
         print("⚡ [测试成功] Fast-path 命中，未调用 LLM")

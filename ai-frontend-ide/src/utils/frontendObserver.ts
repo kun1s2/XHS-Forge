@@ -82,12 +82,16 @@ export const setupFrontendObserver = (pinia: Pinia) => {
   )
 
   window.addEventListener('error', (event) => {
+    const filename = String(event.filename || '')
+    if (filename.startsWith('chrome-extension://') || filename.startsWith('moz-extension://')) {
+      return
+    }
     void reportFrontendObservation({
       thread_id: threadId.value || '',
       event_type: 'window_error',
       message: String(event.message || '未知前端错误'),
       payload: {
-        filename: event.filename || '',
+        filename,
         lineno: event.lineno || 0,
         colno: event.colno || 0,
         current_node: currentNode.value || '',

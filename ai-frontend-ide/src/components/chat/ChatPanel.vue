@@ -5,7 +5,7 @@
         <div class="space-y-1">
           <div class="flex items-center gap-2">
             <span class="rounded-full border border-[#39404a] bg-[#20242b] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-blue-300">创作对话</span>
-            <span class="text-[10px] text-gray-500">左侧只负责聊天、素材和局部编辑</span>
+            <span class="text-[10px] text-gray-500">这里是 Agent 主协作区：计划、确认、修改和复盘都在这里继续</span>
           </div>
           <div class="text-[15px] font-bold text-gray-100">和 Agent 一起打磨当前笔记</div>
         </div>
@@ -44,6 +44,13 @@
         >
           已设置当前封面
         </span>
+        <button
+          v-if="rollbackUndoTarget"
+          @click="handleUndoRollback"
+          class="rounded-full border border-blue-800/30 bg-blue-950/10 px-3 py-1 text-[10px] text-blue-300 transition-colors hover:border-blue-500/50 hover:text-blue-200"
+        >
+          撤销最近回滚
+        </button>
       </div>
     </div>
 
@@ -200,7 +207,43 @@
                 </details>
               </div>
 
-              <div class="rounded-[24px] rounded-bl-md border border-[#2f3440] bg-[#1b1d22] px-4 py-3 shadow-[0_14px_30px_rgba(0,0,0,0.16)]">
+              <div
+                v-if="msg.agentCard && ['agent_plan', 'agent_status', 'agent_receipt', 'agent_summary'].includes(msg.messageKind || '')"
+                class="rounded-[24px] rounded-bl-md border px-4 py-3 shadow-[0_14px_30px_rgba(0,0,0,0.16)]"
+                :class="msg.messageKind === 'agent_plan'
+                  ? 'border-blue-900/30 bg-blue-950/10'
+                  : msg.messageKind === 'agent_status'
+                    ? 'border-cyan-900/30 bg-cyan-950/10'
+                    : msg.messageKind === 'agent_receipt'
+                      ? 'border-emerald-900/30 bg-emerald-950/10'
+                      : 'border-violet-900/30 bg-violet-950/10'"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em]"
+                    :class="msg.messageKind === 'agent_plan'
+                      ? 'border border-blue-800/40 bg-blue-950/20 text-blue-300'
+                      : msg.messageKind === 'agent_status'
+                        ? 'border border-cyan-800/40 bg-cyan-950/20 text-cyan-300'
+                        : msg.messageKind === 'agent_receipt'
+                          ? 'border border-emerald-800/40 bg-emerald-950/20 text-emerald-300'
+                          : 'border border-violet-800/40 bg-violet-950/20 text-violet-300'">
+                    {{ msg.messageKind === 'agent_plan' ? 'Agent 计划' : msg.messageKind === 'agent_status' ? 'Agent 进度' : msg.messageKind === 'agent_receipt' ? 'Agent 接单' : 'Agent 小结' }}
+                  </span>
+                </div>
+                <div class="mt-2 text-[14px] font-semibold text-gray-100">{{ msg.agentCard.title }}</div>
+                <div v-if="msg.agentCard.summary" class="mt-1 text-[12px] leading-relaxed text-gray-300">{{ msg.agentCard.summary }}</div>
+                <div v-if="msg.agentCard.bullets?.length" class="mt-3 grid gap-2">
+                  <div
+                    v-for="bullet in msg.agentCard.bullets"
+                    :key="bullet"
+                    class="rounded-2xl border border-[#334155] bg-[#111827]/60 px-3 py-2 text-[11px] leading-relaxed text-gray-200"
+                  >
+                    {{ bullet }}
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="rounded-[24px] rounded-bl-md border border-[#2f3440] bg-[#1b1d22] px-4 py-3 shadow-[0_14px_30px_rgba(0,0,0,0.16)]">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">Agent 回复</div>
                   <span v-if="msg.streaming" class="text-[10px] text-blue-400 animate-pulse">生成中</span>
@@ -209,29 +252,91 @@
                   <span v-if="!msg.content && msg.streaming" class="italic text-gray-500">正在思考文案...</span>
                   <Typewriter :text="msg.content" :active="msg.streaming" :speed="10" />
                 </div>
+                <div
+                  v-if="resolveCritique(msg)"
+                  class="mt-3 rounded-2xl border border-emerald-900/30 bg-emerald-950/10 p-3"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <span class="rounded-full border border-emerald-800/40 bg-emerald-950/20 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Agent 复盘</span>
+                      <span class="text-[11px] text-emerald-100">{{ critiqueHeadline(resolveCritique(msg)!) }}</span>
+                    </div>
+                    <span
+                      class="rounded-full border px-2 py-0.5 text-[10px]"
+                      :class="resolveCritique(msg)?.needs_revision ? 'border-amber-700/40 bg-amber-950/20 text-amber-200' : 'border-emerald-700/40 bg-emerald-950/20 text-emerald-200'"
+                    >
+                      {{ resolveCritique(msg)?.needs_revision ? '建议继续润色' : '质量通过' }}
+                    </span>
+                  </div>
+
+                  <div v-if="resolveCritique(msg)?.suggestions?.length" class="mt-3 space-y-2">
+                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">优先建议</div>
+                    <div class="flex flex-wrap gap-2">
+                      <span
+                        v-for="suggestion in resolveCritique(msg)?.suggestions || []"
+                        :key="suggestion"
+                        class="rounded-full border border-[#334155] bg-[#152033] px-2.5 py-1 text-[10px] text-emerald-100"
+                      >
+                        {{ suggestion }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div v-if="(resolveCritique(msg)?.action_recipes?.length || 0) > 0" class="mt-3 space-y-2">
+                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">下一步怎么做</div>
+                    <div class="grid gap-2 sm:grid-cols-2">
+                      <button
+                        v-for="recipe in resolveCritique(msg)?.action_recipes || []"
+                        :key="`${recipe.scope || 'critique'}-${recipe.label}`"
+                        @click="handleCritiqueAction(recipe)"
+                        class="rounded-2xl border border-[#2f3b52] bg-[#111827]/85 px-3 py-3 text-left transition-all hover:border-emerald-500/40 hover:bg-[#13231e]"
+                      >
+                        <div class="text-[11px] font-semibold text-emerald-100">{{ recipe.label }}</div>
+                        <div v-if="recipe.prompt" class="mt-1 text-[10px] leading-relaxed text-gray-400">{{ recipe.prompt }}</div>
+                        <div v-if="recipe.why_now" class="mt-2 text-[10px] leading-relaxed text-gray-300">
+                          现在优先处理：{{ recipe.why_now }}
+                        </div>
+                        <div v-if="recipe.expected_effect" class="mt-1 text-[10px] leading-relaxed text-emerald-200/90">
+                          预计效果：{{ recipe.expected_effect }}
+                        </div>
+                        <div v-if="recipe.expected_blocks?.length" class="mt-1 text-[10px] leading-relaxed text-gray-300">
+                          预计影响：{{ recipe.expected_blocks.join(' / ') }}
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="(resolveCritique(msg)?.factual_issues?.length || 0) + (resolveCritique(msg)?.completeness_issues?.length || 0) > 0"
+                    class="mt-3 grid gap-2 sm:grid-cols-2"
+                  >
+                    <div v-if="resolveCritique(msg)?.factual_issues?.length" class="rounded-2xl border border-[#334155] bg-[#111827]/70 p-3">
+                      <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">事实风险</div>
+                      <div class="mt-2 space-y-1 text-[11px] leading-relaxed text-gray-300">
+                        <div v-for="item in resolveCritique(msg)?.factual_issues || []" :key="item">- {{ item }}</div>
+                      </div>
+                    </div>
+                    <div v-if="resolveCritique(msg)?.completeness_issues?.length" class="rounded-2xl border border-[#334155] bg-[#111827]/70 p-3">
+                      <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">信息缺口</div>
+                      <div class="mt-2 space-y-1 text-[11px] leading-relaxed text-gray-300">
+                        <div v-for="item in resolveCritique(msg)?.completeness_issues || []" :key="item">- {{ item }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <ConversationCheckpointCard
                   v-if="msg.actionRequired"
                   :action="msg.actionRequired"
-                  @select="handleCheckpointOptionSelect(msg.actionRequired, $event)"
+                  @select="(option, overrides) => handleCheckpointOptionSelect(msg.actionRequired, option, overrides)"
                 />
               </div>
             </div>
           </div>
         </template>
-
-        <div v-if="thoughtText || currentNode" class="rounded-2xl border border-blue-900/25 bg-blue-950/10 px-4 py-3 text-[11px] text-blue-200">
-          <div class="flex items-center gap-2 font-semibold">
-            <span class="inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-blue-400"></span>
-            <span>{{ thoughtText || (nodeMap[currentNode] || currentNode) }}</span>
-          </div>
-          <div v-if="nodeStreamOutput" class="mt-2 max-h-[160px] overflow-y-auto whitespace-pre-wrap rounded-xl border border-[#243042] bg-[#111827]/70 px-3 py-2 font-mono text-[10px] leading-relaxed text-blue-300 custom-scrollbar">
-            <Typewriter :text="nodeStreamOutput" :active="true" :speed="5" />
-          </div>
-        </div>
       </div>
     </div>
 
-    <div class="border-t border-[#2b2d31] bg-[linear-gradient(180deg,_rgba(27,28,31,0.98),_rgba(23,24,26,1))] px-5 py-4">
+    <div class="border-t border-[#2b2d31] bg-[linear-gradient(180deg,_rgba(27,28,31,0.98),_rgba(23,24,26,1))] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div class="mx-auto w-full max-w-3xl">
         <div v-if="pendingImages.some(p => p.status === 'uploading')" class="mb-3 flex flex-wrap gap-2 rounded-2xl border border-[#2f3440] bg-[#1b1d22] p-3">
           <div v-for="(img, idx) in pendingImages.filter(p => p.status === 'uploading')" :key="idx" class="relative">
@@ -242,29 +347,42 @@
           </div>
         </div>
 
+        <div
+          v-if="checkpointComposerHint"
+          class="mb-3 rounded-2xl border border-amber-800/30 bg-amber-950/10 px-4 py-3"
+        >
+          <div class="flex items-center gap-2">
+            <span class="rounded-full border border-amber-800/40 bg-amber-950/20 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-amber-300">等待确认</span>
+            <span class="text-[12px] font-semibold text-amber-100">{{ checkpointComposerHint.title }}</span>
+          </div>
+          <div class="mt-1 text-[11px] leading-relaxed text-gray-300">
+            {{ checkpointComposerHint.summary }}
+          </div>
+        </div>
+
         <div class="rounded-[24px] border border-[#2f3440] bg-[#1b1d22] p-3 shadow-[0_14px_30px_rgba(0,0,0,0.16)]">
-          <div class="flex items-end gap-3">
+          <div class="flex items-stretch gap-3">
             <input type="file" ref="fileInput" accept="image/*" multiple class="hidden" @change="handleFileSelect" />
             <button
               @click="triggerFileInput"
-              class="mb-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#374151] bg-[#111317] text-gray-400 transition-colors hover:text-white"
+              class="flex h-11 w-11 shrink-0 self-end items-center justify-center rounded-2xl border border-[#374151] bg-[#111317] text-gray-400 transition-colors hover:text-white"
               title="上传图片"
             >
               <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
             </button>
 
-            <div class="relative flex-1">
+            <div class="relative min-w-0 flex-1">
               <textarea
                 v-model="composerDraft"
                 @keydown.enter.prevent="handleSend"
                 :placeholder="composerPlaceholder"
-                class="min-h-[56px] w-full resize-none rounded-[20px] border border-[#353840] bg-[#111317] px-4 py-3 pr-14 text-sm text-gray-200 outline-none transition-all placeholder:text-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                class="block min-h-[72px] max-h-[160px] w-full resize-none overflow-y-auto rounded-[20px] border border-[#353840] bg-[#111317] px-4 py-3 pr-16 text-sm leading-relaxed text-gray-200 outline-none transition-all placeholder:text-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 custom-scrollbar"
               ></textarea>
 
               <button
                 @click="handleSend"
                 :disabled="(!composerDraft.trim() && imageAssets.length === 0) || isUploading || currentNode !== ''"
-                class="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition-colors hover:bg-blue-500 disabled:bg-[#30343b] disabled:text-gray-500"
+                class="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition-colors hover:bg-blue-500 disabled:bg-[#30343b] disabled:text-gray-500"
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
               </button>
@@ -283,7 +401,7 @@ import { useChatStore } from '../../stores/useChatStore'
 import { uploadImage } from '../../api/upload'
 import Typewriter from '../common/Typewriter.vue'
 import ConversationCheckpointCard from './ConversationCheckpointCard.vue'
-import type { ConversationCheckpointAction, ConversationCheckpointOption } from '../../types/chat'
+import type { ChatMessage, ConversationCheckpointAction, ConversationCheckpointOption, TurnTrace } from '../../types/chat'
 import { buildEditingGuidance } from './chatEditingGuidance'
 
 const chatStore = useChatStore()
@@ -304,6 +422,9 @@ const {
   selectedBlock,
   selectedPayload,
   currentCoverUrl,
+  rollbackUndoTarget,
+  pendingBlockingCheckpointAction,
+  checkpointComposerCanResolve,
 } = storeToRefs(chatStore)
 const { setSelectedComponent, addPendingUploadAsset } = chatStore
 const msgListRef = ref<HTMLElement | null>(null)
@@ -312,8 +433,13 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const handleCheckpointOptionSelect = (
   action: ConversationCheckpointAction,
   option: ConversationCheckpointOption,
+  overrides?: { userProvidedFacts?: Record<string, string | string[]>; customNote?: string },
 ) => {
-  chatStore.submitCheckpointDecision(action, option)
+  chatStore.submitCheckpointDecision(action, option, overrides)
+}
+
+const handleCritiqueAction = (recipe: { label: string; prompt: string; scope?: string; why_now?: string; expected_effect?: string; expected_blocks?: string[] }) => {
+  chatStore.runCritiqueAction(recipe)
 }
 
 const handleHistoryRollback = async (checkpointId: string) => {
@@ -322,6 +448,26 @@ const handleHistoryRollback = async (checkpointId: string) => {
 
 const handleHistoryBranch = async (checkpointId: string) => {
   await chatStore.branchFromCheckpoint(checkpointId)
+}
+
+const handleUndoRollback = async () => {
+  await chatStore.undoLastRollback()
+}
+
+const resolveCritique = (msg: ChatMessage) => {
+  const critique = (msg.turnTrace as TurnTrace | undefined)?.critique
+  if (!critique || typeof critique !== 'object') return null
+  const hasSignal =
+    typeof critique.score === 'number' ||
+    (critique.suggestions?.length || 0) > 0 ||
+    (critique.factual_issues?.length || 0) > 0 ||
+    (critique.completeness_issues?.length || 0) > 0
+  return hasSignal ? critique : null
+}
+
+const critiqueHeadline = (critique: NonNullable<ReturnType<typeof resolveCritique>>) => {
+  const score = typeof critique.score === 'number' ? `${critique.score} 分` : '已完成'
+  return critique.needs_revision ? `本轮质量复盘：${score}，建议继续收口` : `本轮质量复盘：${score}，可以继续展示`
 }
 
 const selectedEditingGuidance = computed(() =>
@@ -339,10 +485,39 @@ const selectedQuickActions = computed(() => selectedEditingGuidance.value.quickA
 const selectedPromptRecipes = computed(() => selectedEditingGuidance.value.promptRecipes)
 
 const composerPlaceholder = computed(() =>
-  selectedComponentId.value
-    ? selectedEditingGuidance.value.composerPlaceholder
-    : '给当前笔记下达创作或编辑指令…'
+  pendingBlockingCheckpointAction.value
+    ? (
+        pendingBlockingCheckpointAction.value.action_type === 'truth_mode_checkpoint'
+          ? '直接补充真实时间、地点、经过或原话，我会附到当前协作卡继续处理…'
+          : checkpointComposerCanResolve.value
+            ? `直接补充说明，我会附到「${pendingBlockingCheckpointAction.value.title}」这张协作卡上…`
+            : '当前有待处理的关键决策，请先用上面的协作卡选择方案…'
+      )
+    : selectedComponentId.value
+      ? selectedEditingGuidance.value.composerPlaceholder
+      : '给当前笔记下达创作或编辑指令…'
 )
+
+const checkpointComposerHint = computed(() => {
+  const action = pendingBlockingCheckpointAction.value
+  if (!action) return null
+  if (action.action_type === 'truth_mode_checkpoint') {
+    return {
+      title: '当前输入会被当成这张卡的真实补充信息',
+      summary: '你现在直接发送的内容，不会新开一轮，而是会作为时间、地点、经过或原话继续交给当前协作卡处理。',
+    }
+  }
+  if (checkpointComposerCanResolve.value) {
+    return {
+      title: '当前输入会附到这张协作卡上',
+      summary: '如果你直接发送，我会默认沿着推荐方案继续，并把你的文字当成补充说明一起带上。',
+    }
+  }
+  return {
+    title: '当前这张协作卡需要你先点选方案',
+    summary: '这条输入不会直接新开一轮，请先在上面的卡片里选一个方案，再继续补充说明。',
+  }
+})
 
 const applySelectedQuickAction = (prompt: string) => {
   composerDraft.value = prompt
@@ -350,9 +525,11 @@ const applySelectedQuickAction = (prompt: string) => {
 
 const runSelectedDirectAction = (prompt: string) => {
   if (!prompt || isUploading.value || currentNode.value !== '') return
-  chatStore.sendMessage(prompt)
-  composerDraft.value = ''
-  stagedUploadUrls.value = []
+  const handled = chatStore.submitComposerMessage(prompt)
+  if (handled) {
+    composerDraft.value = ''
+    stagedUploadUrls.value = []
+  }
 }
 
 interface PendingImage {
@@ -414,9 +591,11 @@ const handleFileSelect = async (e: Event) => {
 const handleSend = () => {
   if ((!composerDraft.value.trim() && stagedUploadUrls.value.length === 0) || isUploading.value || currentNode.value !== '') return
 
-  chatStore.sendMessage(composerDraft.value, { imageUrls: stagedUploadUrls.value })
-  stagedUploadUrls.value = []
-  composerDraft.value = ''
+  const handled = chatStore.submitComposerMessage(composerDraft.value, { imageUrls: stagedUploadUrls.value })
+  if (handled) {
+    stagedUploadUrls.value = []
+    composerDraft.value = ''
+  }
 }
 
 const scrollToBottom = () => {

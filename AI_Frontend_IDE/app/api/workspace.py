@@ -16,6 +16,7 @@ from app.schemas.responses import (
     BaseResponse,
     BenchmarkOverviewResponse,
     EvaluationOverviewResponse,
+    TraceExportResponse,
     TrendListResponse,
 )
 from app.services.block_gallery import (
@@ -42,6 +43,7 @@ from app.api.workspace_diagnostics import (
     build_benchmark_overview as _present_benchmark_overview,
     build_evaluation_overview as _present_evaluation_overview,
     build_inspector_summary as _present_inspector_summary,
+    build_trace_export_bundle as _present_trace_export_bundle,
     dedupe_assets as _present_dedupe_assets,
     fetch_latest_session_snapshots as _present_fetch_latest_session_snapshots,
 )
@@ -768,6 +770,10 @@ async def _fetch_latest_session_snapshots(agent) -> list[dict]:
     return await _present_fetch_latest_session_snapshots(agent, _extract_session_title)
 
 
+def _build_trace_export_bundle(values: dict, *, thread_id: str, checkpoint_id: str = "") -> dict:
+    return _present_trace_export_bundle(values, thread_id=thread_id, checkpoint_id=checkpoint_id)
+
+
 @router.get("/benchmark/overview", response_model=BenchmarkOverviewResponse)
 async def get_benchmark_overview(request: Request):
     """
@@ -830,6 +836,7 @@ async def get_workspace_data(thread_id: str, request: Request):
     if not state.values:
         return WorkspaceDataResponse(
             is_new=True,
+            checkpoint_id=None,
             messages={"main": [], "content": [], "style": [], "structure": [], "image": []},
             active_panel="main",
             selected_element_id=None,
@@ -877,6 +884,7 @@ async def get_workspace_data(thread_id: str, request: Request):
     # 3. 组装返回数据给前端渲染
     return WorkspaceDataResponse(
         is_new=False,
+        checkpoint_id=((state.config or {}).get("configurable") or {}).get("checkpoint_id"),
         messages={
             "main": format_messages(values.get("main_messages", []), turn_anchor_map=turn_anchor_map_by_panel["main"]),
             "content": format_messages(values.get("content_messages", []), turn_anchor_map=turn_anchor_map_by_panel["content"]),
@@ -941,6 +949,27 @@ async def get_latest_turn_trace(thread_id: str, request: Request):
     values = (state_snapshot.values or {}) if state_snapshot else {}
     return {"status": "success", "data": values.get("turn_trace", {})}
 
+
+@router.get("/{thread_id}/trace/export", response_model=TraceExportResponse)
+async def export_trace_bundle(thread_id: str, request: Request, checkpoint_id: str | None = None):
+    """导出当前线程或指定 checkpoint 的完整结构化 trace 包。"""
+    agent = get_agent(request)
+    config = {"configurable": {"thread_id": thread_id}}
+    if checkpoint_id:
+        config["configurable"]["checkpoint_id"] = checkpoint_id
+    state_snapshot = await agent.aget_state(config)
+    values = (state_snapshot.values or {}) if state_snapshot else {}
+    if not values:
+        raise HTTPException(status_code=404, detail="找不到可导出的 trace，可能线程为空或 checkpoint 无效")
+    resolved_checkpoint = str(
+        checkpoint_id
+        or ((state_snapshot.config or {}).get("configurable") or {}).get("checkpoint_id")
+        or ""
+    )
+    return TraceExportResponse(
+        data=_build_trace_export_bundle(values, thread_id=thread_id, checkpoint_id=resolved_checkpoint)
+    )
+
 @router.get("/{thread_id}/inspect")
 async def inspect_agent_state(thread_id: str, request: Request):
     """
@@ -957,6 +986,8 @@ async def inspect_agent_state(thread_id: str, request: Request):
     
     # ✨ 核心逻辑：过滤掉庞大的 DSL 和对话记录，只提取“有意义”的元数据
     meaningful_state = {
+        "checkpoint_id": ((state_snapshot.config or {}).get("configurable") or {}).get("checkpoint_id"),
+        "checkpointId": ((state_snapshot.config or {}).get("configurable") or {}).get("checkpoint_id"),
         "creator_persona": values.get("creator_persona", "未设定"), # 当前人设
         "active_archetype": values.get("active_archetype", "未激活"), # 当前激活的排版原型
         "scenarios": values.get("scenarios", []), # 识别到的场景标签

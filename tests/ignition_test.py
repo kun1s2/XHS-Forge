@@ -28,7 +28,7 @@ async def run_xiaomi_ignition_test():
     # 2. 执行意图路由 (验证 Gateway V2)
     print("Step 1: 启动网关...")
     intent_res = await intent_agent(state)
-    gateway = intent_res.get("intent_result_v2") or {}
+    gateway = intent_res.get("intent_decision") or {}
     print(
         "📡 [Gateway V2] "
         f"task={gateway.get('task_type')} | "

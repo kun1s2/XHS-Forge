@@ -83,6 +83,24 @@ IMAGE_REQUEST_TOKENS = (
     "封面",
 )
 
+CAPABILITY_QUERY_TOKENS = (
+    "你有什么功能",
+    "你有哪些功能",
+    "你有什么能力",
+    "你有哪些能力",
+    "你能做什么",
+    "你可以做什么",
+    "你会什么",
+    "怎么用",
+    "如何使用",
+    "怎么和你配合",
+    "你支持什么",
+    "能帮我做什么",
+    "可以帮我什么",
+    "介绍一下你的功能",
+    "介绍一下你的能力",
+)
+
 BEFORE_POSITION_TOKENS = (
     "前面",
     "前边",
@@ -99,6 +117,20 @@ SHARPER_TONE_TOKENS = (
     "刻薄",
 )
 
+ATTENTION_HOOK_TOKENS = (
+    "吸引眼球",
+    "吸引用户眼球",
+    "吸睛",
+    "更吸睛",
+    "更抓人",
+    "更吸引用户",
+    "更吸引用户眼球",
+    "更有冲击力",
+    "更有张力",
+    "更有记忆点",
+    "更抓眼球",
+)
+
 
 def contains_any_token(text: str | None, tokens: Iterable[str]) -> bool:
     raw_text = text or ""
@@ -110,15 +142,18 @@ def looks_like_existing_canvas_edit(user_text: str | None) -> bool:
         contains_any_token(user_text, EXISTING_CANVAS_EDIT_ACTION_TOKENS)
         or contains_any_token(user_text, EXISTING_CANVAS_TARGET_TOKENS)
         or contains_any_token(user_text, PARAGRAPH_REFERENCE_TOKENS)
+        or wants_image_search(user_text)
     )
 
 
 def infer_existing_canvas_edit_route(user_text: str | None) -> str:
+    if wants_image_search(user_text):
+        return "retrieval_agent"
     if contains_any_token(user_text, STYLE_ROUTE_TOKENS):
         return "theme_compiler"
     if contains_any_token(user_text, STRUCTURE_ROUTE_TOKENS):
         return "structure_node"
-    return "note_editor"
+    return "composition_agent"
 
 
 def mentions_paragraph_reference(user_text: str | None) -> bool:
@@ -135,3 +170,14 @@ def wants_before_position(user_text: str | None) -> bool:
 
 def wants_sharper_tone(user_text: str | None) -> bool:
     return contains_any_token(user_text, SHARPER_TONE_TOKENS)
+
+
+def wants_attention_hook(user_text: str | None) -> bool:
+    return contains_any_token(user_text, ATTENTION_HOOK_TOKENS)
+
+
+def looks_like_capability_query(user_text: str | None) -> bool:
+    raw_text = str(user_text or "").strip()
+    if not raw_text:
+        return False
+    return contains_any_token(raw_text, CAPABILITY_QUERY_TOKENS)

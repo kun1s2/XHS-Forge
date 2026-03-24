@@ -43,7 +43,7 @@ async def run_6d_radar_test():
     print("\n--- 🏁 测试结果审计报告 ---")
     
     # 1. 审计现代 gateway / planner 信号
-    intent_v2 = final_state.get("intent_result_v2") or {}
+    intent_v2 = final_state.get("intent_decision") or {}
     planner_output = final_state.get("planner_output") or {}
     print(
         "🎭 [网关探测] "

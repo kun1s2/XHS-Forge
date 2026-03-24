@@ -3,10 +3,11 @@
     <div class="pointer-events-none absolute inset-0 opacity-80" :style="{ background: 'radial-gradient(circle at top left, color-mix(in srgb, var(--primary-vibe) 15%, white 85%) 0%, transparent 34%), radial-gradient(circle at bottom right, rgba(15,23,42,0.05) 0%, transparent 40%)' }"></div>
 
     <div class="relative flex flex-col gap-3">
-      <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center justify-between gap-3 rounded-[24px] p-2" :style="localHighlightStyle(recentFields.has('feature_meta'))">
         <div>
-          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">参数解读</div>
-          <h3 class="mt-2 text-lg font-black leading-tight" :style="{ color: 'var(--text-color)' }">把关键参数翻译成购买判断</h3>
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">{{ cardEyebrow }}</div>
+          <h3 class="mt-2 text-lg font-black leading-tight" :style="{ color: 'var(--text-color)' }">{{ cardTitle }}</h3>
+          <p class="mt-2 text-[12px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">{{ cardSummary }}</p>
         </div>
         <div class="rounded-full border px-3 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)', color: 'var(--text-muted)' }">
           {{ verifiedCount }} 条已确认 / {{ cautionCount }} 条需保守表达
@@ -29,7 +30,7 @@
         v-for="(item, idx) in specItems"
         :key="`${item.label}-${idx}`"
         class="rounded-[24px] border px-4 py-4 transition-all duration-200 hover:-translate-y-0.5"
-        :style="rowStyle(item.status)"
+        :style="{ ...rowStyle(item.status), ...localHighlightStyle(changedItemIndices.has(idx) || recentFields.has('spec_items')) }"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="flex items-start gap-3">
@@ -48,14 +49,14 @@
 
         <div class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
           <div class="rounded-[18px] border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'rgba(255,255,255,0.68)' }">
-            <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">为什么重要</div>
+            <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">这条信息为什么值得看</div>
             <div class="mt-2 text-[13px] leading-relaxed font-medium" :style="{ color: 'var(--text-color)' }">{{ item.decisionImpact }}</div>
             <div v-if="item.hint" class="mt-2 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">{{ item.hint }}</div>
           </div>
           <SourceDrilldownPanel
             v-if="item.sourceItems.length || item.sources.length || item.confidence || item.fields.length || item.hint"
-            context-label="参数依据"
-            trigger-label="查看参数依据"
+            :context-label="drilldownContextLabel"
+            :trigger-label="drilldownTriggerLabel"
             :sources="item.sources"
             :source-items="item.sourceItems"
             :fields="item.fields"
@@ -67,7 +68,7 @@
             class="rounded-[18px] border px-3 py-3 text-[11px] font-medium"
             :style="{ borderColor: 'var(--card-border)', background: 'rgba(255,255,255,0.68)', color: 'var(--text-muted)' }"
           >
-            暂无明确来源
+            这条信息暂时还没有明确来源
           </div>
         </div>
       </article>
@@ -99,11 +100,42 @@ const props = defineProps<{
   node: any
   data: any
   style: any
+  recentChange?: { fields?: string[]; item_indices?: number[] } | null
 }>()
 
 const cssClasses = computed(() => props.style?.css_classes || '')
 const inlineStyles = computed(() => props.style?.inline_styles || {})
+const recentFields = computed(() => new Set((props.recentChange?.fields || []).map((item) => String(item))))
+const changedItemIndices = computed(() => new Set((props.recentChange?.item_indices || []).map((value) => Number(value))))
+const localHighlightStyle = (active: boolean) => active
+  ? {
+      borderColor: 'rgba(251,191,36,0.58)',
+      background: 'linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.92) 100%)',
+      boxShadow: '0 0 0 1px rgba(251,191,36,0.18), 0 16px 32px rgba(251,191,36,0.12)',
+    }
+  : {}
 const featureMeta = computed(() => Array.isArray(props.data?.feature_meta) ? props.data.feature_meta : [])
+const cardMode = computed(() => String(props.data?.mode || 'purchase_judgment'))
+
+const cardEyebrow = computed(() => {
+  if (cardMode.value === 'store_facts') return '到店前先看'
+  if (cardMode.value === 'neutral_facts') return '关键信息'
+  return '买前先看'
+})
+
+const cardTitle = computed(() => {
+  if (cardMode.value === 'store_facts') return '到店前先看这几条'
+  if (cardMode.value === 'neutral_facts') return '先看这几条关键信息'
+  return '值不值得买，先看这几条'
+})
+
+const cardSummary = computed(() => {
+  if (cardMode.value === 'store_facts') return '把人均、招牌、排队和适合人群整理清楚，让到店前的信息更好读。'
+  if (cardMode.value === 'neutral_facts') return '把零散事实整理成一组更容易理解的信息。'
+  return '把关键参数和预算边界整理清楚，方便快速做判断。'
+})
+const drilldownContextLabel = computed(() => (cardMode.value === 'purchase_judgment' ? '参数依据' : '信息依据'))
+const drilldownTriggerLabel = computed(() => (cardMode.value === 'purchase_judgment' ? '查看参数依据' : '查看信息依据'))
 
 const normalizeSourceItems = (items: unknown) => {
   if (!Array.isArray(items)) return []
@@ -134,10 +166,10 @@ const parseFeatureText = (feature: unknown) => {
 
 const deriveDecisionImpact = (label: string) => {
   if (/[电池续航充电]/.test(label)) return '更直接决定日常使用的安全感和全天续航预期。'
-  if (/[价格预算]/.test(label)) return '更适合承接“值不值得买”和预算边界。'
-  if (/[影像拍照镜头]/.test(label)) return '更适合解释为什么这台设备会让人产生购买理由。'
+  if (/[价格预算]/.test(label)) return '更适合解释预算边界和是否值得优先考虑。'
+  if (/[影像拍照镜头]/.test(label)) return '更适合解释这台设备为什么会让人产生明显偏好。'
   if (/[性能芯片跑分]/.test(label)) return '更适合解释重度使用和长期流畅度。'
-  return '更适合作为购买判断的辅助证据，而不是孤立参数。'
+  return '更适合作为判断时的辅助依据，而不是孤立参数。'
 }
 
 const specItems = computed<SpecItem[]>(() => {

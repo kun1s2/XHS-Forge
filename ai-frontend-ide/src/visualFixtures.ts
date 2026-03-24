@@ -56,10 +56,10 @@ const buildTheme = (primary: string, accent: string, bg = '#fff8f7') => ({
 
 const mateHeroA = '/demo-assets/mate-hero-a.jpg'
 const mateHeroB = '/demo-assets/mate-hero-b.jpg'
-const travelHeroA = '/demo-assets/travel-hero-a.jpg'
-const travelHeroB = '/demo-assets/travel-hero-b.jpg'
-const dailyHero = '/demo-assets/daily-hero.jpg'
-const dailyCoffee = '/demo-assets/daily-coffee.jpg'
+const digitalAltA = '/demo-assets/travel-hero-a.jpg'
+const digitalAltB = '/demo-assets/travel-hero-b.jpg'
+const digitalLifestyle = '/demo-assets/daily-hero.jpg'
+const digitalDesk = '/demo-assets/daily-coffee.jpg'
 
 export const visualFixtures: VisualFixture[] = [
   {
@@ -184,31 +184,34 @@ export const visualFixtures: VisualFixture[] = [
     },
   },
   {
-    id: 'travel_story',
-    title: '旅行生活方式页',
-    description: '重点观察封面、地点卡和氛围块是否和主题一致，而不是随便混入无关内容。',
+    id: 'seeding_camera_focus',
+    title: '影像路线决策页',
+    description: '重点观察封面、证据卡和叙事块是否能把“为什么值得买”讲清楚，而不是只堆参数。',
     noteDocument: {
       document_meta: {
-        title: '阿那亚一日游：不赶行程，也能把海边过得很满',
-        scenarios: ['travel'],
+        title: 'Mate 60 影像路线：如果你最在意照片风格，这页该怎么讲',
+        scenarios: ['seeding'],
       },
-      theme: buildTheme('#4f46e5', '#dbeafe', '#f6f7ff'),
+      theme: buildTheme('#2563eb', '#dbeafe', '#f6f7ff'),
       blocks: [
         {
           id: 'cover_1',
           type: 'CoverSwiper',
           semantic_role: 'hero_media',
           props: {
-            image_urls: [travelHeroA, travelHeroB],
+            image_urls: [digitalAltA, digitalAltB],
           },
         },
         {
-          id: 'location_1',
-          type: 'LocationBlock',
-          semantic_role: 'location_info',
+          id: 'spec_camera_1',
+          type: 'ProductSpecCard',
+          semantic_role: 'fact_list',
           props: {
-            poi_name: '阿那亚社区',
-            location: '从园区步行到海边、书店和礼堂都很顺，路线建议围绕海边散步和日落展开。',
+            spec_items: [
+              { label: '主观第一印象', value: '更容易拍出“直接能发”的成片感。', status: 'verified', decision_impact: '适合把影像偏好作为第一购买理由的人。', sources: ['样张与主观体验'] },
+              { label: '夜景风格', value: '夜景更偏克制，不会一味拉高亮。', status: 'default', decision_impact: '适合解释它的风格路线，而不是简单写成“夜景更强”。', sources: ['夜景样张'] },
+              { label: '风险边界', value: '如果你最在意第三方视频工作流，需要更保守判断。', status: 'caution', decision_impact: '适合作为风险边界而不是一票否决。', sources: ['创作工作流体验'] },
+            ],
           },
         },
         {
@@ -217,8 +220,8 @@ export const visualFixtures: VisualFixture[] = [
           semantic_role: 'narrative_text',
           props: {
             paragraphs: [
-              '这篇攻略不追求把景点打卡清单塞满，而是更强调“什么时候去、怎么走、哪里最容易出片”。',
-              '如果时间只有一天，最值得保留的是海边散步、书店停留和傍晚那段光线变化。',
+              '这页不追求把影像参数铺满，而是更强调“这台手机拍出来到底是什么感觉”。',
+              '如果你选手机的第一判断标准是出片风格和稳定性，这类表达会比单纯列参数更能帮助决策。',
             ],
           },
         },
@@ -227,11 +230,11 @@ export const visualFixtures: VisualFixture[] = [
           type: 'WeatherPolaroid',
           semantic_role: 'ambience_snapshot',
           props: {
-            image_url: travelHeroB,
-            caption: '当天的海风偏软，晚霞落下来的那十几分钟最适合慢慢走。',
-            location: '阿那亚海边步道',
-            weather: 'Cloudy',
-            time: '18:24',
+            image_url: digitalAltB,
+            caption: '这类图片区块更适合承接“影像调性”而不是装饰性摆图。',
+            location: '样张氛围参考',
+            weather: 'Tone Study',
+            time: 'Camera Focus',
           },
         },
       ],
@@ -239,13 +242,13 @@ export const visualFixtures: VisualFixture[] = [
     },
   },
   {
-    id: 'daily_share',
-    title: '日常分享页',
-    description: '检查轻叙事场景下的封面、正文和互动块是否舒服，不会过度工业化。',
+    id: 'seeding_budget_pick',
+    title: '预算导向决策页',
+    description: '检查轻叙事场景下的封面、正文和互动块是否还能服务购买决策，而不是滑回日常分享页。',
     noteDocument: {
       document_meta: {
-        title: '周末书店散步：没有特别安排，也能过得很完整',
-        scenarios: ['daily_share'],
+        title: '预算 5000 左右，为什么这几台更值得优先看',
+        scenarios: ['seeding'],
       },
       theme: buildTheme('#f97316', '#fde68a', '#fffaf4'),
       blocks: [
@@ -254,7 +257,7 @@ export const visualFixtures: VisualFixture[] = [
           type: 'CoverSwiper',
           semantic_role: 'hero_media',
           props: {
-            image_urls: [dailyHero],
+            image_urls: [digitalLifestyle],
           },
         },
         {
@@ -262,7 +265,7 @@ export const visualFixtures: VisualFixture[] = [
           type: 'TitleBlock',
           semantic_role: 'heading',
           props: {
-            title: '周末书店散步：没有特别安排，也能过得很完整',
+            title: '预算 5000 左右，这几台为什么更值得先看',
           },
         },
         {
@@ -271,8 +274,8 @@ export const visualFixtures: VisualFixture[] = [
           semantic_role: 'narrative_text',
           props: {
             paragraphs: [
-              '比起赶着打卡，我更喜欢把周末留给“慢慢走”和“随便看一会儿书”这种没有强任务感的动作。',
-              '真正让人恢复状态的，不一定是多有效率，而是那种走进一家空间、突然觉得心里安静下来的时刻。',
+              '预算导向的购买决策，不是把最贵的那台写得最强，而是把“哪些地方最值、哪些地方该忍”讲清楚。',
+              '真正能帮助用户下单的，不是参数百科，而是把预算、体验和风险边界一起落下来。',
             ],
           },
         },
@@ -281,9 +284,9 @@ export const visualFixtures: VisualFixture[] = [
           type: 'PollBlock',
           semantic_role: 'interactive_opinion',
           props: {
-            question: '如果是你，周末更想去书店还是咖啡馆？',
-            option_a: '我想去书店，慢慢翻一会儿',
-            option_b: '我还是更想找家咖啡馆坐着',
+            question: '如果预算 5000 左右，你会更优先看哪种路线？',
+            option_a: '先看整机均衡感',
+            option_b: '先看影像和亮点',
           },
         },
       ],
@@ -297,7 +300,7 @@ export const visualFixtures: VisualFixture[] = [
     noteDocument: {
       document_meta: {
         title: '一台产品从参数判断到购买建议的完整摘要',
-        scenarios: ['seeding', 'general'],
+        scenarios: ['seeding'],
       },
       theme: buildTheme('#2563eb', '#dbeafe', '#f8fbff'),
       blocks: [
@@ -354,8 +357,8 @@ export const visualFixtures: VisualFixture[] = [
     description: '一页里把当前所有正式积木都摆出来，专门用于整体视觉和比例检查。',
     noteDocument: {
       document_meta: {
-        title: 'XHS-Forge 全积木总览',
-        scenarios: ['general', 'seeding', 'travel', 'daily_share'],
+        title: 'XHS-Forge 数码决策积木总览',
+        scenarios: ['seeding'],
       },
       theme: buildTheme('#ec4899', '#fde7f3', '#fff8fc'),
       blocks: [
@@ -500,8 +503,8 @@ export const visualFixtures: VisualFixture[] = [
           type: 'WeatherPolaroid',
           semantic_role: 'ambience_snapshot',
           props: {
-            image_url: dailyCoffee,
-            desc: '这一块现在应该只负责给页面加一点呼吸感，而不是突然跑成完全无关的风景图。',
+            image_url: digitalDesk,
+            desc: '这一块现在应该只负责给页面加一点呼吸感，而不是突然跑成完全无关的生活方式图片。',
             weather: 'Soft Light',
             temperature: '22°C',
             time: '17:40',

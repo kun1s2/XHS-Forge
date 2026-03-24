@@ -47,6 +47,41 @@ def test_build_component_contract_text_surfaces_semantic_role_and_quick_actions(
     assert "快捷动作" in contract_text
 
 
+def test_tone_rewrite_fallback_can_make_versus_card_more_attention_grabbing():
+    patch = _build_tone_rewrite_fallback(
+        "内容改成更加吸引用户眼球",
+        {"component_type": "VersusCard"},
+        {
+            "type": "VersusCard",
+            "title": "Mate 60 到底值不值得买",
+            "pros": {"summary": "亮点不少"},
+            "cons": {"summary": "代价也不小"},
+        },
+    )
+
+    assert patch["title"].startswith("先看结论：")
+    assert patch["decision_hint"]
+    assert patch["pros"]["summary"].startswith("亮点先摆出来：")
+    assert patch["cons"]["summary"].startswith("但也别忽略：")
+
+
+def test_tone_rewrite_fallback_can_make_product_spec_card_more_attention_grabbing():
+    patch = _build_tone_rewrite_fallback(
+        "内容改成更加吸引用户眼球",
+        {"component_type": "ProductSpecCard"},
+        {
+            "type": "ProductSpecCard",
+            "spec_items": [
+                {"label": "价格", "value": "5499 元", "decision_impact": ""},
+                {"label": "电池", "value": "4750mAh", "decision_impact": "决定续航预期"},
+            ],
+        },
+    )
+
+    assert patch["spec_items"][0]["value"].startswith("先看：")
+    assert patch["spec_items"][0]["decision_impact"]
+
+
 def test_route_intent_prefers_note_editor_for_local_selected_edits():
     assert route_intent({"intent_route": "patch_node", "selected_element_id": "poll_1"}) == "note_editor"
     assert route_intent({"intent_route": "research_agent", "selected_element_id": "story_1"}) == "note_editor"
@@ -91,14 +126,14 @@ def test_route_intent_prefers_note_editor_for_existing_canvas_brief_edit_command
 
 
 def test_route_intent_prefers_v2_gateway_contract_for_create_and_edit():
-    assert route_intent({"intent_result_v2": {"task_type": "create", "edit_scope": "none", "needs_research": True}}) == "research_agent"
-    assert route_intent({"intent_result_v2": {"task_type": "edit", "edit_scope": "global", "needs_research": False}}) == "note_editor"
-    assert route_intent({"intent_result_v2": {"task_type": "refuse", "edit_scope": "none", "needs_research": False}}) == "refusal_node"
+    assert route_intent({"intent_decision": {"task_type": "create", "edit_scope": "none", "needs_research": True}}) == "research_agent"
+    assert route_intent({"intent_decision": {"task_type": "edit", "edit_scope": "global", "needs_research": False}}) == "note_editor"
+    assert route_intent({"intent_decision": {"task_type": "refuse", "edit_scope": "none", "needs_research": False}}) == "refusal_node"
 
 
 def test_route_intent_prefers_selected_scope_from_v2_contract():
     state = {
-        "intent_result_v2": {"task_type": "edit", "edit_scope": "selected_block", "needs_research": False},
+        "intent_decision": {"task_type": "edit", "edit_scope": "selected_block", "needs_research": False},
         "selected_element_id": "story_1",
     }
     assert route_intent(state) == "note_editor"

@@ -185,7 +185,7 @@ const fillPrompt = (trend: TrendItem) => {
 const runTrend = (trend: TrendItem) => {
   const prompt = trend.recommended_prompt || fallbackPrompt(trend)
   chatStore.sendMessage(prompt)
-  chatStore.setWorkspaceMode('preview')
+  chatStore.setWorkspaceMode('session_preview')
 }
 
 const followTrend = async (keyword: string) => {
@@ -193,19 +193,13 @@ const followTrend = async (keyword: string) => {
 }
 
 const scenarioLabel = (scenario?: string) => {
-  if (scenario === 'seeding') return '数码测评'
-  if (scenario === 'travel') return '旅行攻略'
-  if (scenario === 'daily_share') return '日常分享'
-  if (scenario === 'store_review') return '探店推荐'
-  return '通用话题'
+  if (scenario === 'seeding') return '数码购买决策'
+  return '数码热点'
 }
 
 const entityTypeLabel = (entityType?: string) => {
   if (entityType === 'digital_product') return '数码实体'
-  if (entityType === 'travel_destination') return '地点实体'
-  if (entityType === 'storefront') return '店铺实体'
-  if (entityType === 'lifestyle_topic') return '生活方式'
-  return '主题'
+  return '产品主题'
 }
 
 const freshnessLabel = (freshness?: string) => {

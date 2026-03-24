@@ -2,7 +2,11 @@
 // Keep protocol picking, NoteDocument summaries, and lightweight text summaries
 // here so `useChatStore.ts` can remain the orchestration entrypoint.
 import type {
+  AgentNarrativeCard,
   AgentBackends,
+  ChangedBlockTrace,
+  ConversationCheckpointAction,
+  ConversationCheckpointOption,
   ImageAsset,
   InspectorSummary,
   NoteDocument,
@@ -64,7 +68,26 @@ const componentLabelMap: Record<string, string> = {
   WeatherPolaroid: '氛围图卡',
 }
 
-export const pickCheckpointId = (data: WsData) => data.checkpoint_id ?? data.checkpointId ?? null
+const archetypeLabels: Record<string, string> = {
+  seeding: '数码购买决策档案',
+  general: '数码购买决策档案',
+}
+
+const statusFallbackByNode: Record<string, string> = {
+  intent_agent: '我正在理解你这轮到底想把页面往哪个方向推进。',
+  research_agent: '我正在补搜这轮最关键的外部信息。',
+  note_editor: '我正在按你的要求定向修改页面内容。',
+  theme_compiler: '我正在把结构和视觉细节收得更完整。',
+  document_renderer: '我正在把最新页面打包成可预览版本。',
+}
+
+export const pickCheckpointId = (data: WsData) => (
+  data.checkpoint_id
+  ?? data.checkpointId
+  ?? data.current_checkpoint_id
+  ?? data.currentCheckpointId
+  ?? null
+)
 export const pickOssUrl = (data: WsData) => data.oss_url ?? data.ossUrl ?? null
 export const pickNodePrompts = (data: WsData) => data.node_prompts ?? data.nodePrompts ?? {}
 export const pickImageAssets = (data: WsData) => data.image_assets ?? data.imageAssets ?? []
@@ -76,6 +99,236 @@ export const pickPlannerPolicy = (data: WsData): PlannerPolicy => (data.planner_
 export const pickAgentBackends = (data: WsData): AgentBackends => (data.agent_backends ?? data.agentBackends ?? {}) as AgentBackends
 export const pickTurnTrace = (data: WsData): TurnTrace => (data.turn_trace ?? data.turnTrace ?? {}) as TurnTrace
 export const pickInspectorSummary = (data: WsData): InspectorSummary => (data.inspector_summary ?? data.inspectorSummary ?? {}) as InspectorSummary
+
+export const getRecentlyChangedBlockIds = (trace: TurnTrace | null | undefined) => {
+  const ids = new Set<string>()
+  const changedBlocks = Array.isArray(trace?.changed_blocks) ? (trace.changed_blocks as ChangedBlockTrace[]) : []
+
+  for (const item of changedBlocks) {
+    const id = String(item?.id || '').trim()
+    if (id && id !== 'global') ids.add(id)
+  }
+
+  const noteEditorTarget = String(trace?.note_editor?.target_block_id || trace?.note_editor?.block_id || '').trim()
+  if (noteEditorTarget && noteEditorTarget !== 'global') ids.add(noteEditorTarget)
+
+  const workspaceTarget = String(trace?.workspace_action?.target_block_id || trace?.workspace_action?.block_id || '').trim()
+  if (workspaceTarget && workspaceTarget !== 'global') ids.add(workspaceTarget)
+
+  return Array.from(ids)
+}
+
+export const getComponentLabel = (componentType: string | null | undefined) =>
+  componentLabelMap[String(componentType || '')] || String(componentType || '当前积木')
+
+export const buildAgentPlanCard = (params: {
+  query: string
+  trace?: TurnTrace | null
+  selectedBlockLabel?: string | null
+  selectedElementId?: string | null
+  messageKind?: string | null
+}) : AgentNarrativeCard => {
+  const trace = params.trace || {}
+  const plan = trace.agent_plan || {}
+  const selectedBlockLabel = String(params.selectedBlockLabel || '').trim()
+  if (plan.title) {
+    const bullets = [
+      ...((Array.isArray(plan.steps) ? plan.steps : []).map((item) => String(item || '').trim()).filter(Boolean)),
+      ...((Array.isArray(plan.watch_points) ? plan.watch_points : []).map((item) => String(item || '').trim()).filter(Boolean)),
+    ]
+    return {
+      title: String(plan.title),
+      summary: String(plan.summary || ''),
+      bullets: bullets.slice(0, 4),
+    }
+  }
+
+  if (params.messageKind === 'critique_action') {
+    return {
+      title: '我先按你刚才选中的复盘建议继续收口',
+      summary: '这次我会沿着最影响完成度的问题继续优化，而不是整页重来。',
+      bullets: ['先锁定修改范围', '再按建议定向收紧页面', '最后确认这一轮是否还留有明显缺口'],
+    }
+  }
+
+  if (selectedBlockLabel && params.selectedElementId && !['无', '无 (全局修改)', 'none', 'global'].includes(params.selectedElementId)) {
+    return {
+      title: `我会先处理你刚选中的「${selectedBlockLabel}」`,
+      summary: '这次优先按局部编辑来做，尽量不扩大到整页重写。',
+      bullets: ['先锁定这块当前承担的作用', '只改你提到的内容区域', '改完再把变化明确标出来给你看'],
+    }
+  }
+
+  const active = String(trace.route?.active_archetype || 'general')
+  const archetypeLabel = archetypeLabels[active] || '内容页'
+  return {
+    title: `我先按${archetypeLabel}的思路把这页搭起来`,
+    summary: `我理解你这轮想处理的是：${params.query || '当前页面'}。`,
+    bullets: [
+      '先判断这页最适合哪种结构方向',
+      '再补当前最影响质量的事实或素材',
+      '最后把结构、语气和重点收成完整页面',
+    ],
+  }
+}
+
+export const buildAgentStatusCard = (params: {
+  currentNode?: string | null
+  thoughtText?: string | null
+}) : AgentNarrativeCard => {
+  const summary = String(params.thoughtText || '').trim() || statusFallbackByNode[String(params.currentNode || '')] || '我正在继续推进这一轮。'
+  return {
+    title: '我正在继续推进这一轮',
+    summary,
+  }
+}
+
+export const buildAgentSummaryCard = (trace: TurnTrace | null | undefined): AgentNarrativeCard | null => {
+  const summary = trace?.agent_summary
+  if (!summary) return null
+  const bullets = [
+    ...((Array.isArray(summary.remaining_gaps) ? summary.remaining_gaps : []).map((item) => `还剩：${String(item || '').trim()}`).filter(Boolean)),
+    ...((Array.isArray(summary.next_actions) ? summary.next_actions : []).map((item) => `下一步可做：${String(item || '').trim()}`).filter(Boolean)),
+  ]
+  return {
+    title: String(summary.title || '这一轮我已经先帮你推进到这里'),
+    summary: String(summary.summary || ''),
+    bullets: bullets.slice(0, 4),
+  }
+}
+
+export const buildCheckpointReceiptCard = (
+  action: ConversationCheckpointAction,
+  option: ConversationCheckpointOption,
+  customNote?: string,
+): AgentNarrativeCard => {
+  const bullets = [String(option.description || '').trim(), customNote ? `你的补充：${customNote}` : '']
+    .filter(Boolean)
+  return {
+    title: `我会按「${option.label}」继续`,
+    summary: String(action.title || action.summary || '我已经接收到这次关键决策。'),
+    bullets,
+  }
+}
+
+export const buildCritiqueReceiptCard = (recipe: {
+  label: string
+  prompt?: string
+  scope?: string
+  why_now?: string
+  expected_effect?: string
+  expected_blocks?: string[]
+}): AgentNarrativeCard => ({
+  title: `我会按「${recipe.label}」继续处理`,
+  summary: String(recipe.why_now || '这次我会按你刚才选中的复盘建议继续收口。'),
+  bullets: [
+    String(recipe.expected_effect || '').trim(),
+    recipe.scope ? `处理范围：${recipe.scope}` : '',
+    (recipe.expected_blocks || []).length ? `预计会动到：${(recipe.expected_blocks || []).join(' / ')}` : '',
+  ].filter(Boolean),
+})
+
+export const buildLocalEditReceiptCard = (params: {
+  selectionLabel: string
+  prompt: string
+}) : AgentNarrativeCard => ({
+  title: `这次我先处理「${params.selectionLabel}」`,
+  summary: '我会优先按这块的局部目标来改，不顺手扩大到无关区域。',
+  bullets: [String(params.prompt || '').trim()],
+})
+
+type RecentBlockHighlight = {
+  fields: string[]
+  paragraph_indices?: number[]
+  item_indices?: number[]
+}
+
+const stableStringify = (value: unknown) => JSON.stringify(value ?? null)
+
+const valuesDiffer = (before: unknown, after: unknown) => stableStringify(before) !== stableStringify(after)
+
+const collectChangedIndices = (before: unknown[], after: unknown[]) => {
+  const maxLength = Math.max(before.length, after.length)
+  const changed: number[] = []
+  for (let idx = 0; idx < maxLength; idx += 1) {
+    if (valuesDiffer(before[idx], after[idx])) changed.push(idx)
+  }
+  return changed
+}
+
+export const buildRecentlyChangedBlockDetails = (
+  previousDoc: NoteDocument | null | undefined,
+  nextDoc: NoteDocument | null | undefined,
+  trace: TurnTrace | null | undefined,
+) => {
+  const result: Record<string, RecentBlockHighlight> = {}
+  const changedIds = getRecentlyChangedBlockIds(trace)
+
+  for (const blockId of changedIds) {
+    const previousBlock = getDocumentBlockById(previousDoc, blockId)
+    const nextBlock = getDocumentBlockById(nextDoc, blockId)
+    if (!nextBlock) continue
+
+    const previousProps = (previousBlock?.props || {}) as Record<string, unknown>
+    const nextProps = (nextBlock?.props || {}) as Record<string, unknown>
+    const componentType = String(nextBlock.type || '')
+    const meta: RecentBlockHighlight = { fields: [] }
+
+    if (componentType === 'CoverSwiper') {
+      if (valuesDiffer(previousProps.title, nextProps.title) || valuesDiffer(previousProps.subtitle, nextProps.subtitle)) meta.fields.push('title')
+      if (valuesDiffer(previousProps.description, nextProps.description) || valuesDiffer(previousProps.frame_headlines, nextProps.frame_headlines) || valuesDiffer(previousProps.frame_captions, nextProps.frame_captions)) meta.fields.push('description')
+      if (valuesDiffer(previousProps.deck_summary, nextProps.deck_summary)) meta.fields.push('deck_summary')
+      if (valuesDiffer(previousProps.image_urls, nextProps.image_urls) || valuesDiffer(previousProps.image_url, nextProps.image_url)) meta.fields.push('images')
+    } else if (componentType === 'VersusCard') {
+      if (valuesDiffer(previousProps.title, nextProps.title)) meta.fields.push('title')
+      if (valuesDiffer(previousProps.pros, nextProps.pros) || valuesDiffer(previousProps.proText, nextProps.proText)) meta.fields.push('pros')
+      if (valuesDiffer(previousProps.cons, nextProps.cons) || valuesDiffer(previousProps.conText, nextProps.conText)) meta.fields.push('cons')
+      if (valuesDiffer(previousProps.decision_hint, nextProps.decision_hint) || valuesDiffer(previousProps.risk_note, nextProps.risk_note)) meta.fields.push('decision')
+    } else if (componentType === 'PollBlock') {
+      if (valuesDiffer(previousProps.question, nextProps.question)) meta.fields.push('question')
+      if (
+        valuesDiffer(previousProps.options, nextProps.options)
+        || valuesDiffer(previousProps.option_a, nextProps.option_a)
+        || valuesDiffer(previousProps.option_b, nextProps.option_b)
+        || valuesDiffer(previousProps.option_c, nextProps.option_c)
+        || valuesDiffer(previousProps.option_cards, nextProps.option_cards)
+      ) meta.fields.push('options')
+    } else if (componentType === 'StoryText') {
+      const paragraphIndex = Number(trace?.note_editor?.paragraph_index)
+      if (Number.isInteger(paragraphIndex) && paragraphIndex >= 0 && String(trace?.note_editor?.target_block_id || '') === blockId) {
+        meta.fields.push('paragraphs')
+        meta.paragraph_indices = [paragraphIndex]
+      } else {
+        const previousParagraphs = Array.isArray(previousProps.paragraphs) ? previousProps.paragraphs : []
+        const nextParagraphs = Array.isArray(nextProps.paragraphs) ? nextProps.paragraphs : []
+        const changedParagraphs = collectChangedIndices(previousParagraphs, nextParagraphs)
+        if (changedParagraphs.length) {
+          meta.fields.push('paragraphs')
+          meta.paragraph_indices = changedParagraphs
+        }
+      }
+    } else if (componentType === 'ProductSpecCard') {
+      if (valuesDiffer(previousProps.spec_items, nextProps.spec_items) || valuesDiffer(previousProps.core_features, nextProps.core_features)) {
+        meta.fields.push('spec_items')
+        const previousItems = Array.isArray(previousProps.spec_items) ? previousProps.spec_items : (Array.isArray(previousProps.core_features) ? previousProps.core_features : [])
+        const nextItems = Array.isArray(nextProps.spec_items) ? nextProps.spec_items : (Array.isArray(nextProps.core_features) ? nextProps.core_features : [])
+        meta.item_indices = collectChangedIndices(previousItems, nextItems)
+      }
+      if (valuesDiffer(previousProps.feature_meta, nextProps.feature_meta)) meta.fields.push('feature_meta')
+    }
+
+    if (!meta.fields.length) {
+      const rawChangedFields = Array.isArray((trace?.changed_blocks || []).find((item) => String(item?.id || '') === blockId)?.changed_fields)
+        ? (((trace?.changed_blocks || []).find((item) => String(item?.id || '') === blockId)?.changed_fields || []) as string[])
+        : []
+      meta.fields = rawChangedFields.length ? rawChangedFields.map((field) => String(field)) : ['content']
+    }
+
+    result[blockId] = meta
+  }
+
+  return result
+}
 
 export const dedupeImageAssets = (assets: ImageAsset[]) => {
   const deduped = new Map<string, ImageAsset>()
@@ -277,7 +530,7 @@ export const getPendingFactConflictCount = (knowledge: RetrievedKnowledge | null
 const appendPendingFactHint = (text: string, knowledge: RetrievedKnowledge | null | undefined) => {
   const pendingCount = getPendingFactConflictCount(knowledge)
   if (!pendingCount) return text
-  return `${text} 当前有 ${pendingCount} 个待确认事实，系统已自动采用保守表达，建议在右侧 Agent 状态中确认。`
+  return `${text} 当前有 ${pendingCount} 个待确认事实，系统已自动采用保守表达，可以继续在聊天区确认或修正。`
 }
 
 export const buildAssistantResultText = (
@@ -287,7 +540,7 @@ export const buildAssistantResultText = (
   knowledge?: RetrievedKnowledge | null,
 ) => {
   const blocks = Array.isArray(page?.blocks) ? page.blocks : []
-  if (!blocks.length) return '页面已更新，可以在右侧预览继续查看和编辑。'
+  if (!blocks.length) return '页面已更新，可以继续查看和编辑。'
 
   const currentTypes = blocks
     .map((block: Record<string, any>) => String(block?.component_type || ''))

@@ -160,8 +160,15 @@ EDITABLE_TARGET_TOKEN_MAP = {
     "option_a": ["选项", "投票"],
     "option_b": ["选项", "投票"],
     "core_features": ["参数", "规格", "配置", "证据", "事实"],
+    "spec_items": ["参数标题", "参数表达", "参数项", "参数卡", "规格项"],
+    "feature_meta": ["边界提醒", "确认提醒", "保守表达", "参数提醒"],
     "image_urls": ["封面", "配图", "图片", "首图"],
     "image_url": ["封面", "配图", "图片", "首图"],
+    "description": ["说明", "文案", "画面说明", "首图说明", "图片说明"],
+    "deck_summary": ["摘要", "下方说明", "轮播说明", "整体说明", "底部说明"],
+    "frame_headlines": ["首图标题", "封面标题", "画面标题"],
+    "frame_captions": ["首图文案", "画面文案", "图片文案", "轮播文案"],
+    "metrics": ["结论摘要", "雷达总结", "维度理由", "判断说明"],
     "pros": ["优点", "正方", "支持", "左边", "左侧观点"],
     "cons": ["反方", "缺点", "槽点", "右边", "右侧观点"],
     "decision_hint": ["结论", "怎么选", "建议"],
@@ -173,7 +180,7 @@ EDITABLE_TARGET_TOKEN_MAP = {
 ACTION_EDITABLE_TARGET_MAP = {
     "rewrite_paragraph": {"paragraphs"},
     "update_page_title": {"title", "subtitle"},
-    "update_block": {"title", "subtitle", "paragraphs", "question", "option_a", "option_b", "core_features", "image_url", "image_urls", "pros", "cons", "decision_hint", "risk_note", "quote", "events"},
+    "update_block": {"title", "subtitle", "paragraphs", "question", "option_a", "option_b", "core_features", "spec_items", "feature_meta", "image_url", "image_urls", "description", "deck_summary", "frame_headlines", "frame_captions", "metrics", "pros", "cons", "decision_hint", "risk_note", "quote", "events"},
     "append_block": set(),
 }
 
@@ -566,14 +573,51 @@ def _extract_rewritable_payload_fields(payload: dict[str, Any]) -> dict[str, Any
         "option_a",
         "option_b",
         "desc",
+        "description",
+        "deck_summary",
         "quote",
         "paragraphs",
+        "frame_headlines",
+        "frame_captions",
     ]:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             rewritable[key] = value
         elif isinstance(value, list) and value and all(isinstance(item, str) for item in value):
             rewritable[key] = value
+    metrics = payload.get("metrics")
+    if isinstance(metrics, list):
+        normalized_metrics = []
+        for item in metrics:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            evidence = str(item.get("evidence") or "").strip()
+            if label or reason or evidence:
+                normalized_metrics.append({
+                    "label": label,
+                    "reason": reason,
+                    "evidence": evidence,
+                })
+        if normalized_metrics:
+            rewritable["metrics"] = normalized_metrics
+    for key in ["spec_items", "feature_meta"]:
+        value = payload.get(key)
+        if isinstance(value, list):
+            normalized_items = []
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                normalized = {
+                    field: str(item.get(field) or "").strip()
+                    for field in ("label", "value", "decision_impact", "hint")
+                    if str(item.get(field) or "").strip()
+                }
+                if normalized:
+                    normalized_items.append(normalized)
+            if normalized_items:
+                rewritable[key] = normalized_items
     for key in ["pros", "cons"]:
         value = payload.get(key)
         if isinstance(value, dict):
@@ -604,6 +648,9 @@ def _stringify_block_context(block: dict[str, Any], payload: dict[str, Any]) -> 
             parts.append(value.strip().lower())
         elif isinstance(value, list):
             parts.extend(str(item).strip().lower() for item in value if isinstance(item, str) and item.strip())
+            for item in value:
+                if isinstance(item, dict):
+                    parts.extend(str(field_value).strip().lower() for field_value in item.values() if isinstance(field_value, str) and field_value.strip())
     return " ".join(parts)
 
 

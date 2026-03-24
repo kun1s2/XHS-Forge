@@ -15,6 +15,7 @@ from app.agents.tools_registry import PATCH_TOOLS
 from app.core.note_document import build_note_document_from_state
 from app.core.prompt_engineering import build_prompt_snapshot, render_string_prompt
 from langchain_core.messages import AIMessage
+from app.core.tool_safety import truth_safe_tool_middleware
 
 async def surgical_patch_agent(state: UIProjectState) -> dict:
     """
@@ -60,6 +61,7 @@ async def surgical_patch_agent(state: UIProjectState) -> dict:
         tools=PATCH_TOOLS,
         name="patch_doctor",
         prompt=system_prompt,
+        middleware=[truth_safe_tool_middleware],
     )
 
     try:

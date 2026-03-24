@@ -23,6 +23,7 @@ import type {
   PreviewInteractionMode,
   RetrievedKnowledge,
   ShowcaseProfile,
+  TraceExportBundle,
   TrendItem,
   TurnTrace,
   WSEvent,
@@ -30,8 +31,15 @@ import type {
   WorkspaceViewMode,
 } from '../types/chat'
 import {
+  buildAgentPlanCard,
+  buildAgentStatusCard,
+  buildAgentSummaryCard,
   buildAssistantResultText,
+  buildCheckpointReceiptCard,
+  buildCritiqueReceiptCard,
+  buildLocalEditReceiptCard,
   dedupeImageAssets,
+  buildRecentlyChangedBlockDetails,
   getConfiguredApiBase,
   getDocumentBlockById,
   getDocumentPayloadById,
@@ -44,6 +52,7 @@ import {
   getPreferredRenderPageData,
   getPreferredRenderStyleData,
   getPreferredScenarioTags,
+  getRecentlyChangedBlockIds,
   normalizeShowcaseProfile,
   pickAgentBackends,
   pickCheckpointId,
@@ -58,6 +67,7 @@ import {
   pickTurnTrace,
   resolveComparablePage,
   toWsBase,
+  getComponentLabel,
 } from './chatStoreDerivations'
 import { reportFrontendObservation } from '../utils/frontendReport'
 
@@ -123,6 +133,14 @@ const normalizeConversationCheckpointAction = (raw: Record<string, unknown>): Co
       asset_url: item.asset_url ? String(item.asset_url) : null,
       selected_asset_ids: Array.isArray(item.selected_asset_ids) ? item.selected_asset_ids.map(String) : [],
       selected_fact_value: item.selected_fact_value ? String(item.selected_fact_value) : null,
+      user_provided_facts: item.user_provided_facts && typeof item.user_provided_facts === 'object'
+        ? Object.fromEntries(
+            Object.entries(item.user_provided_facts as Record<string, unknown>).map(([key, value]) => [
+              key,
+              Array.isArray(value) ? value.map((entry) => String(entry ?? '')) : String(value ?? ''),
+            ]),
+          )
+        : undefined,
     }))
     .filter((item) => item.label && item.value)
 
@@ -144,7 +162,46 @@ const normalizeConversationCheckpointAction = (raw: Record<string, unknown>): Co
     summary: String(raw.summary || raw.message || ''),
     message: String(raw.message || raw.summary || ''),
     recommended_option: String(raw.recommended_option || ''),
+    recommended_reason: raw.recommended_reason ? String(raw.recommended_reason) : undefined,
+    proposal_summary: raw.proposal_summary ? String(raw.proposal_summary) : undefined,
+    other_allowed: Boolean(raw.other_allowed),
+    other_placeholder: raw.other_placeholder ? String(raw.other_placeholder) : undefined,
     blocking: raw.blocking !== false,
+    input_schema: raw.input_schema && typeof raw.input_schema === 'object'
+      ? {
+          submit_label: (raw.input_schema as Record<string, unknown>).submit_label ? String((raw.input_schema as Record<string, unknown>).submit_label) : undefined,
+          helper_text: (raw.input_schema as Record<string, unknown>).helper_text ? String((raw.input_schema as Record<string, unknown>).helper_text) : undefined,
+          fields: Array.isArray((raw.input_schema as Record<string, unknown>).fields)
+            ? ((raw.input_schema as Record<string, unknown>).fields as Array<Record<string, unknown>>)
+                .map((field) => ({
+                  id: String(field.id || ''),
+                  label: String(field.label || ''),
+                  placeholder: field.placeholder ? String(field.placeholder) : undefined,
+                  type: field.type === 'text'
+                    ? 'text'
+                    : field.type === 'single_select'
+                      ? 'single_select'
+                      : field.type === 'multi_select'
+                        ? 'multi_select'
+                        : 'textarea',
+                  required: Boolean(field.required),
+                  options: Array.isArray(field.options)
+                    ? field.options
+                        .filter((option): option is Record<string, unknown> => !!option && typeof option === 'object')
+                        .map((option) => ({
+                          label: String(option.label || ''),
+                          value: String(option.value || ''),
+                          recommended: Boolean(option.recommended),
+                        }))
+                        .filter((option) => option.label && option.value)
+                    : [],
+                  allow_custom: Boolean(field.allow_custom),
+                  custom_placeholder: field.custom_placeholder ? String(field.custom_placeholder) : undefined,
+                }))
+                .filter((field) => field.id && field.label)
+            : [],
+        }
+      : undefined,
     options,
   }
 }
@@ -209,7 +266,7 @@ export const useChatStore = defineStore('chat', () => {
   const thoughtText = ref<string>('')
   const nodeStreamOutput = ref<string>('')
   const activePanel = ref<string>('main')
-  const workspaceMode = ref<WorkspaceViewMode>('preview')
+  const workspaceMode = ref<WorkspaceViewMode>('session_preview')
   const previewInteractionMode = ref<PreviewInteractionMode>('browse')
   const selectedComponentId = ref<string | null>(null)
   const selectedParagraphIndex = ref<number | null>(null)
@@ -233,6 +290,11 @@ export const useChatStore = defineStore('chat', () => {
   const factConfirmingField = ref<string | null>(null)
   const hoveredComponentId = ref<string | null>(null)
   const activeCheckpointId = ref<string | null>(null)
+  const lastAcceptedSessionSnapshotCheckpointId = ref<string | null>(null)
+  const lastAcceptedSessionSnapshotSource = ref<'workspace' | 'turn_end' | 'inspect' | 'recover' | 'init'>('init')
+  const pendingBlockingCheckpointAction = ref<ConversationCheckpointAction | null>(null)
+  const rollbackUndoTarget = ref<{ checkpointId: string } | null>(null)
+  const recentlyChangedBlockDetails = ref<Record<string, { fields: string[]; paragraph_indices?: number[]; item_indices?: number[] }>>({})
   const creatorPersona = ref<string>("硬核数码博主")
   const hotTrends = ref<TrendItem[]>([]) // 正式热点榜：带场景提示与新鲜度
   
@@ -278,21 +340,104 @@ export const useChatStore = defineStore('chat', () => {
     if (!selectedComponentId.value) return {}
     return getPreferredPayloadById(noteDocument.value, selectedComponentId.value)
   })
+  const recentlyChangedBlockIds = computed(() => getRecentlyChangedBlockIds(turnTrace.value))
   const hasRenderableDocument = computed(() => documentBlocks.value.length > 0)
   const interactionMode = computed<WorkbenchInteractionMode>(() => {
-    if (workspaceMode.value === 'preview') {
+    if (workspaceMode.value === 'session_preview') {
       if (selectedComponentId.value) return 'edit'
       return previewInteractionMode.value
     }
-    if (workspaceMode.value === 'assets') return 'assets'
-    if (workspaceMode.value === 'gallery') return 'gallery'
-    if (workspaceMode.value === 'trends') return 'trends'
-    if (workspaceMode.value === 'showcase') return 'showcase'
     return 'diagnostics'
   })
+  const checkpointComposerCanResolve = computed(() => {
+    const action = pendingBlockingCheckpointAction.value
+    if (!action || action.blocking === false) return false
+    if (action.action_type === 'truth_mode_checkpoint') return true
+    return Boolean(action.other_allowed)
+  })
+  const sessionSnapshotStatus = computed(() => ({
+    checkpointId: String(lastAcceptedSessionSnapshotCheckpointId.value || activeCheckpointId.value || agentMeta.value?.checkpoint_id || ''),
+    source: lastAcceptedSessionSnapshotSource.value,
+  }))
 
   let ws: WebSocket | null = null
   let renderRecoveryTimer: number | null = null
+  let activeAgentStatusMessageId: string | null = null
+  let activeAssistantResponseMessageId: string | null = null
+
+  const pickCheckpointOption = (
+    action: ConversationCheckpointAction,
+    preferredValue?: string | null,
+  ): ConversationCheckpointOption | null => {
+    const options = Array.isArray(action.options) ? action.options : []
+    if (!options.length) return null
+    const preferred = String(preferredValue || action.recommended_option || '').trim()
+    if (preferred) {
+      const matched = options.find((option) => String(option.value || '').trim() === preferred)
+      if (matched) return matched
+    }
+    return options.find((option) => option.recommended) || options[0] || null
+  }
+
+  const clearPendingBlockingCheckpointAction = () => {
+    pendingBlockingCheckpointAction.value = null
+  }
+
+  const pushAssistantNarrativeMessage = (
+    messageKind: ChatMessage['messageKind'],
+    agentCard: ChatMessage['agentCard'],
+  ) => {
+    const message: ChatMessage = {
+      id: generateId(),
+      role: 'assistant',
+      content: agentCard?.summary || '',
+      messageKind,
+      agentCard,
+      timestamp: Date.now(),
+    }
+    messages.value.push(message)
+    if (messageKind === 'agent_status') {
+      activeAgentStatusMessageId = message.id
+    }
+    return message
+  }
+
+  const upsertAgentStatusMessage = (summary: string) => {
+    const normalizedSummary = String(summary || '').trim()
+    if (!normalizedSummary) return null
+    const card = buildAgentStatusCard({
+      currentNode: currentNode.value,
+      thoughtText: normalizedSummary,
+    })
+    if (activeAgentStatusMessageId) {
+      const target = messages.value.find((msg) => msg.id === activeAgentStatusMessageId)
+      if (target) {
+        target.messageKind = 'agent_status'
+        target.agentCard = card
+        target.content = card.summary || ''
+        target.streaming = true
+        return target
+      }
+    }
+    const created = pushAssistantNarrativeMessage('agent_status', card)
+    created.streaming = true
+    return created
+  }
+
+  const finalizeAgentStatusMessage = () => {
+    if (!activeAgentStatusMessageId) return
+    const target = messages.value.find((msg) => msg.id === activeAgentStatusMessageId)
+    if (target) target.streaming = false
+    activeAgentStatusMessageId = null
+  }
+
+  const getActiveAssistantResponseMessage = () => {
+    if (activeAssistantResponseMessageId) {
+      const target = messages.value.find((msg) => msg.id === activeAssistantResponseMessageId)
+      if (target) return target
+    }
+    return null
+  }
 
   const attachCheckpointToLatestUserPrompt = (checkpointId: string | null | undefined) => {
     if (!checkpointId) return
@@ -307,6 +452,33 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // === Actions (动作) ===
+
+  const extractSnapshotCheckpointId = (data: Record<string, any> | null | undefined) => {
+    const explicit = String(
+      data?.checkpoint_id
+      || data?.checkpointId
+      || data?.current_checkpoint_id
+      || data?.currentCheckpointId
+      || '',
+    ).trim()
+    if (explicit) return explicit
+    const checkpoints = Array.isArray(data?.checkpoints) ? data?.checkpoints : []
+    for (const item of checkpoints) {
+      const candidate = String((item as Record<string, unknown>)?.checkpoint_id || '').trim()
+      if (candidate) return candidate
+    }
+    return ''
+  }
+
+  const shouldAcceptSessionSnapshot = (
+    incomingCheckpointId: string,
+    options?: { forceCheckpoint?: boolean },
+  ) => {
+    if (options?.forceCheckpoint) return true
+    const currentCheckpointId = String(activeCheckpointId.value || '').trim()
+    if (!incomingCheckpointId || !currentCheckpointId) return true
+    return incomingCheckpointId === currentCheckpointId
+  }
 
   const persistActiveThread = (nextThreadId: string) => {
     if (!nextThreadId) return
@@ -347,9 +519,18 @@ export const useChatStore = defineStore('chat', () => {
 
   const applyWorkspaceSnapshot = (
     data: Record<string, any>,
-    options?: { preserveLocalAssistant?: boolean }
+    options?: { preserveLocalAssistant?: boolean; forceCheckpoint?: boolean; source?: 'workspace' | 'recover' | 'turn_end' | 'inspect' }
   ) => {
     const preserveLocalAssistant = options?.preserveLocalAssistant === true
+    const incomingCheckpointId = extractSnapshotCheckpointId(data)
+    if (!shouldAcceptSessionSnapshot(incomingCheckpointId, options)) {
+      console.warn('跳过旧的 workspace 快照，避免覆盖较新的会话状态', {
+        incomingCheckpointId,
+        currentCheckpointId: activeCheckpointId.value,
+        source: options?.source || 'workspace',
+      })
+      return false
+    }
     const previousNoteDocument = noteDocument.value
     const nextNoteDocument = pickNoteDocument(data)
     const snapshotMessages = hydrateSnapshotMessages(
@@ -373,7 +554,15 @@ export const useChatStore = defineStore('chat', () => {
     inspectorSummary.value = pickInspectorSummary(data)
     previewUrl.value = data.oss_url || data.ossUrl || null
     sourceCode.value = data.source_code || data.sourceCode || ''
-    activeCheckpointId.value = data.checkpoints?.[0]?.checkpoint_id || data.checkpoint_id || data.checkpointId || activeCheckpointId.value
+    activeCheckpointId.value = incomingCheckpointId || activeCheckpointId.value
+    if (incomingCheckpointId) {
+      lastAcceptedSessionSnapshotCheckpointId.value = incomingCheckpointId
+    }
+    lastAcceptedSessionSnapshotSource.value = options?.source || 'workspace'
+    pendingBlockingCheckpointAction.value = null
+    if (!preserveLocalAssistant) {
+      recentlyChangedBlockDetails.value = {}
+    }
     const comparableNextPage = resolveComparablePage(nextNoteDocument)
     const comparablePrevPage = resolveComparablePage(previousNoteDocument)
     if (!snapshotHasAssistant && (Object.keys(comparableNextPage || {}).length > 0 || sourceCode.value)) {
@@ -390,6 +579,7 @@ export const useChatStore = defineStore('chat', () => {
     if (Object.keys(comparableNextPage || {}).length > 0 || sourceCode.value) {
       ensureAssistantResultMessage(nextNoteDocument, previousNoteDocument)
     }
+    return true
   }
 
   const clearRenderRecoveryTimer = () => {
@@ -406,7 +596,7 @@ export const useChatStore = defineStore('chat', () => {
       const res = await fetch(`${baseUrl}/workspace/${threadId.value}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      applyWorkspaceSnapshot(data, { preserveLocalAssistant: true })
+      applyWorkspaceSnapshot(data, { preserveLocalAssistant: true, source: 'recover' })
       currentNode.value = ''
       thoughtText.value = ''
       nodeStreamOutput.value = ''
@@ -424,7 +614,7 @@ export const useChatStore = defineStore('chat', () => {
       const res = await fetch(`${baseUrl}/workspace/${threadId.value}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      applyWorkspaceSnapshot(data, { preserveLocalAssistant: true })
+      applyWorkspaceSnapshot(data, { preserveLocalAssistant: true, source: 'workspace' })
       return true
     } catch (e) {
       console.warn('turn_end 后同步 workspace 快照失败:', e)
@@ -450,16 +640,83 @@ export const useChatStore = defineStore('chat', () => {
       const res = await fetch(`${baseUrl}/workspace/${threadId.value}/inspect`)
       const data = await res.json()
       if (data.status === 'success') {
-        agentMeta.value = data.data
-        noteDocument.value = pickNoteDocument(data.data || {})
-        plannerOutput.value = pickPlannerOutput(data.data || {})
-        plannerPolicy.value = pickPlannerPolicy(data.data || {})
-        turnTrace.value = pickTurnTrace(data.data || {})
-        agentBackends.value = pickAgentBackends(data.data || {})
-        inspectorSummary.value = pickInspectorSummary(data.data || {})
+        const inspectPayload = (data.data || {}) as Record<string, any>
+        const inspectCheckpointId = extractSnapshotCheckpointId(inspectPayload)
+        if (!shouldAcceptSessionSnapshot(inspectCheckpointId)) {
+          console.warn('跳过旧的 inspect 快照，等待新的会话快照落地', {
+            incomingCheckpointId: inspectCheckpointId,
+            currentCheckpointId: activeCheckpointId.value,
+          })
+          return
+        }
+        const previousNoteDocument = noteDocument.value
+        agentMeta.value = inspectPayload as AgentMeta
+        noteDocument.value = pickNoteDocument(inspectPayload || {})
+        plannerOutput.value = pickPlannerOutput(inspectPayload || {})
+        plannerPolicy.value = pickPlannerPolicy(inspectPayload || {})
+        turnTrace.value = pickTurnTrace(inspectPayload || {})
+        agentBackends.value = pickAgentBackends(inspectPayload || {})
+        inspectorSummary.value = pickInspectorSummary(inspectPayload || {})
+        if (inspectCheckpointId) {
+          activeCheckpointId.value = inspectCheckpointId
+          lastAcceptedSessionSnapshotCheckpointId.value = inspectCheckpointId
+        }
+        lastAcceptedSessionSnapshotSource.value = 'inspect'
+        ensureAssistantResultMessage(noteDocument.value, previousNoteDocument)
+        if (getActiveAssistantResponseMessage()?.content?.trim()) {
+          activeAssistantResponseMessageId = null
+        }
       }
     } catch (e) {
       console.error('获取 Agent 状态失败:', e)
+    }
+  }
+
+  const fetchTraceExportBundle = async (checkpointId?: string | null): Promise<TraceExportBundle | null> => {
+    if (!threadId.value) return null
+    try {
+      const baseUrl = getBaseUrl('http')
+      const query = checkpointId ? `?checkpoint_id=${encodeURIComponent(checkpointId)}` : ''
+      const res = await fetch(`${baseUrl}/workspace/${threadId.value}/trace/export${query}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      return (data?.data || data || {}) as TraceExportBundle
+    } catch (e) {
+      console.error('获取结构化 trace 导出失败:', e)
+      return null
+    }
+  }
+
+  const copyCurrentTraceExport = async () => {
+    const bundle = await fetchTraceExportBundle(activeCheckpointId.value)
+    if (!bundle) return false
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2))
+      return true
+    } catch (e) {
+      console.error('复制结构化 trace 失败:', e)
+      return false
+    }
+  }
+
+  const downloadCurrentTraceExport = async () => {
+    const bundle = await fetchTraceExportBundle(activeCheckpointId.value)
+    if (!bundle) return false
+    try {
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      const checkpointSuffix = String(bundle.checkpoint_id || activeCheckpointId.value || 'latest').slice(0, 12)
+      anchor.href = url
+      anchor.download = `trace-${threadId.value || 'thread'}-${checkpointSuffix}.json`
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(url)
+      return true
+    } catch (e) {
+      console.error('下载结构化 trace 失败:', e)
+      return false
     }
   }
 
@@ -617,15 +874,22 @@ export const useChatStore = defineStore('chat', () => {
     currentNode.value = ''
     thoughtText.value = ''
     nodeStreamOutput.value = ''
+    activeAssistantResponseMessageId = null
+    activeAgentStatusMessageId = null
+    pendingBlockingCheckpointAction.value = null
+    lastAcceptedSessionSnapshotCheckpointId.value = null
+    lastAcceptedSessionSnapshotSource.value = 'init'
     selectedComponentId.value = null
     selectedParagraphIndex.value = null
-    workspaceMode.value = 'preview'
+    recentlyChangedBlockDetails.value = {}
+    workspaceMode.value = 'session_preview'
+    if (!sameThread) rollbackUndoTarget.value = null
     
     try {
       const baseUrl = getBaseUrl('http')
       const res = await fetch(`${baseUrl}/workspace/${newThreadId}`)
       const data = await res.json()
-      applyWorkspaceSnapshot(data, { preserveLocalAssistant: false })
+      applyWorkspaceSnapshot(data, { preserveLocalAssistant: false, forceCheckpoint: true, source: 'workspace' })
       
       fetchAgentMeta()
       void fetchBenchmarkOverview()
@@ -667,13 +931,20 @@ export const useChatStore = defineStore('chat', () => {
     sourceCode.value = ''
     imageAssets.value = []
     activeCheckpointId.value = null
+    lastAcceptedSessionSnapshotCheckpointId.value = null
+    lastAcceptedSessionSnapshotSource.value = 'init'
+    pendingBlockingCheckpointAction.value = null
+    rollbackUndoTarget.value = null
+    recentlyChangedBlockDetails.value = {}
     selectedComponentId.value = null
     selectedParagraphIndex.value = null
     hoveredComponentId.value = null
-    workspaceMode.value = 'preview'
+    workspaceMode.value = 'session_preview'
     currentNode.value = ''
     thoughtText.value = ''
     nodeStreamOutput.value = ''
+    activeAssistantResponseMessageId = null
+    activeAgentStatusMessageId = null
     
     sessions.value.unshift({
       thread_id: newId,
@@ -1027,15 +1298,12 @@ export const useChatStore = defineStore('chat', () => {
   const setSelectedComponent = (id: string | null, paragraphIndex: number | null = null) => {
     selectedComponentId.value = id
     selectedParagraphIndex.value = paragraphIndex
-    workspaceMode.value = 'preview'
+    workspaceMode.value = 'session_preview'
     if (id) previewInteractionMode.value = 'select'
   }
 
   const setWorkspaceMode = (mode: WorkspaceViewMode) => {
     workspaceMode.value = mode
-    if (mode === 'trends') {
-      void fetchTrends()
-    }
   }
 
   const setPreviewInteractionMode = (mode: PreviewInteractionMode) => {
@@ -1113,8 +1381,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const handleWsEvent = (wsData: WSEvent) => {
-    const lastMsg = messages.value[messages.value.length - 1]
-    const isAssistant = lastMsg && lastMsg.role === 'assistant'
+    const responseMsg = getActiveAssistantResponseMessage()
+    const isAssistant = !!responseMsg
 
     const eventType = wsData.event || wsData.type
     const data = wsData.data || wsData
@@ -1125,6 +1393,10 @@ export const useChatStore = defineStore('chat', () => {
            nodeStreamOutput.value = ''
         }
         currentNode.value = wsData.node || ''
+        upsertAgentStatusMessage(buildAgentStatusCard({
+          currentNode: currentNode.value,
+          thoughtText: '',
+        }).summary || '')
         if (currentNode.value === 'document_renderer') {
           scheduleRenderRecovery()
         }
@@ -1133,6 +1405,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'thought':
         thoughtText.value = data
         nodeStreamOutput.value = ''
+        upsertAgentStatusMessage(String(data || ''))
         if (currentNode.value === 'document_renderer' || thoughtText.value.includes('云端打包渲染')) {
           scheduleRenderRecovery()
         }
@@ -1140,14 +1413,14 @@ export const useChatStore = defineStore('chat', () => {
 
       case 'thought_process':
         if (isAssistant) {
-          if (!lastMsg.thoughts) lastMsg.thoughts = []
+          if (!responseMsg!.thoughts) responseMsg!.thoughts = []
           const nodeName = data.node
           const nodeLabel = nodeMap[nodeName] || nodeName
-          const existingIdx = lastMsg.thoughts.findIndex(t => t.node === nodeLabel)
+          const existingIdx = responseMsg!.thoughts.findIndex(t => t.node === nodeLabel)
           if (existingIdx !== -1) {
-            lastMsg.thoughts[existingIdx] = { node: nodeLabel, text: data.content, streaming: false }
+            responseMsg!.thoughts[existingIdx] = { node: nodeLabel, text: data.content, streaming: false }
           } else {
-            lastMsg.thoughts.push({ node: nodeLabel, text: data.content, streaming: false })
+            responseMsg!.thoughts.push({ node: nodeLabel, text: data.content, streaming: false })
           }
         }
         break
@@ -1163,7 +1436,7 @@ export const useChatStore = defineStore('chat', () => {
           const startIdx = buffer.indexOf(marker)
           
           if (startIdx !== -1 && isAssistant) {
-            if (!lastMsg.thoughts) lastMsg.thoughts = []
+            if (!responseMsg!.thoughts) responseMsg!.thoughts = []
             const nodeLabel = nodeMap[sourceNode] || sourceNode
             let extracted = ''
             const afterMarker = buffer.substring(startIdx + marker.length).trim()
@@ -1177,17 +1450,21 @@ export const useChatStore = defineStore('chat', () => {
             }
 
             if (extracted) {
-              const existingIdx = lastMsg.thoughts.findIndex(t => t.node === nodeLabel)
+              const existingIdx = responseMsg!.thoughts.findIndex(t => t.node === nodeLabel)
               if (existingIdx !== -1) {
-                lastMsg.thoughts[existingIdx].text = extracted
-                lastMsg.thoughts[existingIdx].streaming = true
+                responseMsg!.thoughts[existingIdx].text = extracted
+                responseMsg!.thoughts[existingIdx].streaming = true
               } else {
-                lastMsg.thoughts.push({ node: nodeLabel, text: extracted, streaming: true })
+                responseMsg!.thoughts.push({ node: nodeLabel, text: extracted, streaming: true })
               }
             }
           }
-        } else if (isAssistant && content) {
-          lastMsg.content += content
+        } else if (isAssistant && content && ['direct_chat_node', 'rag_node'].includes(sourceNode)) {
+          responseMsg!.content += content
+        } else if (isAssistant && content && sourceNode === 'note_editor') {
+          // note_editor 的流式输出经常是结构化计划/JSON，不应直接暴露给用户聊天气泡。
+          // 最终用户可见文案统一在 turn_end 时用结果摘要收口。
+          nodeStreamOutput.value += content
         }
         break
 
@@ -1197,6 +1474,8 @@ export const useChatStore = defineStore('chat', () => {
         currentNode.value = ''
         thoughtText.value = ''
         nodeStreamOutput.value = ''
+        finalizeAgentStatusMessage()
+        clearPendingBlockingCheckpointAction()
         const checkpointId = pickCheckpointId(data)
         const ossUrl = pickOssUrl(data)
         const nextNodePrompts = pickNodePrompts(data)
@@ -1208,19 +1487,23 @@ export const useChatStore = defineStore('chat', () => {
         const nextTurnTrace = pickTurnTrace(data)
         const nextAgentBackends = pickAgentBackends(data)
         if (isAssistant) {
-          lastMsg.streaming = false
-          lastMsg.checkpointId = checkpointId ?? undefined
-          lastMsg.ossUrl = ossUrl ?? undefined
-          lastMsg.nodePrompts = nextNodePrompts
-          lastMsg.imageAssets = nextImageAssets
-          lastMsg.sourceCode = nextSourceCode
-          lastMsg.noteDocument = nextNoteDocument
-          lastMsg.plannerOutput = nextPlannerOutput
-          lastMsg.plannerPolicy = nextPlannerPolicy
-          lastMsg.turnTrace = nextTurnTrace
-          lastMsg.agentBackends = nextAgentBackends
+          responseMsg!.streaming = false
+          responseMsg!.checkpointId = checkpointId ?? undefined
+          responseMsg!.ossUrl = ossUrl ?? undefined
+          responseMsg!.nodePrompts = nextNodePrompts
+          responseMsg!.imageAssets = nextImageAssets
+          responseMsg!.sourceCode = nextSourceCode
+          responseMsg!.noteDocument = nextNoteDocument
+          responseMsg!.plannerOutput = nextPlannerOutput
+          responseMsg!.plannerPolicy = nextPlannerPolicy
+          responseMsg!.turnTrace = nextTurnTrace
+          responseMsg!.agentBackends = nextAgentBackends
           activeCheckpointId.value = checkpointId
         }
+        if (checkpointId) {
+          lastAcceptedSessionSnapshotCheckpointId.value = checkpointId
+        }
+        lastAcceptedSessionSnapshotSource.value = 'turn_end'
         attachCheckpointToLatestUserPrompt(checkpointId)
         if (ossUrl) previewUrl.value = ossUrl
         nodePrompts.value = nextNodePrompts
@@ -1231,12 +1514,18 @@ export const useChatStore = defineStore('chat', () => {
         plannerPolicy.value = nextPlannerPolicy
         turnTrace.value = nextTurnTrace
         agentBackends.value = nextAgentBackends
+        recentlyChangedBlockDetails.value = buildRecentlyChangedBlockDetails(previousNoteDocument, nextNoteDocument, nextTurnTrace)
         const comparableNextPage = resolveComparablePage(nextNoteDocument)
         const comparablePrevPage = resolveComparablePage(previousNoteDocument)
-        if ((Object.keys(comparableNextPage || {}).length > 0 || nextSourceCode) && isAssistant && !(lastMsg.content || '').trim()) {
+        if ((Object.keys(comparableNextPage || {}).length > 0 || nextSourceCode) && isAssistant && !(responseMsg!.content || '').trim()) {
           const lastUserText = [...messages.value].reverse().find(msg => msg.role === 'user')?.content || ''
-          lastMsg.content = buildAssistantResultText(comparableNextPage, comparablePrevPage, lastUserText, agentMeta.value.retrieved_knowledge || {})
+          responseMsg!.content = buildAssistantResultText(comparableNextPage, comparablePrevPage, lastUserText, agentMeta.value.retrieved_knowledge || {})
         }
+        const summaryCard = buildAgentSummaryCard(nextTurnTrace)
+        if (summaryCard) {
+          pushAssistantNarrativeMessage('agent_summary', summaryCard)
+        }
+        activeAssistantResponseMessageId = null
         
         // ✨ 哨兵自动化：生成结束后，立即拉取 Agent 脑电图
         fetchAgentMeta()
@@ -1249,20 +1538,24 @@ export const useChatStore = defineStore('chat', () => {
 
       case 'action_required':
         clearRenderRecoveryTimer()
+        finalizeAgentStatusMessage()
         if (isAssistant) {
-          lastMsg.streaming = false
+          responseMsg!.streaming = false
           const normalizedAction = normalizeConversationCheckpointAction(
             (typeof data === 'object' && data ? data : {}) as Record<string, unknown>,
           )
           if (normalizedAction) {
-            lastMsg.actionRequired = normalizedAction
-            if (!(lastMsg.content || '').trim() && normalizedAction.summary) {
-              lastMsg.content = normalizedAction.summary
+            responseMsg!.actionRequired = normalizedAction
+            activeCheckpointId.value = normalizedAction.checkpoint_id
+            pendingBlockingCheckpointAction.value = normalizedAction.blocking === false ? null : normalizedAction
+            if (!(responseMsg!.content || '').trim() && normalizedAction.summary) {
+              responseMsg!.content = normalizedAction.summary
             }
           } else {
-            lastMsg.content += `\n\n📢 ${String((data as Record<string, unknown>)?.message || '')}`
+            responseMsg!.content += `\n\n📢 ${String((data as Record<string, unknown>)?.message || '')}`
           }
         }
+        activeAssistantResponseMessageId = null
         break
 
       case 'error':
@@ -1270,11 +1563,23 @@ export const useChatStore = defineStore('chat', () => {
         currentNode.value = ''
         thoughtText.value = ''
         nodeStreamOutput.value = ''
+        finalizeAgentStatusMessage()
+        clearPendingBlockingCheckpointAction()
         const errMsg = typeof data === 'string' ? data : (wsData.message || '未知错误')
         if (isAssistant) {
-          lastMsg.content += `\n\n[❌ 系统报错]: ${errMsg}`
-          lastMsg.streaming = false
+          responseMsg!.messageKind = 'agent_summary'
+          responseMsg!.agentCard = {
+            title: '这轮我先停在这里',
+            summary: `刚才遇到了一点问题：${errMsg}`,
+            bullets: [
+              '当前页面和聊天记录我会先保留，不会直接把结果冲掉。',
+              '你可以稍后重试，或换成更明确的一步指令让我继续推进。',
+            ],
+          }
+          responseMsg!.content = responseMsg!.agentCard.summary || ''
+          responseMsg!.streaming = false
         }
+        activeAssistantResponseMessageId = null
         break
     }
   }
@@ -1282,8 +1587,15 @@ export const useChatStore = defineStore('chat', () => {
   const submitCheckpointDecision = (
     action: ConversationCheckpointAction,
     option: ConversationCheckpointOption,
+    overrides?: { userProvidedFacts?: Record<string, string | string[]>; customNote?: string },
   ) => {
     if (wsStatus.value !== 'connected' || !ws || ws.readyState !== WebSocket.OPEN) return
+    if (
+      pendingBlockingCheckpointAction.value
+      && pendingBlockingCheckpointAction.value.checkpoint_id === action.checkpoint_id
+    ) {
+      clearPendingBlockingCheckpointAction()
+    }
 
     messages.value.push({
       id: generateId(),
@@ -1293,13 +1605,17 @@ export const useChatStore = defineStore('chat', () => {
       timestamp: Date.now(),
     })
 
-    messages.value.push({
+    pushAssistantNarrativeMessage('agent_receipt', buildCheckpointReceiptCard(action, option, overrides?.customNote))
+
+    const responseMessage: ChatMessage = {
       id: generateId(),
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
       streaming: true,
-    })
+    }
+    messages.value.push(responseMessage)
+    activeAssistantResponseMessageId = responseMessage.id
 
     if (action.action_type === 'stance_decision') {
       ws.send(JSON.stringify({
@@ -1307,6 +1623,7 @@ export const useChatStore = defineStore('chat', () => {
         stance: option.value,
         panel: activePanel.value,
         selected_element_id: selectedComponentId.value,
+        message_kind: 'checkpoint_decision',
       }))
       return
     }
@@ -1317,6 +1634,7 @@ export const useChatStore = defineStore('chat', () => {
         choice: option.value,
         panel: activePanel.value,
         selected_element_id: selectedComponentId.value,
+        message_kind: 'checkpoint_decision',
       }))
       return
     }
@@ -1328,13 +1646,77 @@ export const useChatStore = defineStore('chat', () => {
       decision: option.value,
       selected_asset_ids: option.selected_asset_ids || [],
       selected_fact_value: option.selected_fact_value || null,
+      user_provided_facts: overrides?.userProvidedFacts || option.user_provided_facts || {},
+      custom_note: overrides?.customNote || null,
       panel: activePanel.value,
       selected_element_id: selectedComponentId.value,
+      message_kind: 'checkpoint_decision',
     }))
   }
 
-  const rollbackTo = async (checkpointId: string) => {
+  const submitComposerMessage = (
+    content: string,
+    options?: {
+      imageUrls?: string[]
+      messageKind?: 'user_prompt' | 'critique_action'
+      preludeCardKind?: ChatMessage['messageKind']
+      preludeCard?: ChatMessage['agentCard']
+    },
+  ) => {
+    const trimmedContent = String(content || '').trim()
+    const action = pendingBlockingCheckpointAction.value
+    const messageKind = options?.messageKind || 'user_prompt'
+
+    if (action && action.blocking !== false && messageKind === 'user_prompt') {
+      if (action.action_type === 'truth_mode_checkpoint' && trimmedContent) {
+        const option = pickCheckpointOption(action, 'provide_user_facts')
+        if (!option) {
+          pushAssistantNarrativeMessage('agent_receipt', {
+            title: '我还在等你先处理当前协作卡',
+            summary: '这条输入先不新开一轮。请先完成上面的协作卡，再继续。',
+          })
+          return false
+        }
+        submitCheckpointDecision(action, option, {
+          userProvidedFacts: { raw_text: trimmedContent },
+          customNote: trimmedContent,
+        })
+        return true
+      }
+
+      if (action.other_allowed && trimmedContent) {
+        const option = pickCheckpointOption(action)
+        if (!option) {
+          pushAssistantNarrativeMessage('agent_receipt', {
+            title: '我还在等你先处理当前协作卡',
+            summary: '这条输入先不新开一轮。请先完成上面的协作卡，再继续。',
+          })
+          return false
+        }
+        submitCheckpointDecision(action, option, { customNote: trimmedContent })
+        return true
+      }
+
+      pushAssistantNarrativeMessage('agent_receipt', {
+        title: '我还在等你先处理当前关键决策',
+        summary: checkpointComposerCanResolve.value
+          ? '你可以直接在输入框补充说明，我会把这段内容附到当前协作卡上；如果要改方案，请先点卡片按钮。'
+          : '这条输入先不新开一轮。请先用上面的协作卡选一个方案，再继续。',
+        bullets: [
+          String(action.title || '').trim(),
+          String(action.summary || '').trim(),
+        ].filter(Boolean),
+      })
+      return false
+    }
+
+    sendMessage(trimmedContent, options)
+    return true
+  }
+
+  const rollbackTo = async (checkpointId: string, options?: { recordUndo?: boolean }) => {
     if (!threadId.value || !checkpointId) return false
+    const previousCheckpointId = activeCheckpointId.value
     try {
       const baseUrl = getBaseUrl('http')
       const res = await fetch(`${baseUrl}/workspace/${threadId.value}/rollback`, {
@@ -1347,18 +1729,26 @@ export const useChatStore = defineStore('chat', () => {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       await switchSession(threadId.value, { force: true })
-      messages.value.push({
-        id: generateId(),
-        role: 'system',
-        content: '已回到这条消息对应的历史状态。',
-        timestamp: Date.now(),
-      })
+      if (options?.recordUndo === false) {
+        rollbackUndoTarget.value = null
+      } else if (previousCheckpointId && previousCheckpointId !== checkpointId) {
+        rollbackUndoTarget.value = { checkpointId: previousCheckpointId }
+      } else {
+        rollbackUndoTarget.value = null
+      }
       reportUiAction(threadId.value, 'workspace_rollback_thread', `回到历史点 ${checkpointId}`, { checkpoint_id: checkpointId })
       return true
     } catch (e) {
       console.error('线程级回滚失败:', e)
       return false
     }
+  }
+
+  const undoLastRollback = async () => {
+    const target = rollbackUndoTarget.value
+    if (!target?.checkpointId) return false
+    rollbackUndoTarget.value = null
+    return await rollbackTo(target.checkpointId, { recordUndo: false })
   }
 
   const branchFromCheckpoint = async (checkpointId: string) => {
@@ -1381,12 +1771,6 @@ export const useChatStore = defineStore('chat', () => {
       if (!nextThreadId) throw new Error('missing new_thread_id')
       await fetchSessions()
       await switchSession(nextThreadId, { force: true })
-      messages.value.push({
-        id: generateId(),
-        role: 'system',
-        content: '已从这条消息创建一个新分支会话。',
-        timestamp: Date.now(),
-      })
       reportUiAction(nextThreadId, 'workspace_fork', `从历史点创建分支 ${checkpointId}`, { checkpoint_id: checkpointId, parent_thread_id: parentThreadId })
       return nextThreadId
     } catch (e) {
@@ -1395,29 +1779,55 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  const sendMessage = (content: string, options?: { imageUrls?: string[] }) => {
+  const sendMessage = (content: string, options?: {
+    imageUrls?: string[]
+    messageKind?: 'user_prompt' | 'critique_action'
+    preludeCardKind?: ChatMessage['messageKind']
+    preludeCard?: ChatMessage['agentCard']
+  }) => {
     const assets = documentAssets.value
     const trimmedContent = content.trim()
     const stagedImageUrls = (options?.imageUrls || pendingUploadUrls.value).filter(Boolean)
 
     if ((!trimmedContent && stagedImageUrls.length === 0) || wsStatus.value !== 'connected') return
+    rollbackUndoTarget.value = null
 
     messages.value.push({
       id: generateId(),
       role: 'user',
       content: trimmedContent,
-      messageKind: 'user_prompt',
+      messageKind: options?.messageKind || 'user_prompt',
       imageUrls: stagedImageUrls,
       timestamp: Date.now()
     })
 
-    messages.value.push({
+    if (options?.preludeCard) {
+      pushAssistantNarrativeMessage(options.preludeCardKind || 'agent_plan', options.preludeCard)
+    } else if (selectedComponentId.value && selectedBlock.value) {
+      const selectionLabel = String((selectedBlock.value as Record<string, unknown>)?.label || getComponentLabel(String((selectedBlock.value as Record<string, unknown>)?.type || '')))
+      pushAssistantNarrativeMessage('agent_receipt', buildLocalEditReceiptCard({
+        selectionLabel,
+        prompt: trimmedContent,
+      }))
+    } else {
+      pushAssistantNarrativeMessage('agent_plan', buildAgentPlanCard({
+        query: trimmedContent,
+        trace: turnTrace.value,
+        selectedElementId: selectedComponentId.value,
+        selectedBlockLabel: selectedBlock.value ? String((selectedBlock.value as Record<string, unknown>)?.label || getComponentLabel(String((selectedBlock.value as Record<string, unknown>)?.type || ''))) : '',
+        messageKind: options?.messageKind,
+      }))
+    }
+
+    const responseMessage: ChatMessage = {
       id: generateId(),
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
       streaming: true
-    })
+    }
+    messages.value.push(responseMessage)
+    activeAssistantResponseMessageId = responseMessage.id
 
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
@@ -1427,10 +1837,41 @@ export const useChatStore = defineStore('chat', () => {
         selected_element_id: selectedComponentId.value,
         creator_persona: creatorPersona.value,
         current_assets: assets,
-        image_urls: stagedImageUrls
+        image_urls: stagedImageUrls,
+        message_kind: options?.messageKind || 'user_prompt',
       }))
       pendingUploadUrls.value = []
     }
+  }
+
+  const runCritiqueAction = (recipe: { label: string; prompt: string; scope?: string; why_now?: string; expected_effect?: string; expected_blocks?: string[] }) => {
+    const label = String(recipe?.label || '').trim()
+    const prompt = String(recipe?.prompt || '').trim()
+    const scope = String(recipe?.scope || '').trim()
+    if (!label) return false
+
+    if (scope === 'noop' || !prompt) {
+      messages.value.push({
+        id: generateId(),
+        role: 'user',
+        content: `已选择：${label}`,
+        messageKind: 'critique_action',
+        timestamp: Date.now(),
+      })
+      pushAssistantNarrativeMessage('agent_receipt', buildCritiqueReceiptCard(recipe))
+      pushAssistantNarrativeMessage('agent_summary', {
+        title: '这次我先保留当前版本',
+        summary: '后面如果你想继续优化，我会基于这一版继续收口。',
+      })
+      return true
+    }
+
+    sendMessage(prompt, {
+      messageKind: 'critique_action',
+      preludeCardKind: 'agent_receipt',
+      preludeCard: buildCritiqueReceiptCard(recipe),
+    })
+    return true
   }
 
   return {
@@ -1467,9 +1908,15 @@ export const useChatStore = defineStore('chat', () => {
     currentCoverUrl,
     selectedBlock,
     selectedPayload,
+    recentlyChangedBlockIds,
+    recentlyChangedBlockDetails,
     hasRenderableDocument,
     hoveredComponentId,
     activeCheckpointId,
+    sessionSnapshotStatus,
+    pendingBlockingCheckpointAction,
+    checkpointComposerCanResolve,
+    rollbackUndoTarget,
     sourceCode,
     pendingUploadUrls,
     showcaseProfiles,
@@ -1505,8 +1952,11 @@ export const useChatStore = defineStore('chat', () => {
     getPreferredRenderStyleData,
     connectWebSocket,
     rollbackTo,
+    undoLastRollback,
     branchFromCheckpoint,
     sendMessage,
+    submitComposerMessage,
+    runCritiqueAction,
     submitCheckpointDecision,
     fetchSessions,
     fetchShowcaseProfiles,
@@ -1520,6 +1970,9 @@ export const useChatStore = defineStore('chat', () => {
     deleteAssetFromLibrary,
     confirmFactValue,
     fetchAgentMeta,
+    fetchTraceExportBundle,
+    copyCurrentTraceExport,
+    downloadCurrentTraceExport,
     fetchBenchmarkOverview,
     fetchEvaluationOverview,
     fetchBlockGalleryOverview,

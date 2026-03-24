@@ -17,7 +17,7 @@ async def auto_generate_images(note_document: dict, archetype: str) -> tuple[dic
     new_assets = []
     
     # 场景判断：加入 seeding (种草)，允许自动生图
-    if archetype not in ["travel", "gourmet", "seeding"]:
+    if archetype not in ["gourmet", "seeding"]:
         return document, []
 
     # ✨ 提取页面全局主体，用于构思生图 Prompt
@@ -41,10 +41,9 @@ async def auto_generate_images(note_document: dict, archetype: str) -> tuple[dic
     AESTHETIC_MAP = {
         "seeding": "Product photography, studio lighting, clean background, 8k resolution, minimalist, premium texture",
         "gourmet": "Food photography, close-up, warm light, steam, high-end restaurant vibe, appetizing",
-        "travel": "Landscape photography, wide angle, natural lighting, cinematic colors, travel magazine style",
         "general": "High quality photography, soft lighting, balanced composition"
     }
-    aesthetic_style = AESTHETIC_MAP.get(archetype, AESTHETIC_MAP["general"])
+    aesthetic_style = AESTHETIC_MAP.get(archetype, AESTHETIC_MAP["seeding"])
 
     for block in blocks:
         if not isinstance(block, dict):

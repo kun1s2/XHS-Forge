@@ -210,19 +210,29 @@ def resolve_component_for_block_intent(
                 return str(entry.get("type"))
         return "CoverSwiper" if has_images else "WeatherPolaroid"
 
-    if intent_type == "evidence_summary":
+    if intent_type in {"decision_summary", "risk_boundary"}:
+        return "StoryText"
+
+    if intent_type == "fact_list":
         role_candidates = list_components_for_semantic_role("evidence_summary", scenario_names=ranked_scenarios)
         seeding_weight = float(scores.get("seeding", 0.0))
         if seeding_weight >= 0.6:
-            radar_like = next((entry for entry in role_candidates if str(entry.get("type") or "") == "ProductSpecCard"), None)
-            score_overview = list_components_for_semantic_role("score_overview", scenario_names=ranked_scenarios)
-            if score_overview:
-                return str(score_overview[0].get("type"))
-            if radar_like:
-                return str(radar_like.get("type"))
+            spec_like = next((entry for entry in role_candidates if str(entry.get("type") or "") == "ProductSpecCard"), None)
+            if spec_like:
+                return str(spec_like.get("type"))
         fact_bound = next((entry for entry in role_candidates if supports_fact_binding(str(entry.get("type") or ""))), None)
         if fact_bound:
             return str(fact_bound.get("type"))
+        if role_candidates:
+            return str(role_candidates[0].get("type"))
+
+    if intent_type == "route_guidance":
+        role_candidates = list_components_for_semantic_role("timeline", scenario_names=ranked_scenarios)
+        if role_candidates:
+            return str(role_candidates[0].get("type"))
+
+    if intent_type == "quote_or_voice":
+        role_candidates = list_components_for_semantic_role("quote_highlight", scenario_names=ranked_scenarios)
         if role_candidates:
             return str(role_candidates[0].get("type"))
 
@@ -233,13 +243,14 @@ def resolve_component_for_block_intent(
     fallback_role_map = {
         "heading": "heading",
         "narrative_text": "narrative_text",
+        "decision_summary": "narrative_text",
+        "fact_list": "evidence_summary",
         "comparison": "comparison",
         "interactive_opinion": "interactive_opinion",
         "location_info": "location_info",
-        "ambience_snapshot": "ambience_snapshot",
-        "score_overview": "score_overview",
-        "quote_highlight": "quote_highlight",
-        "timeline": "timeline",
+        "route_guidance": "timeline",
+        "risk_boundary": "narrative_text",
+        "quote_or_voice": "quote_highlight",
     }
     fallback_role = fallback_role_map.get(intent_type)
     if fallback_role:
@@ -257,15 +268,119 @@ def resolve_component_for_block_intent(
         return "PollBlock"
     if intent_type == "location_info":
         return "LocationBlock"
-    if intent_type == "ambience_snapshot":
-        return "WeatherPolaroid"
-    if intent_type == "score_overview":
-        return "RadarChartBlock"
-    if intent_type == "quote_highlight":
+    if intent_type == "quote_or_voice":
         return "QuoteBlock"
-    if intent_type == "timeline":
+    if intent_type == "route_guidance":
         return "TimelineBlock"
     return "StoryText"
+
+
+def _ordered_unique_components(items: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        normalized = normalize_component_type(item) or str(item or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _context_supports_specialty_component(
+    intent_type: str,
+    *,
+    user_query: str = "",
+    active_archetype: str = "general",
+    retrieved_knowledge: dict[str, Any] | None = None,
+    has_images: bool = False,
+) -> bool:
+    query = str(user_query or "").lower()
+    knowledge = retrieved_knowledge or {}
+    fact_slots = knowledge.get("fact_slots") if isinstance(knowledge.get("fact_slots"), dict) else {}
+    confirmed_facts = knowledge.get("confirmed_facts") if isinstance(knowledge.get("confirmed_facts"), dict) else {}
+    core_attributes = knowledge.get("core_attributes") if isinstance(knowledge.get("core_attributes"), dict) else {}
+    has_battle = bool(knowledge.get("battle_report"))
+
+    if intent_type in {"fact_list", "decision_summary"}:
+        if active_archetype == "seeding":
+            return True
+        return any(token in query for token in ("价格", "预算", "参数", "配置", "规格", "门票", "人均", "套餐", "值不值得", "怎么选")) or len(core_attributes) >= 2 or len(confirmed_facts) >= 2
+    if intent_type == "risk_boundary":
+        return any(token in query for token in ("风险", "边界", "注意", "不适合", "避坑", "提醒")) or len(confirmed_facts) >= 1
+    if intent_type == "comparison":
+        return has_battle or any(token in query for token in ("对比", "pk", "vs", "更适合", "优缺点", "路线差异"))
+    if intent_type == "interactive_opinion":
+        return any(token in query for token in ("投票", "站队", "你选", "更喜欢", "要不要冲", "选哪个")) or bool(knowledge.get("has_controversy"))
+    if intent_type == "location_info":
+        return any(token in query for token in ("地点", "地址", "位置", "在哪", "怎么去", "交通", "路线")) or bool(fact_slots.get("location") or fact_slots.get("transport") or confirmed_facts.get("location"))
+    if intent_type == "route_guidance":
+        return any(token in query for token in ("行程", "路线", "一日游", "攻略", "顺序", "安排", "先去", "后去", "时间线")) or bool(fact_slots.get("timeline") or fact_slots.get("route") or fact_slots.get("duration") or fact_slots.get("transport") or knowledge.get("user_provided_facts"))
+    if intent_type == "quote_or_voice":
+        return any(token in query for token in ("一句话", "金句", "引用", "原话", "总结")) or bool(knowledge.get("summary"))
+    return True
+
+
+def resolve_component_candidates_for_block_intent(
+    intent_type: str,
+    *,
+    has_images: bool = False,
+    scenario_scores: dict[str, float] | None = None,
+    user_query: str = "",
+    active_archetype: str = "general",
+    retrieved_knowledge: dict[str, Any] | None = None,
+    preferred_component: str | None = None,
+) -> list[str]:
+    """为一个语义意图生成候选组件列表。
+
+    原则：
+    - 先保留 manifest 推荐组件作为“强候选”
+    - 如果当前语义并不需要特殊 UI，则把更自由的容器提到前面
+    - StoryText/TitleBlock 作为语义兜底，而不是最后才想到的补丁
+    """
+    recommended = normalize_component_type(preferred_component) or resolve_component_for_block_intent(
+        intent_type,
+        has_images=has_images,
+        scenario_scores=scenario_scores,
+    )
+    supports_specialty = _context_supports_specialty_component(
+        intent_type,
+        user_query=user_query,
+        active_archetype=active_archetype,
+        retrieved_knowledge=retrieved_knowledge,
+        has_images=has_images,
+    )
+
+    candidates: list[str] = []
+    if intent_type == "heading":
+        candidates = ["TitleBlock"]
+    elif intent_type == "narrative_text":
+        candidates = ["StoryText"]
+    elif intent_type == "hero_media":
+        if has_images:
+            candidates = [recommended, "WeatherPolaroid", "StoryText"]
+        else:
+            candidates = ["StoryText", "WeatherPolaroid"]
+    elif intent_type == "decision_summary":
+        candidates = ["StoryText", recommended]
+    elif intent_type == "fact_list":
+        candidates = [recommended, "StoryText", "QuoteBlock"] if supports_specialty else ["StoryText", "QuoteBlock", recommended]
+    elif intent_type == "comparison":
+        candidates = [recommended, "StoryText"] if supports_specialty else ["StoryText", recommended]
+    elif intent_type == "interactive_opinion":
+        candidates = [recommended, "StoryText"] if supports_specialty else ["StoryText", recommended]
+    elif intent_type == "location_info":
+        candidates = [recommended, "StoryText"] if supports_specialty else ["StoryText", recommended]
+    elif intent_type == "route_guidance":
+        candidates = [recommended, "StoryText"] if supports_specialty else ["StoryText", recommended]
+    elif intent_type == "risk_boundary":
+        candidates = ["StoryText", recommended]
+    elif intent_type == "quote_or_voice":
+        candidates = [recommended, "StoryText"] if supports_specialty else ["StoryText", recommended]
+    else:
+        candidates = [recommended, "StoryText"]
+
+    return _ordered_unique_components(candidates)
 
 
 def is_component_supported_for_verifier(component_type: str | None) -> bool:

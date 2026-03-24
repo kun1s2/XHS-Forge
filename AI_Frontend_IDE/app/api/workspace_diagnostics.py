@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.evaluation_catalog import build_evaluation_suite_summary
 from app.core.note_document import build_note_document_from_state
+from app.core.runtime_log import read_latest_console_tail, read_latest_html_preview
 
 
 def dedupe_assets(assets: list) -> list[dict]:
@@ -38,6 +39,9 @@ def build_inspector_summary(values: dict) -> dict:
     blocks = list((note_document or {}).get("blocks") or [])
     assets = dedupe_assets(list((note_document or {}).get("assets") or []) or values.get("image_assets", []) or [])
     retrieved_knowledge = values.get("retrieved_knowledge") if isinstance(values.get("retrieved_knowledge"), dict) else {}
+    candidate_bucket = retrieved_knowledge.get("candidate_session_kb") if isinstance(retrieved_knowledge.get("candidate_session_kb"), dict) else {}
+    session_bucket = retrieved_knowledge.get("session_kb") if isinstance(retrieved_knowledge.get("session_kb"), dict) else {}
+    persistent_bucket = retrieved_knowledge.get("persistent_kb") if isinstance(retrieved_knowledge.get("persistent_kb"), dict) else {}
     turn_trace = values.get("turn_trace") if isinstance(values.get("turn_trace"), dict) else {}
     note_editor_trace = turn_trace.get("note_editor") if isinstance(turn_trace.get("note_editor"), dict) else {}
     workspace_action_trace = turn_trace.get("workspace_action") if isinstance(turn_trace.get("workspace_action"), dict) else {}
@@ -51,6 +55,13 @@ def build_inspector_summary(values: dict) -> dict:
     retrieval_summary = retrieved_knowledge.get("retrieval_summary") if isinstance(retrieved_knowledge.get("retrieval_summary"), dict) else {}
     retrieval_hits = [item for item in (retrieved_knowledge.get("retrieval_hits") or []) if isinstance(item, dict)]
     retrieval_eval = retrieved_knowledge.get("retrieval_eval") if isinstance(retrieved_knowledge.get("retrieval_eval"), dict) else {}
+    candidate_records = [item for item in (candidate_bucket.get("records") or []) if isinstance(item, dict)]
+    session_records = [item for item in (session_bucket.get("records") or []) if isinstance(item, dict)]
+    persistent_records = [item for item in (persistent_bucket.get("records") or []) if isinstance(item, dict)]
+    review_queue = [item for item in (persistent_bucket.get("review_queue") or []) if isinstance(item, dict)]
+    approved_count = len([item for item in candidate_records if str(item.get("review_status") or "") == "approved"])
+    rejected_count = len([item for item in candidate_records if str(item.get("review_status") or "") == "rejected"])
+    deferred_count = len([item for item in candidate_records if str(item.get("review_status") or "") == "deferred"])
     changed_blocks = list(turn_trace.get("changed_blocks") or [])
     builder_items = [payload for payload in component_builder_trace.values() if isinstance(payload, dict)]
     builder_component_types = [str(item.get("component_type") or "") for item in builder_items if item.get("component_type")]
@@ -83,13 +94,13 @@ def build_inspector_summary(values: dict) -> dict:
     if builder_fact_summary_count:
         suggestions.append("builder 当前只消费压缩后的事实摘要；如果组件细节不够，优先补结构化 facts，而不是继续堆全局 prompt。")
     if conflict_count:
-        suggestions.append("当前仍有待确认事实，强结论最好先在右侧确认冲突值。")
+        suggestions.append("当前仍有待确认事实，强结论最好先在聊天区继续确认或改写成更保守表达。")
     if retrieval_summary.get("no_hit_reason"):
         suggestions.append("这轮 RAG 命中较弱，输出应偏保守，优先检查检索策略、query refinement 和引用来源。")
     if not source_count and retrieval_summary.get("live_search_used"):
         suggestions.append("这轮做了在线搜证，但没有拿到足够稳定的引用来源，建议面试展示时强调系统会保守表达。")
     if not suggestions:
-        suggestions.append("当前链路状态正常，可以直接查看本轮追踪和结构化计划。")
+        suggestions.append("当前链路状态正常，可以继续在聊天区推进下一步；如果想排查细节，再来这里看诊断。")
 
     headline = "当前工作台状态正常"
     if status == "attention":
@@ -173,12 +184,103 @@ def build_inspector_summary(values: dict) -> dict:
             "grounding_score": float(retrieval_eval.get("grounding_score") or 0),
             "source_quality": str(retrieval_eval.get("source_quality") or "unknown"),
             "recommendation": str(retrieval_eval.get("recommendation") or ""),
+            "session_record_count": len(session_records),
+            "candidate_record_count": len(candidate_records),
+            "persistent_record_count": len(persistent_records),
+        },
+        "knowledge": {
+            "candidate_record_count": len(candidate_records),
+            "candidate_pending_count": len([item for item in candidate_records if str(item.get("review_status") or "") == "pending_review"]),
+            "session_record_count": len(session_records),
+            "persistent_record_count": len(persistent_records),
+            "review_approved_count": approved_count,
+            "review_rejected_count": rejected_count,
+            "review_deferred_count": deferred_count,
+            "persistent_conflict_count": len(review_queue),
+            "session_knowledge_version": str(session_bucket.get("knowledge_version") or ""),
         },
         "assets": {
             "cover_count": len([asset for asset in assets if str(asset.get("role") or "") == "cover"]),
             "bound_asset_count": len([asset for asset in assets if asset.get("used_by_blocks")]),
         },
         "suggestions": suggestions,
+    }
+
+
+def build_trace_export_bundle(values: dict, *, thread_id: str, checkpoint_id: str = "") -> dict:
+    """构造可直接导出/排障的本轮结构化 trace 包。"""
+    note_document = values.get("note_document") or build_note_document_from_state(values)
+    blocks = list((note_document or {}).get("blocks") or [])
+    assets = dedupe_assets(list((note_document or {}).get("assets") or []) or values.get("image_assets", []) or [])
+    retrieved_knowledge = values.get("retrieved_knowledge") if isinstance(values.get("retrieved_knowledge"), dict) else {}
+    knowledge_plan = retrieved_knowledge.get("knowledge_plan") if isinstance(retrieved_knowledge.get("knowledge_plan"), dict) else {}
+    retrieval_summary = retrieved_knowledge.get("retrieval_summary") if isinstance(retrieved_knowledge.get("retrieval_summary"), dict) else {}
+    retrieval_eval = retrieved_knowledge.get("retrieval_eval") if isinstance(retrieved_knowledge.get("retrieval_eval"), dict) else {}
+    fact_sources = [item for item in (retrieved_knowledge.get("fact_sources") or []) if isinstance(item, dict)]
+    turn_trace = values.get("turn_trace") if isinstance(values.get("turn_trace"), dict) else {}
+
+    block_outline = [
+        {
+            "id": str(block.get("id") or ""),
+            "type": str(block.get("type") or ""),
+            "semantic_role": str(block.get("semantic_role") or ""),
+            "content_brief": str(block.get("content_brief") or ""),
+        }
+        for block in blocks
+    ]
+    checkpoint_history = list((((turn_trace.get("conversation_checkpoints") or {}) if isinstance(turn_trace, dict) else {})).items())
+
+    html_preview = read_latest_html_preview()
+    return {
+        "generated_at": datetime.now().isoformat(),
+        "thread_id": thread_id,
+        "checkpoint_id": checkpoint_id,
+        "console_tail": read_latest_console_tail(),
+        "html_preview": html_preview,
+        "source_code": html_preview,
+        "query": str(turn_trace.get("query") or ""),
+        "active_panel": str(values.get("active_panel") or "main"),
+        "selected_element_id": values.get("selected_element_id"),
+        "intent_route": str(values.get("intent_route") or ""),
+        "active_archetype": str(values.get("active_archetype") or ""),
+        "scenarios": [str(item) for item in (values.get("scenarios") or []) if str(item)],
+        "planner_output": values.get("planner_output") or {},
+        "planner_policy": values.get("planner_policy") or {},
+        "turn_trace": turn_trace,
+        "checkpoint_history": [
+            {"name": str(name), **(payload if isinstance(payload, dict) else {"value": payload})}
+            for name, payload in checkpoint_history
+        ],
+        "agent_backends": values.get("agent_backends") or {},
+        "inspector_summary": build_inspector_summary(values),
+        "retrieval": {
+            "entity_name": str(retrieved_knowledge.get("entity_name") or ""),
+            "knowledge_plan": knowledge_plan,
+            "retrieval_profile": str(retrieval_summary.get("retrieval_profile") or ""),
+            "retrieval_domain": str(retrieval_summary.get("retrieval_domain") or ""),
+            "query_variants": [str(item) for item in (retrieval_summary.get("query_variants") or []) if str(item)],
+            "hit_scopes": [str(item) for item in (retrieval_summary.get("hit_scopes") or []) if str(item)],
+            "missing_fields": [str(item) for item in (retrieval_summary.get("missing_fields") or []) if str(item)],
+            "fact_slots": retrieved_knowledge.get("fact_slots") or {},
+            "summary": retrieval_summary,
+            "evaluation": retrieval_eval,
+            "fact_sources": fact_sources,
+            "fact_conflicts": retrieved_knowledge.get("fact_conflicts") or [],
+            "confirmed_facts": retrieved_knowledge.get("confirmed_facts") or {},
+        },
+        "knowledge": {
+            "candidate_session_kb": retrieved_knowledge.get("candidate_session_kb") or {},
+            "session_kb": retrieved_knowledge.get("session_kb") or {},
+            "persistent_kb": retrieved_knowledge.get("persistent_kb") or {},
+        },
+        "document": {
+            "title": str((((note_document or {}).get("document_meta") or {}).get("title")) or ""),
+            "block_count": len(blocks),
+            "blocks": block_outline,
+            "final_blocks": block_outline,
+            "assets": assets,
+            "note_document": note_document,
+        },
     }
 
 
@@ -267,6 +369,14 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
     record_total = 0
     fresh_record_total = 0
     stale_record_total = 0
+    candidate_record_total = 0
+    candidate_pending_total = 0
+    session_record_total = 0
+    persistent_record_total = 0
+    review_approved_total = 0
+    review_rejected_total = 0
+    review_deferred_total = 0
+    persistent_conflict_total = 0
     cache_fresh_count = 0
     cache_stale_count = 0
     cache_age_total = 0
@@ -288,6 +398,7 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
         assets = dedupe_assets(list((note_document.get("assets") or []) or values.get("image_assets", []) or []))
         document = summary.get("document") if isinstance(summary.get("document"), dict) else {}
         retrieval = summary.get("retrieval") if isinstance(summary.get("retrieval"), dict) else {}
+        knowledge = summary.get("knowledge") if isinstance(summary.get("knowledge"), dict) else {}
         execution = summary.get("execution") if isinstance(summary.get("execution"), dict) else {}
         builder = summary.get("builder") if isinstance(summary.get("builder"), dict) else {}
         focus = summary.get("focus") if isinstance(summary.get("focus"), dict) else {}
@@ -299,6 +410,14 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
         total_changed_block_count += _safe_int(execution.get("changed_block_count"))
         builder_component_total += _safe_int(builder.get("component_count"))
         builder_fallback_total += _safe_int(builder.get("fallback_count"))
+        candidate_record_total += _safe_int(knowledge.get("candidate_record_count"))
+        candidate_pending_total += _safe_int(knowledge.get("candidate_pending_count"))
+        session_record_total += _safe_int(knowledge.get("session_record_count"))
+        persistent_record_total += _safe_int(knowledge.get("persistent_record_count"))
+        review_approved_total += _safe_int(knowledge.get("review_approved_count"))
+        review_rejected_total += _safe_int(knowledge.get("review_rejected_count"))
+        review_deferred_total += _safe_int(knowledge.get("review_deferred_count"))
+        persistent_conflict_total += _safe_int(knowledge.get("persistent_conflict_count"))
 
         if block_count:
             generated_session_count += 1
@@ -361,7 +480,7 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
             "updated_at": updated_at,
             "block_count": block_count,
             "asset_count": asset_count,
-            "scenario": scenarios[0] if scenarios else "general",
+            "scenario": scenarios[0] if scenarios else "seeding",
             "theme_preset": theme_preset,
             "entity_name": entity_name or "未识别主体",
             "grounding_status": str(retrieval.get("grounding_status") or "unknown"),
@@ -380,7 +499,7 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
     warning_rate = _ratio(warning_session_count, session_count)
 
     if retrieval_session_count == 0:
-        recommendation_pool.append("目前还没有足够的检索样本，先用 seeding / travel / daily_share 各跑几轮再看 benchmark。")
+        recommendation_pool.append("目前还没有足够的检索样本，先围绕数码购买决策主链多跑几轮再看 benchmark。")
     if retrieval_session_count and cache_hit_rate < 0.35:
         recommendation_pool.append("缓存命中率偏低，建议继续扩 system_preload 覆盖面，优先预热高频 entity 和热点 topic。")
     if retrieval_session_count and citation_coverage_avg < 0.65:
@@ -416,6 +535,16 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
             "avg_fresh_record_count": round(_ratio(fresh_record_total, rag_denominator), 2),
             "avg_stale_record_count": round(_ratio(stale_record_total, rag_denominator), 2),
             "grounded_session_rate": round(_ratio(grounded_count, rag_denominator), 3),
+        },
+        "knowledge": {
+            "avg_candidate_record_count": round(_ratio(candidate_record_total, session_count), 2),
+            "avg_candidate_pending_count": round(_ratio(candidate_pending_total, session_count), 2),
+            "avg_session_record_count": round(_ratio(session_record_total, session_count), 2),
+            "avg_persistent_record_count": round(_ratio(persistent_record_total, session_count), 2),
+            "review_approved_rate": round(_ratio(review_approved_total, max(review_approved_total + review_rejected_total + review_deferred_total, 1)), 3),
+            "review_rejected_rate": round(_ratio(review_rejected_total, max(review_approved_total + review_rejected_total + review_deferred_total, 1)), 3),
+            "review_deferred_rate": round(_ratio(review_deferred_total, max(review_approved_total + review_rejected_total + review_deferred_total, 1)), 3),
+            "persistent_conflict_total": persistent_conflict_total,
         },
         "cache": {
             "cache_hit_rate": round(cache_hit_rate, 3),
@@ -510,7 +639,7 @@ def build_evaluation_overview(session_snapshots: list[dict], title_resolver) -> 
             },
             "categories": [],
             "sessions": [],
-            "recommendations": ["先生成几轮 seeding / travel / daily_share 页面，再观察评估面板。"],
+            "recommendations": ["先围绕数码购买决策主链生成几轮页面，再观察评估面板。"],
         }
 
     route_decision_count = 0

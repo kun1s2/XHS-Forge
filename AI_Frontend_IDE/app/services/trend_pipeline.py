@@ -63,13 +63,15 @@ class TrendPipeline:
         mock_state: UIProjectState = {
             "main_messages": [HumanMessage(content=prompt)],
             "scenarios": [profile["scenario_hint"]] if profile["scenario_hint"] != "general" else ["seeding"],
-            "active_archetype": "general",
-            "intent_result_v2": {
+            "active_archetype": "seeding",
+            "intent_decision": {
                 "task_type": "create",
-                "edit_scope": "none",
+                "operation_type": "generate",
+                "scope": "global_canvas",
                 "needs_research": True,
-                "needs_assets": "search",
-                "scenario_scores": {profile["scenario_hint"] if profile["scenario_hint"] != "general" else "seeding": 1.0},
+                "needs_assets": True,
+                "confidence": 0.9,
+                "fallback_required": False,
                 "risk_flags": [],
             },
         }

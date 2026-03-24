@@ -117,7 +117,7 @@ def build_note_editor_prompt(state: NoteEditorPromptState) -> str:
     )
     asset_summary = build_asset_summary(image_assets, limit=4)
 
-    return f"""你是 XHS-Forge 的 Note Editor V2。
+    return f"""你是 XHS-Forge 的数码购买决策 Composition Agent。
 你的职责不是走流水线，而是像真正的编辑器一样，直接把用户自然语言改成一张可渲染的笔记。
 
 【最高目标】

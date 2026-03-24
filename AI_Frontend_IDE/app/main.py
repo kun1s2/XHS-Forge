@@ -17,6 +17,7 @@ from app.api.chat import router as chat_router
 from app.api.upload import router as upload_router
 
 from app.services.trend_pipeline import trend_pipeline
+from app.services.knowledge_hub import knowledge_hub_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,6 +41,8 @@ async def lifespan(app: FastAPI):
         
         # 挂载图引擎
         app.state.agent = compile_my_graph(checkpointer, store)
+        app.state.store = store
+        knowledge_hub_service.bind_store(store)
         # 挂载全局唯一的向量数据库实例
         app.state.vector_store = vector_store 
         
@@ -48,6 +51,7 @@ async def lifespan(app: FastAPI):
 
     # ================= 关闭阶段 (Shutdown) =================
     print("🛑 [System] 正在优雅关闭系统组件...")
+    knowledge_hub_service.bind_store(None)
     sync_task.cancel() # 停止后台同步任务
     try:
         await sync_task

@@ -10,8 +10,7 @@ class SideOpinion(BaseModel):
 
 async def battle_node(state: UIProjectState) -> dict:
     """
-    【对冲生成引擎】：并发驱动红黑双方 Agent 进行逻辑对撞。
-    面试亮点：异步 IO 并发，模拟多线程生产消费模型。
+    并发整理两侧观点，生成更清楚的取舍判断。
     """
     knowledge = state.get("retrieved_knowledge", {})
     clash_report = knowledge.get("clash_report")
@@ -30,17 +29,17 @@ async def battle_node(state: UIProjectState) -> dict:
     structured_llm = llm.with_structured_output(SideOpinion)
 
     async def generate_side(role: str, focus: str):
-        """内部闭包：单个极性的 Agent 工兵"""
+        """整理单侧观点。"""
         prompt = f"""你现在是【{role}】Agent。
         针对该话题，请根据以下指令进行深度扩写：
         >> {focus} <<
-        
-        要求：话术必须极具感染力，符合小红书‘红黑榜’或‘避雷/真香’的调性。
+
+        要求：观点要鲜明，但保持可信、克制和可解释；不要为了情绪感故意写成夸张口号。
         参考资料：{knowledge.get('summary', '')}
         """
         return await structured_llm.ainvoke(prompt)
 
-    print(f"⚔️ [对冲引擎] 启动并发线程，正在合成对峙观点...")
+    print("⚖️ [取舍整理] 正在并发整理两侧观点...")
 
     # ====== ✨ 核心亮点：asyncio.gather 异步并发执行 ======
     # 面试时可宣称：为了提高生成效率，我将红黑双方的思考过程进行了解耦并发处理
@@ -56,7 +55,7 @@ async def battle_node(state: UIProjectState) -> dict:
         "cons": cons_task_res.model_dump()
     }
 
-    print(f"🏁 [对冲引擎] 合成完毕：{battle_report['title']}")
+    print(f"✅ [取舍整理] 已完成：{battle_report['title']}")
 
     return {
         "retrieved_knowledge": {

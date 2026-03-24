@@ -1,40 +1,40 @@
-import json
-import re
-import os
 import asyncio
-from app.core.llm_factory import create_llm
+import json
+import os
+from datetime import datetime
+
 from app.agents.state import UIProjectState
 from app.core.config import settings
-from app.core.schema import IntentGatewayOutput
+from app.core.llm_factory import create_llm
 from app.core.note_document import build_note_document_layout_from_state
+from app.core.prompt_engineering import build_chat_prompt, build_prompt_snapshot, render_prompt_messages
 from app.core.query_heuristics import (
     infer_existing_canvas_edit_route,
+    looks_like_capability_query,
     looks_like_existing_canvas_edit,
-    mentions_paragraph_reference,
 )
-from app.core.prompt_engineering import build_chat_prompt, build_prompt_snapshot, render_prompt_messages
+from app.core.schema import IntentDecision
 from app.services.scenario_manager import scenario_manager
 
-# ✨ 性能优化：全局复用 LLM 实例
 _llm_instance = None
+
 
 def get_intent_llm():
     global _llm_instance
     if _llm_instance is None:
         os.environ["LANGSMITH_TRACING"] = "false"
         _llm_instance = create_llm(
-            model=settings.LLM_MODEL, 
-            api_key=settings.LLM_API_KEY, 
-            base_url=settings.LLM_BASE_URL, 
+            model=settings.LLM_MODEL,
+            api_key=settings.LLM_API_KEY,
+            base_url=settings.LLM_BASE_URL,
             temperature=0,
-            max_retries=1
+            max_retries=1,
         )
     return _llm_instance
 
 
 def _has_valid_selection(selected_id: str | None) -> bool:
     return selected_id not in [None, "", "无", "无 (全局修改)", "none"]
-
 
 
 def _extract_user_text(raw_content) -> str:
@@ -47,30 +47,86 @@ def _extract_user_text(raw_content) -> str:
     return str(raw_content or "").strip()
 
 
-def _build_fast_path_result(*, user_query: str, selected_id: str | None, active_archetype: str, route: str = "patch_node") -> dict:
-    scenario = str(active_archetype or "general")
-    intent_v2 = IntentGatewayOutput(
+def _looks_like_asset_request(user_query: str) -> bool:
+    return any(token in user_query for token in ("图片", "配图", "真机图", "海报", "封面", "大图", "补图", "加图"))
+
+
+def _looks_like_ingest_request(user_query: str) -> bool:
+    return any(token in user_query for token in ("上传资料", "导入资料", "导入知识", "加入知识库", "导入文档", "上传参数表"))
+
+
+def _looks_like_review_request(user_query: str) -> bool:
+    return any(token in user_query for token in ("确认", "采用", "驳回", "暂不使用", "审一下", "审批", "审查"))
+
+
+def _infer_operation_type(*, user_query: str, active_panel: str, selected_id: str | None, has_existing_canvas: bool) -> str:
+    if _looks_like_ingest_request(user_query):
+        return "kb_import"
+    if _looks_like_review_request(user_query):
+        return "fact_review"
+    if _looks_like_asset_request(user_query):
+        return "asset_edit"
+    if active_panel == "structure":
+        return "layout_edit"
+    if active_panel in {"content", "style"} or _has_valid_selection(selected_id) or has_existing_canvas:
+        return "text_edit"
+    return "generate"
+
+
+def _infer_scope(*, active_panel: str, selected_id: str | None) -> str:
+    if _has_valid_selection(selected_id):
+        return "selected_block"
+    if active_panel == "knowledge":
+        return "session_workspace"
+    if active_panel == "global":
+        return "global_hub"
+    return "global_canvas"
+
+
+def _build_fast_path_result(
+    *,
+    user_query: str,
+    selected_id: str | None,
+    active_panel: str,
+    active_archetype: str,
+    has_existing_canvas: bool,
+    route: str,
+) -> dict:
+    scenario = str(active_archetype or "seeding")
+    operation_type = _infer_operation_type(
+        user_query=user_query,
+        active_panel=active_panel,
+        selected_id=selected_id,
+        has_existing_canvas=has_existing_canvas,
+    )
+    intent_decision = IntentDecision(
         thought_process="",
-        reason="局部编辑快速通道",
-        task_type="edit",
-        edit_scope="selected_paragraph" if mentions_paragraph_reference(user_query) else "selected_block",
-        needs_research=False,
-        needs_assets="none",
-        scenario_scores={scenario: 1.0},
+        reason="快速路由",
+        task_type="edit" if operation_type not in {"kb_import", "fact_review"} else ("ingest" if operation_type == "kb_import" else "review"),
+        operation_type=operation_type,
+        scope=_infer_scope(active_panel=active_panel, selected_id=selected_id),
+        needs_research=operation_type == "asset_edit",
+        needs_assets=operation_type == "asset_edit",
+        confidence=0.94,
+        fallback_required=False,
         risk_flags=[],
     ).model_dump()
     return {
-        "intent_result_v2": intent_v2,
+        "intent_decision": intent_decision,
         "intent_route": route,
         "selected_element_id": selected_id,
         "scenarios": [scenario],
-        "scenario_scores": intent_v2.get("scenario_scores", {}),
+        "scenario_scores": {scenario: 1.0},
         "active_archetype": scenario,
         "node_prompts": {
             "intent_agent": [
                 {
                     "role": "system",
-                    "content": f"Gateway V2 Fast Path: task={intent_v2.get('task_type')}, scope={intent_v2.get('edit_scope')}, assets={intent_v2.get('needs_assets')}, scenarios={intent_v2.get('scenario_scores')}",
+                    "content": (
+                        f"Intent Fast Path: task={intent_decision.get('task_type')}, "
+                        f"op={intent_decision.get('operation_type')}, scope={intent_decision.get('scope')}, "
+                        f"assets={intent_decision.get('needs_assets')}"
+                    ),
                 }
             ]
         },
@@ -78,236 +134,174 @@ def _build_fast_path_result(*, user_query: str, selected_id: str | None, active_
     }
 
 
-def _build_panel_edit_fast_path(*, user_query: str, active_panel: str, active_archetype: str, selected_id: str | None) -> dict:
-    scenario = str(active_archetype or "general")
-    route_by_panel = {
-        "content": "note_editor",
-        "style": "theme_compiler",
-        "structure": "structure_node",
-    }
-    route = route_by_panel.get(str(active_panel or ""))
-    if not route:
-        return {}
-    intent_v2 = IntentGatewayOutput(
-        thought_process="",
-        reason=f"{active_panel} 面板全局编辑快速通道",
-        task_type="edit",
-        edit_scope="global",
-        needs_research=False,
-        needs_assets="none",
-        scenario_scores={scenario: 1.0},
-        risk_flags=[],
-    ).model_dump()
-    return {
-        "intent_result_v2": intent_v2,
-        "intent_route": route,
-        "selected_element_id": selected_id,
-        "scenarios": [scenario],
-        "scenario_scores": intent_v2.get("scenario_scores", {}),
-        "active_archetype": scenario,
-        "node_prompts": {
-            "intent_agent": [
-                {
-                    "role": "system",
-                    "content": f"Gateway V2 Panel Fast Path: panel={active_panel}, task={intent_v2.get('task_type')}, scope={intent_v2.get('edit_scope')}, scenarios={intent_v2.get('scenario_scores')}",
-                }
-            ]
-        },
-        "agent_backends": {"intent_agent": "deterministic_fast_path"},
-    }
-
-
-def _build_existing_canvas_edit_fast_path(*, user_query: str, active_archetype: str, selected_id: str | None) -> dict:
-    scenario = str(active_archetype or "general")
-    route = infer_existing_canvas_edit_route(user_query)
-    intent_v2 = IntentGatewayOutput(
-        thought_process="",
-        reason="main 面板已有画布编辑快速通道",
-        task_type="edit",
-        edit_scope="global",
-        needs_research=False,
-        needs_assets="none",
-        scenario_scores={scenario: 1.0},
-        risk_flags=[],
-    ).model_dump()
-    return {
-        "intent_result_v2": intent_v2,
-        "intent_route": route,
-        "selected_element_id": selected_id,
-        "scenarios": [scenario],
-        "scenario_scores": intent_v2.get("scenario_scores", {}),
-        "active_archetype": scenario,
-        "node_prompts": {
-            "intent_agent": [
-                {
-                    "role": "system",
-                    "content": f"Gateway V2 Existing Canvas Fast Path: route={route}, task={intent_v2.get('task_type')}, scope={intent_v2.get('edit_scope')}, scenarios={intent_v2.get('scenario_scores')}",
-                }
-            ]
-        },
-        "agent_backends": {"intent_agent": "deterministic_fast_path"},
-    }
-
-def _normalize_gateway_result(result: IntentGatewayOutput) -> dict:
+def _normalize_intent_decision(result: IntentDecision) -> dict:
     payload = result.model_dump()
-    scenario_scores = payload.get("scenario_scores") or {}
-    if not scenario_scores:
-        scenario_scores = {"general": 1.0}
-    payload["scenario_scores"] = {str(name): float(score) for name, score in scenario_scores.items()}
+    payload["confidence"] = max(0.0, min(1.0, float(payload.get("confidence") or 0.0)))
+    if payload.get("operation_type") == "kb_import":
+        payload["task_type"] = "ingest"
+    elif payload.get("operation_type") == "fact_review":
+        payload["task_type"] = "review"
     return payload
 
 
-def _derive_route_from_intent_v2(intent_v2: dict, *, user_query: str, selected_id: str | None) -> str:
-    task_type = str(intent_v2.get("task_type") or "create").lower()
-    edit_scope = str(intent_v2.get("edit_scope") or "none").lower()
-    needs_assets = str(intent_v2.get("needs_assets") or "none").lower()
-    needs_research = bool(intent_v2.get("needs_research"))
+def _derive_route_from_intent_decision(intent_decision: dict, *, user_query: str, selected_id: str | None) -> str:
+    task_type = str(intent_decision.get("task_type") or "create").lower()
+    operation_type = str(intent_decision.get("operation_type") or "generate").lower()
+    scope = str(intent_decision.get("scope") or "global_canvas").lower()
+    needs_assets = bool(intent_decision.get("needs_assets"))
+    needs_research = bool(intent_decision.get("needs_research"))
+    fallback_required = bool(intent_decision.get("fallback_required"))
 
-    if task_type == "refuse":
-        return "refusal_node"
-    if edit_scope in {"selected_block", "selected_paragraph"} and _has_valid_selection(selected_id):
+    if fallback_required:
+        return "fact_gap_checkpoint"
+    if task_type in {"review", "ingest"}:
+        return "knowledge_review_checkpoint"
+    if task_type == "inspect":
+        return "direct_chat_node"
+    if scope == "selected_block" and _has_valid_selection(selected_id):
         return "patch_node"
     if task_type == "edit":
+        if operation_type == "asset_edit" or needs_assets or needs_research:
+            return "retrieval_agent"
         return infer_existing_canvas_edit_route(user_query)
-    if task_type == "inspect":
-        return "patch_node"
-    if task_type == "confirm_fact":
-        return "patch_node"
-    if needs_assets == "search" or needs_research:
-        return "research_agent"
-    return "research_agent"
+    return "retrieval_agent"
+
 
 async def intent_agent(state: UIProjectState) -> dict:
-    """
-    【意图路由大脑 3.0】：具备动态场景发现能力的智能网关。
-    """
-    # 1. 动态获取当前系统安装的所有场景 ID（解耦核心）
-    VALID_SCENARIOS = scenario_manager.list_all_scenarios()
-    
-    # 2. 状态提取
+    """数字购买决策工作台的统一意图网关。"""
+    valid_scenarios = scenario_manager.list_all_scenarios() or ["seeding"]
     execution_view = build_note_document_layout_from_state(state)
     selected_id = state.get("selected_element_id")
-    active_archetype = state.get("active_archetype", "general")
+    active_archetype = "seeding"
     has_existing_canvas = bool(execution_view.get("blocks"))
-    active_panel = state.get("active_panel", "main")
-    
+    active_panel = str(state.get("active_panel", "main") or "main")
+
     messages = state.get(f"{active_panel}_messages", [])
     if not messages:
         return {"intent_route": "END", "agent_backends": {"intent_agent": "skipped_no_messages"}}
-    user_query = _extract_user_text(messages[-1].content)
+
+    latest_message = messages[-1]
+    raw_content = getattr(latest_message, "content", None)
+    if raw_content is None and isinstance(latest_message, dict):
+        raw_content = latest_message.get("content")
+    user_query = _extract_user_text(raw_content)
+    if not user_query:
+        return {"intent_route": "END", "agent_backends": {"intent_agent": "skipped_empty_query"}}
 
     if active_panel != "main" and _has_valid_selection(selected_id):
-        print(f"⚡ [意图网关] 命中局部编辑快速通道: panel={active_panel} | selected={selected_id}")
         return _build_fast_path_result(
             user_query=user_query,
             selected_id=selected_id,
+            active_panel=active_panel,
             active_archetype=active_archetype,
+            has_existing_canvas=has_existing_canvas,
             route="patch_node",
         )
 
-    if active_panel in {"content", "style", "structure"} and user_query:
-        print(f"⚡ [意图网关] 命中子面板全局编辑快速通道: panel={active_panel}")
-        return _build_panel_edit_fast_path(
+    if active_panel in {"content", "style", "structure"}:
+        route = {"content": "composition_agent", "style": "theme_compiler", "structure": "structure_node"}[active_panel]
+        return _build_fast_path_result(
             user_query=user_query,
+            selected_id=selected_id,
             active_panel=active_panel,
             active_archetype=active_archetype,
-            selected_id=selected_id,
+            has_existing_canvas=has_existing_canvas,
+            route=route,
         )
 
-    if active_panel == "main" and has_existing_canvas and user_query and looks_like_existing_canvas_edit(user_query):
-        print("⚡ [意图网关] 命中 main 面板已有画布编辑快速通道")
-        return _build_existing_canvas_edit_fast_path(
+    if active_panel == "main" and has_existing_canvas and looks_like_existing_canvas_edit(user_query):
+        return _build_fast_path_result(
             user_query=user_query,
-            active_archetype=active_archetype,
             selected_id=selected_id,
+            active_panel=active_panel,
+            active_archetype=active_archetype,
+            has_existing_canvas=has_existing_canvas,
+            route=infer_existing_canvas_edit_route(user_query),
         )
+
+    if looks_like_capability_query(user_query):
+        return {
+            "intent_decision": IntentDecision(
+                thought_process="",
+                reason="能力问答",
+                task_type="inspect",
+                operation_type="generate",
+                scope="session_workspace",
+                needs_research=False,
+                needs_assets=False,
+                confidence=0.96,
+                fallback_required=False,
+                risk_flags=[],
+            ).model_dump(),
+            "intent_route": "direct_chat_node",
+            "selected_element_id": selected_id,
+            "scenarios": ["seeding"],
+            "scenario_scores": {"seeding": 1.0},
+            "active_archetype": "seeding",
+            "agent_backends": {"intent_agent": "deterministic_capability_fast_path"},
+        }
 
     llm = get_intent_llm()
-
-    # 获取页面大纲 (ID + Type)
     outline = [
         {"id": str(block.get("id") or ""), "type": str(block.get("component_type") or "")}
         for block in list(execution_view.get("blocks") or [])
         if block.get("id") and block.get("component_type")
     ]
-
-    from datetime import datetime
     current_time = datetime.now().strftime("%Y-%m-%d %A")
-
-    # 3. 加载提示词
     prompt = build_chat_prompt(
-        system_template_name="intent_gateway_v2.xml",
-        human_template="【当前时间】: {{ current_time }}\n【可用场景池】: {{ valid_scenarios }}\n【用户指令】: {{ query }}",
+        system_template_name="intent_gateway.xml",
+        human_template="【当前时间】: {{ current_time }}\n【正式业务】: 数码购买决策\n【用户指令】: {{ query }}",
     )
+    structured_llm = llm.with_structured_output(IntentDecision, method="function_calling")
 
-    structured_llm = llm.with_structured_output(IntentGatewayOutput, method="function_calling")
-    
     try:
         inputs = {
             "current_time": current_time,
-            "valid_scenarios": ", ".join(VALID_SCENARIOS),
+            "valid_scenarios": ", ".join(valid_scenarios),
             "data_context": json.dumps(outline, ensure_ascii=False),
-            "selected_element": selected_id if selected_id else "无", 
-            "active_archetype": active_archetype, 
-            "query": user_query
+            "selected_element": selected_id if selected_id else "无",
+            "active_archetype": active_archetype,
+            "query": user_query,
         }
         prompt_messages = render_prompt_messages(prompt, inputs)
-        
-        try:
-            print(f"📡 [意图路由] 正在分析指令 4.0，支持场景: {VALID_SCENARIOS}")
-            chain = prompt | structured_llm
-            # 自定义重试回路
-            from pydantic import ValidationError
-            max_retries = 2
-            attempt = 0
-            result = None
-            while attempt < max_retries:
-                try:
-                    result = await chain.ainvoke(inputs, config={"timeout": 45.0})
-                    break
-                except Exception as loop_e:
-                    attempt += 1
-                    print(f"⚠️ [Intent Agent] 内部调用出错 (尝试 {attempt}/{max_retries}): {loop_e}")
-                    if attempt >= max_retries:
-                        raise loop_e
-                    await asyncio.sleep(1)
-            
-            effective_id = selected_id
-            intent_v2 = _normalize_gateway_result(result)
-            filtered_scores = {
-                scenario: score
-                for scenario, score in (intent_v2.get("scenario_scores") or {}).items()
-                if scenario in VALID_SCENARIOS or scenario == "general"
-            }
-            if not filtered_scores:
-                filtered_scores = {"general": 1.0}
-            intent_v2["scenario_scores"] = filtered_scores
-            final_scenarios = list(filtered_scores.keys()) or ["general"]
-            derived_route = _derive_route_from_intent_v2(intent_v2, user_query=user_query, selected_id=effective_id)
-            print(f"🧭 [意图网关] task={intent_v2.get('task_type')} | scope={intent_v2.get('edit_scope')} | research={intent_v2.get('needs_research')} | assets={intent_v2.get('needs_assets')} | scenarios={intent_v2.get('scenario_scores')}")
+        chain = prompt | structured_llm
+        attempt = 0
+        result = None
+        while attempt < 2:
+            try:
+                result = await chain.ainvoke(inputs, config={"timeout": 45.0})
+                break
+            except Exception as loop_error:
+                attempt += 1
+                if attempt >= 2:
+                    raise loop_error
+                await asyncio.sleep(1)
 
-            return {
-                "intent_result_v2": intent_v2,
-                "intent_route": derived_route,
-                "selected_element_id": effective_id,
-                "scenarios": final_scenarios,
-                "scenario_scores": intent_v2.get("scenario_scores", {}),
-                "active_archetype": final_scenarios[0],
-                "thought_process": result.thought_process,
-                "node_prompts": build_prompt_snapshot("intent_agent", messages=prompt_messages),
-                "agent_backends": {"intent_agent": "structured_function_calling"}
-            }
-                    
-        except Exception as e:
-            from pydantic import ValidationError
-            if isinstance(e, ValidationError):
-                # 触发本地自纠错回路
-                print(f"⚠️ [Intent Agent] 遇到 Schema 校验错误，进行本地自纠错重试...")
-                # 这里我们假设框架会自动重试或者可以简易进行最多 1 次重试
-                pass
-            print(f"❌ Intent Agent 失败: {e}")
-            return {"intent_route": "structure_node", "scenarios": ["general"], "agent_backends": {"intent_agent": "fallback_route"}}
-                    
-    except Exception as e:
-        print(f"❌ Intent Agent 外层失败: {e}")
-        return {"intent_route": "structure_node", "scenarios": ["general"], "agent_backends": {"intent_agent": "fallback_route"}}
+        intent_decision = _normalize_intent_decision(result)
+        derived_route = _derive_route_from_intent_decision(intent_decision, user_query=user_query, selected_id=selected_id)
+        print(
+            f"🧭 [意图网关] task={intent_decision.get('task_type')} | "
+            f"op={intent_decision.get('operation_type')} | scope={intent_decision.get('scope')} | "
+            f"research={intent_decision.get('needs_research')} | assets={intent_decision.get('needs_assets')} | "
+            f"confidence={intent_decision.get('confidence')}"
+        )
+        return {
+            "intent_decision": intent_decision,
+            "intent_route": derived_route,
+            "selected_element_id": selected_id,
+            "scenarios": ["seeding"],
+            "scenario_scores": {"seeding": 1.0},
+            "active_archetype": "seeding",
+            "thought_process": result.thought_process,
+            "node_prompts": build_prompt_snapshot("intent_agent", messages=prompt_messages),
+            "agent_backends": {"intent_agent": "structured_function_calling"},
+        }
+    except Exception as error:
+        print(f"❌ Intent Agent 失败: {error}")
+        return {
+            "intent_route": "retrieval_agent",
+            "scenarios": ["seeding"],
+            "scenario_scores": {"seeding": 1.0},
+            "active_archetype": "seeding",
+            "agent_backends": {"intent_agent": "fallback_route"},
+        }

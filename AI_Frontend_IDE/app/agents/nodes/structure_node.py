@@ -68,6 +68,20 @@ async def structure_agent(state: UIProjectState) -> dict:
     assets = state.get("image_assets", [])
     assets_text = json.dumps(assets, ensure_ascii=False) if assets else "无"
     is_update = bool(execution_view.get("blocks"))
+    planner_output = state.get("planner_output", {}) if isinstance(state.get("planner_output", {}), dict) else {}
+    planner_policy = state.get("planner_policy", {}) if isinstance(state.get("planner_policy", {}), dict) else {}
+    planner_block_intents = [
+        {
+            "intent_type": str(item.get("intent_type") or ""),
+            "preferred_component": str(item.get("preferred_component") or ""),
+            "candidate_components": [str(component) for component in list(item.get("candidate_components") or []) if str(component)],
+            "selection_mode": str(item.get("selection_mode") or "anchored"),
+            "goal": str(item.get("goal") or ""),
+            "required": bool(item.get("required")),
+        }
+        for item in (planner_output.get("block_intents") or [])
+        if isinstance(item, dict)
+    ]
 
     # 3. ====== ✨ 现代化：从外部 XML 加载系统提示词 ======
     prompt = build_chat_prompt(
@@ -87,6 +101,8 @@ async def structure_agent(state: UIProjectState) -> dict:
             "active_archetype": active_archetype, 
             "content_context": content_context,
             "assets_text": assets_text,
+            "planner_block_intents": json.dumps(planner_block_intents, ensure_ascii=False),
+            "planner_layout_policy": json.dumps(planner_policy.get("layout_policy", {}), ensure_ascii=False),
             "user_query": user_query
         }
         

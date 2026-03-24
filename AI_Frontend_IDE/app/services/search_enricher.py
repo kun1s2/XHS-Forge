@@ -88,7 +88,7 @@ def _safe_parse_distilled_json(raw_text: str) -> dict[str, Any]:
     except Exception:
         return {}
 
-async def enrich_product_document(note_document: dict, archetype: str = "general") -> dict:
+async def enrich_product_document(note_document: dict, archetype: str = "seeding") -> dict:
     """Distill product/location facts directly into NoteDocument blocks."""
     document = deepcopy(note_document or {})
     blocks = list(document.get("blocks") or [])
@@ -98,11 +98,9 @@ async def enrich_product_document(note_document: dict, archetype: str = "general
     DOMAIN_MAP = {
         "seeding": "核心参数、规格、主要成分、功能特性、官方售价",
         "gourmet": "招牌菜品、人均消费、营业时间、详细地址、评分总结",
-        "travel": "门票价格、开放时间、游玩耗时、最佳月份、交通建议",
-        "daily_share": "天气氛围、地点背景、时间线线索、可引用的生活细节",
         "general": "关键信息、核心特点、参考价格、基本属性"
     }
-    target_info = DOMAIN_MAP.get(archetype, DOMAIN_MAP["general"])
+    target_info = DOMAIN_MAP.get(archetype, DOMAIN_MAP["seeding"])
 
     # 2. 嗅探页面全局主体
     page_title = ((document.get("document_meta") or {}).get("title") or "").strip()

@@ -43,41 +43,6 @@ SEEDING_HINTS = (
     "特斯拉",
 )
 
-TRAVEL_HINTS = (
-    "阿那亚",
-    "攻略",
-    "旅行",
-    "海边",
-    "民宿",
-    "酒店",
-    "城市",
-    "周末去",
-    "一日游",
-    "探店",
-    "地点",
-    "路线",
-    "门票",
-    "景点",
-    "打卡",
-)
-
-DAILY_SHARE_HINTS = (
-    "晚霞",
-    "日常",
-    "下班",
-    "周末",
-    "散步",
-    "手账",
-    "咖啡",
-    "奶茶",
-    "穿搭",
-    "生活",
-    "情绪",
-    "分享",
-    "春天第一杯",
-)
-
-
 def normalize_trend_keyword(keyword: str) -> str:
     """统一热点关键词显示文本。"""
     text = str(keyword or "").strip()
@@ -91,25 +56,14 @@ def infer_trend_profile(keyword: str, *, scenario_hint: str | None = None) -> di
     label = normalize_trend_keyword(keyword)
     lowered = label.lower()
     forced = str(scenario_hint or "").strip().lower()
-    if forced in {"seeding", "travel", "daily_share"}:
+    if forced == "seeding":
         scenario = forced
     elif any(token in lowered for token in SEEDING_HINTS) or any(token in label for token in SEEDING_HINTS):
         scenario = "seeding"
-    elif any(token in lowered for token in TRAVEL_HINTS) or any(token in label for token in TRAVEL_HINTS):
-        scenario = "travel"
-    elif any(token in lowered for token in DAILY_SHARE_HINTS) or any(token in label for token in DAILY_SHARE_HINTS):
-        scenario = "daily_share"
     else:
-        scenario = "general"
+        scenario = "seeding"
 
-    if scenario == "seeding":
-        entity_type = "product_topic"
-    elif scenario == "travel":
-        entity_type = "location_topic"
-    elif scenario == "daily_share":
-        entity_type = "lifestyle_topic"
-    else:
-        entity_type = "general_topic"
+    entity_type = "product_topic"
 
     return {
         "scenario_hint": scenario,
@@ -123,12 +77,8 @@ def build_trend_prompt(keyword: str, *, scenario_hint: str | None = None) -> str
     profile = infer_trend_profile(label, scenario_hint=scenario_hint)
     scenario = profile["scenario_hint"]
     if scenario == "seeding":
-        return f"帮我生成一篇关于「{label}」的对比种草笔记，信息要靠谱，结论要鲜明，不要默认补和主题无关的风景配图。"
-    if scenario == "travel":
-        return f"帮我做一篇围绕「{label}」的旅行/探店分享笔记，信息要靠谱，表达要有生活感。"
-    if scenario == "daily_share":
-        return f"帮我写一篇围绕「{label}」的日常分享笔记，语气自然一点，保留真实细节感。"
-    return f"帮我围绕「{label}」生成一篇结构清晰、信息可靠的分享笔记。"
+        return f"帮我生成一篇关于「{label}」的数码购买决策笔记，信息要靠谱，结论要鲜明，并优先补价格、参数、续航和图片证据。"
+    return f"帮我围绕「{label}」生成一篇结构清晰、信息可靠的数码购买决策笔记。"
 
 
 def build_trend_item(

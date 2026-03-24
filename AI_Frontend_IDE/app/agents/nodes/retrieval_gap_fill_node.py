@@ -168,8 +168,8 @@ async def retrieval_gap_fill_with_limit(
     if not missing_slot_keys:
         retrieval_summary.update(
             {
-                "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
-                "retrieval_domain": retrieval_profile.get("domain") or "general",
+                "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
+                "retrieval_domain": retrieval_profile.get("domain") or "digital_review",
                 "block_required_fields": [slot_labels.get(slot, slot) for slot in required_slot_keys],
                 "block_gap_fill_used": False,
                 "critical_missing_fields": [],
@@ -201,8 +201,8 @@ async def retrieval_gap_fill_with_limit(
     if not followup_query_variants:
         retrieval_summary.update(
             {
-                "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
-                "retrieval_domain": retrieval_profile.get("domain") or "general",
+                "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
+                "retrieval_domain": retrieval_profile.get("domain") or "digital_review",
                 "block_required_fields": [slot_labels.get(slot, slot) for slot in required_slot_keys],
                 "block_gap_fill_used": False,
                 "critical_missing_fields": critical_missing_fields,
@@ -302,7 +302,7 @@ async def retrieval_gap_fill_with_limit(
     next_knowledge["knowledge_records"] = ingest_result.get("records") or []
     next_knowledge["retrieval_summary"] = {
         **retrieval_summary,
-        "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
+        "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
         "retrieval_domain": retrieval_profile.get("domain") or "general",
         "block_required_fields": [slot_labels.get(slot, slot) for slot in required_slot_keys],
         "block_gap_fill_used": bool(new_fact_slots),

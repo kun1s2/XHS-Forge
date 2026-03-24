@@ -82,7 +82,7 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
         "main_messages": [HumanMessage(content="我想写小米17 Ultra")],
         "active_panel": "main",
         "retrieved_knowledge": None,
-        "intent_result_v2": {"needs_assets": "none"},
+        "intent_decision": {"needs_assets": "none"},
     }
     
     # 3. 触发节点（执行必须是阻塞的）
@@ -193,7 +193,7 @@ async def test_research_node_uses_digital_retrieval_profile_for_seeding(
         "active_panel": "main",
         "active_archetype": "seeding",
         "retrieved_knowledge": None,
-        "intent_result_v2": {"needs_assets": "none"},
+        "intent_decision": {"needs_assets": "none"},
     })
 
     summary = result["retrieved_knowledge"]["retrieval_summary"]
@@ -272,6 +272,7 @@ def test_glassbox_inspect_api():
     }
     mock_snapshot = MagicMock()
     mock_snapshot.values = mock_values
+    mock_snapshot.config = {"configurable": {"checkpoint_id": "ckpt_test"}}
 
     mock_agent = MagicMock()
     mock_agent.aget_state = AsyncMock(return_value=mock_snapshot)
@@ -280,6 +281,7 @@ def test_glassbox_inspect_api():
     data = asyncio.run(inspect_agent_state(test_thread_id, request))
 
     assert data["status"] == "success"
+    assert data["data"]["checkpoint_id"] == "ckpt_test"
     assert data["data"]["intent_route"] == "research_agent"
     assert data["data"]["creator_persona"] == "硬核数码博主"
     assert data["data"]["retrieved_knowledge"]["entity_name"] == "小米 17 Ultra"

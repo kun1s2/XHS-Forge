@@ -64,7 +64,6 @@ class Settings(BaseSettings):
     # ✨ 哨兵总控：是否开启人工干预 (Human-In-The-Loop)
     HITL_ENABLED: bool = False
 
-    ENABLE_PLANNER_V2: bool = True
     ENABLE_COMPONENT_MANIFEST: bool = True
     ENABLE_NOTE_DOCUMENT_V2: bool = True
 

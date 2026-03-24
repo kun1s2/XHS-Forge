@@ -1,9 +1,10 @@
 {
   "scenario_id": "travel",
-  "name": "环球旅行家赛道",
+  "name": "旅行副场景",
+  "description": "用于展示路线建议、地点说明和真实性协作的副场景",
   "contract": {
-    "required_components": ["MapCard", "Timeline", "PhotoGallery"],
-    "suggested_order": ["PhotoGallery", "TitleBlock", "MapCard", "StoryText", "Timeline", "InteractionsBar"]
+    "required_components": ["TitleBlock", "StoryText"],
+    "suggested_order": ["CoverSwiper", "TitleBlock", "LocationBlock", "TimelineBlock", "StoryText"]
   },
   "visual_rules": {
     "variant": {

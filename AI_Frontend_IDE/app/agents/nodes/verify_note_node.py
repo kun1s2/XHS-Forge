@@ -20,7 +20,7 @@ from app.core.note_document import (
 
 async def verify_note_node(state: UIProjectState) -> dict:
     """
-    Deterministic verifier for Note Editor V2.
+    Deterministic verifier for the digital decision composition flow.
     在渲染前补齐关键字段、移除不支持的组件，尽量保证页面可渲染。
     """
     note_document = build_note_document_from_state(state)

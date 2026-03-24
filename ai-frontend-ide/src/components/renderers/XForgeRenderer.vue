@@ -60,6 +60,8 @@ const props = defineProps<{
   index: number;
   interactive?: boolean;
   selectionEnabled?: boolean;
+  recentlyChanged?: boolean;
+  recentChange?: { fields?: string[]; paragraph_indices?: number[]; item_indices?: number[] } | null;
 }>();
 
 const chatStore = useChatStore();
@@ -116,6 +118,7 @@ const transitionDelay = computed(() => `${(props.index || 0) * 50}ms`);
 const isInteractive = computed(() => props.interactive !== false);
 const isSelectionEnabled = computed(() => props.selectionEnabled === true);
 const isSelected = computed(() => isSelectionEnabled.value && selectedComponentId.value === props.node?.id);
+const isRecentlyChanged = computed(() => props.recentlyChanged === true);
 const selectedParagraph = computed(() => {
   if (!isSelectionEnabled.value || props.node?.component_type !== 'StoryText' || selectedComponentId.value !== props.node?.id) {
     return null;
@@ -126,6 +129,7 @@ const wrapperClasses = computed(() => [
   'w-full transition-all duration-700 animate-fade-up',
   isSelectionEnabled.value ? 'cursor-crosshair' : 'cursor-default',
   computedClasses.value,
+  isRecentlyChanged.value ? 'ring-2 ring-amber-300/90 ring-offset-2 ring-offset-white/70 rounded-[28px] shadow-[0_0_0_1px_rgba(251,191,36,0.22),0_18px_45px_rgba(251,191,36,0.14)]' : '',
   isSelected.value ? 'ring-2 ring-[var(--primary-vibe)] ring-offset-2 ring-offset-white/60 rounded-[28px] shadow-[0_0_0_1px_rgba(255,36,66,0.12)]' : '',
 ]);
 
@@ -230,6 +234,12 @@ const resolveComp = (type: string) => {
       aria-label="选择当前积木"
     />
     <div
+      v-if="isRecentlyChanged"
+      class="pointer-events-none absolute right-3 top-3 z-20 rounded-full border border-amber-300/70 bg-amber-50/92 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-amber-700 shadow-sm"
+    >
+      刚刚修改
+    </div>
+    <div
       v-if="isSelectionEnabled"
       class="pointer-events-none absolute left-3 top-3 z-20 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em]"
       :style="{
@@ -248,6 +258,7 @@ const resolveComp = (type: string) => {
         :data="nodeData"
         :style="{ css_classes: computedClasses, inline_styles: componentStyle.inline_styles || {} }"
         :selectedParagraph="selectedParagraph"
+        :recent-change="props.recentChange || null"
         @select="handleSelectPayload"
         @quick-action="handleQuickAction"
         @hover="handleHover"

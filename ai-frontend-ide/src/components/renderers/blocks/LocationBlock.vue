@@ -9,12 +9,12 @@
         <span class="text-xl" :style="{ color: 'var(--primary-vibe, #ff2442)' }">📍</span>
       </div>
       
-      <!-- ✨ 中间文字：展示真实 POI 名称与地址 -->
+      <!-- ✨ 中间文字：展示地点名称与推荐说明 -->
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-1.5 mb-0.5">
           <div class="text-[14px] font-bold truncate" :style="{ color: 'var(--text-color)' }">{{ props.data?.poi_name || props.data?.location || '未知地点' }}</div>
-          <!-- ✨ 如果有坐标，显示“已校准”小标签 -->
-          <div v-if="hasCoordinates" class="px-1 py-0.5 bg-green-100 text-green-600 text-[9px] rounded font-bold uppercase tracking-tighter">GPS</div>
+          <div v-if="hasCoordinates" class="px-1 py-0.5 bg-green-100 text-green-600 text-[9px] rounded font-bold uppercase tracking-tighter">已确认</div>
+          <div v-else class="px-1 py-0.5 bg-sky-50 text-sky-600 text-[9px] rounded font-bold uppercase tracking-tighter">推荐</div>
         </div>
         <div class="text-[11px] truncate leading-tight" :style="{ color: 'var(--text-muted)' }">
           {{ props.data?.location || '点击查看详情' }}
@@ -22,7 +22,8 @@
       </div>
 
       <!-- ✨ 右侧箭头 -->
-      <div class="group-hover:translate-x-0.5 transition-all" :style="arrowStyle">
+      <div class="group-hover:translate-x-0.5 transition-all flex items-center" :style="arrowStyle">
+        <span class="mr-2 hidden text-[10px] font-bold sm:inline">{{ actionCopy }}</span>
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
         </svg>
@@ -54,8 +55,10 @@ const shellStyle = computed(() => ({
   boxShadow: 'var(--card-shadow)',
 }))
 const arrowStyle = computed(() => ({ color: 'var(--text-muted)' }))
+const mode = computed(() => String(props.data?.mode || 'recommended'))
 
-const hasCoordinates = computed(() => props.data?.lat !== undefined && props.data?.lng !== undefined)
+const hasCoordinates = computed(() => mode.value === 'confirmed' && props.data?.lat !== undefined && props.data?.lng !== undefined)
+const actionCopy = computed(() => (mode.value === 'confirmed' ? '打开地图' : '查看推荐位置'))
 
 const handleClick = (e: MouseEvent) => {
   e.stopPropagation()
@@ -64,12 +67,11 @@ const handleClick = (e: MouseEvent) => {
   const name = props.data?.poi_name || props.data?.location
   
   if (hasCoordinates.value) {
-    // ✨ 真实跳转：打开高德地图搜索页
     const url = `https://www.amap.com/search?query=${encodeURIComponent(name)}&city=auto`
     window.open(url, '_blank')
-  } else {
-    // 降级：仅弹窗
-    alert(`正在调起地图准备导航至：${name || '该地点'}`)
+  } else if (name) {
+    const url = `https://www.amap.com/search?query=${encodeURIComponent(name)}&city=auto`
+    window.open(url, '_blank')
   }
 }
 

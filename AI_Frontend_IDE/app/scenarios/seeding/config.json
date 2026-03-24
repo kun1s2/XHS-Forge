@@ -1,10 +1,10 @@
 {
   "scenario_id": "seeding",
-  "name": "小红书精美种草赛道",
-  "description": "回归经典 XHS 纯净排版，高转化大圆角视觉体系",
+  "name": "数码测评工作台",
+  "description": "主打参数判断、体验取舍和对比结论的正式演示场景",
   "contract": {
-    "required_components": ["CoverSwiper", "BentoGrid", "StoryText", "TagList", "InteractionsBar", "VersusCard", "FlipCard", "GiftBox"],
-    "suggested_order": ["CoverSwiper", "TitleBlock", "VersusCard", "StoryText", "BentoGrid", "TagList", "InteractionsBar"]
+    "required_components": ["TitleBlock", "StoryText"],
+    "suggested_order": ["CoverSwiper", "TitleBlock", "ProductSpecCard", "VersusCard", "StoryText", "PollBlock"]
   },
   "visual_rules": {
     "variant": {

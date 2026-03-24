@@ -35,6 +35,7 @@ class ComponentData(BaseModel):
     """组件参数规范 (ComponentPayload)"""
     # ✨ 哨兵容错：将 type 改为可选，防止工兵节点因漏掉此字段而导致 Pydantic 校验失败
     type: Optional[str] = Field(None, description="组件类型标识符")
+    mode: Optional[str] = Field(None, description="组件当前采用的表达模式，如 recommended/confirmed/summary 等")
     title: Optional[str] = Field(None, description="主标题内容")
     subtitle: Optional[str] = Field(None, description="副标题内容")
     paragraphs: Optional[List[str]] = Field(None, description="正文文本段落")
@@ -56,6 +57,12 @@ class ComponentData(BaseModel):
     
     image_url: Optional[str] = Field(None, description="单图 URL")
     image_urls: Optional[List[str]] = Field(None, description="多图 URL 数组")
+    frame_headlines: Optional[List[str]] = Field(None, description="封面轮播每一帧的主标题")
+    frame_captions: Optional[List[str]] = Field(None, description="封面轮播每一帧的补充说明")
+    deck_summary: Optional[str] = Field(None, description="封面轮播下方的整体摘要说明")
+    deck_chips: Optional[List[str]] = Field(None, description="封面轮播下方的短标签")
+    cover_focus: Optional[str] = Field(None, description="封面轮播当前强调的主题焦点")
+    source_labels: Optional[List[str]] = Field(None, description="封面轮播每一帧的来源或视角标签")
     price: Optional[str] = Field(None, description="价格信息（如 ￥99.00）")
     desc: Optional[str] = Field(None, description="描述性短文案")
     tags: Optional[List[str]] = Field(None, description="话题标签数组")
@@ -232,6 +239,8 @@ class BlockIntent(BaseModel):
     priority: int = 0
     goal: str = ""
     preferred_component: Optional[str] = None
+    candidate_components: List[str] = Field(default_factory=list)
+    selection_mode: str = "anchored"
     required: bool = False
 
 
@@ -286,13 +295,15 @@ class NoteDocument(BaseModel):
     planner: Dict[str, Any] = Field(default_factory=dict)
 
 
-class IntentGatewayOutput(BaseModel):
-    """现代化 gateway 输出：只保留路由与资源决策所需信号。"""
+class IntentDecision(BaseModel):
+    """购买决策工作台的统一意图决策协议。"""
     thought_process: str = Field(default="", description="网关级推理摘要，供 trace 与拒绝节点使用")
     reason: str = Field(default="", description="简短理由")
-    task_type: Literal["create", "edit", "inspect", "confirm_fact", "refuse"] = "create"
-    edit_scope: Literal["global", "selected_block", "selected_paragraph", "none"] = "global"
+    task_type: Literal["create", "edit", "inspect", "review", "ingest"] = "create"
+    operation_type: Literal["text_edit", "asset_edit", "layout_edit", "fact_review", "kb_import", "generate"] = "generate"
+    scope: Literal["selected_block", "global_canvas", "session_workspace", "global_hub"] = "global_canvas"
     needs_research: bool = False
-    needs_assets: Literal["none", "search", "generate", "reuse"] = "none"
-    scenario_scores: Dict[str, float] = Field(default_factory=dict)
+    needs_assets: bool = False
+    confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+    fallback_required: bool = False
     risk_flags: List[str] = Field(default_factory=list)

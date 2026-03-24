@@ -83,6 +83,7 @@ const props = defineProps<{
   data: any
   style: any
   selectedParagraph?: number | null
+  recentChange?: { fields?: string[]; paragraph_indices?: number[] } | null
 }>()
 
 const emit = defineEmits(['select', 'hover'])
@@ -93,6 +94,7 @@ const paragraphs = computed(() => props.data?.paragraphs || [])
 const paragraphMeta = computed<ParagraphMeta[]>(() => Array.isArray(props.data?.paragraph_meta) ? props.data.paragraph_meta : [])
 const selectedParagraph = computed(() => props.selectedParagraph ?? null)
 const hoveredParagraph = ref<number | null>(null)
+const changedParagraphIndices = computed(() => new Set((props.recentChange?.paragraph_indices || []).map((value) => Number(value))))
 
 const roleHintByRole = (role?: string | null) => {
   if (role === 'summary') return '适合承接最先给读者的判断。'
@@ -158,6 +160,13 @@ const paragraphMetaPillClass = (kind?: string | null) => {
 }
 
 const sectionCardStyle = (idx: number, kind?: string | null) => {
+  if (changedParagraphIndices.value.has(idx)) {
+    return {
+      borderColor: 'rgba(251,191,36,0.55)',
+      background: 'linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.92) 100%)',
+      boxShadow: '0 0 0 1px rgba(251,191,36,0.18), 0 18px 40px rgba(251,191,36,0.12)',
+    }
+  }
   if (selectedParagraph.value === idx) {
     return {
       borderColor: 'color-mix(in srgb, var(--primary-vibe) 35%, white 65%)',
@@ -184,7 +193,11 @@ const sectionCardStyle = (idx: number, kind?: string | null) => {
 
 const paragraphTextStyle = (idx: number) => ({
   color: 'var(--text-color, #1f2937)',
-  background: selectedParagraph.value === idx ? 'var(--primary-vibe-light, rgba(255,36,66,0.08))' : 'rgba(255,255,255,0.72)',
+  background: selectedParagraph.value === idx
+    ? 'var(--primary-vibe-light, rgba(255,36,66,0.08))'
+    : changedParagraphIndices.value.has(idx)
+      ? 'rgba(255,251,235,0.88)'
+      : 'rgba(255,255,255,0.72)',
 })
 
 const handleClick = (e: MouseEvent) => {

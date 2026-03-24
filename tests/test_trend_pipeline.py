@@ -16,9 +16,9 @@ async def test_trend_pipeline_primes_research_with_intent_v2():
 
     mock_research.assert_awaited_once()
     state = mock_research.await_args.args[0]
-    assert state["intent_result_v2"]["needs_assets"] == "search"
-    assert state["intent_result_v2"]["needs_research"] is True
-    assert state["intent_result_v2"]["scenario_scores"] == {"seeding": 1.0}
+    assert state["intent_decision"]["needs_assets"] == "search"
+    assert state["intent_decision"]["needs_research"] is True
+    assert state["intent_decision"]["scenario_scores"] == {"seeding": 1.0}
     mock_set.assert_awaited_once()
 
 

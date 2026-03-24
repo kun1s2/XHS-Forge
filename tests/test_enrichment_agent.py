@@ -2,13 +2,13 @@ import pytest
 import json
 import asyncio
 from unittest.mock import AsyncMock, patch
-from AI_Frontend_IDE.app.agents.nodes.enrichment_agent import enrichment_node_v2
+from AI_Frontend_IDE.app.agents.nodes.enrichment_agent import enrichment_node
 from AI_Frontend_IDE.app.agents.state import UIProjectState
 from AI_Frontend_IDE.app.core.note_document import build_note_document
 
 @pytest.mark.asyncio
-async def test_enrichment_node_v2_basic():
-    """测试 enrichment_node_v2 的基本逻辑，模拟工具调用返回。"""
+async def test_enrichment_node_basic():
+    """测试 enrichment_node 的基本逻辑，模拟工具调用返回。"""
     
     # 1. 准备初始状态
     initial_state: UIProjectState = {
@@ -60,7 +60,7 @@ async def test_enrichment_node_v2_basic():
         return mock_agent
 
     with patch("AI_Frontend_IDE.app.agents.nodes.enrichment_agent.create_controlled_agent", side_effect=fake_create_controlled_agent):
-        result = await enrichment_node_v2(initial_state)
+        result = await enrichment_node(initial_state)
 
     block = next(block for block in result["note_document"]["blocks"] if block["id"] == "comp_1")
     assert block["props"]["title"] == "增强后的索尼相机"
@@ -74,8 +74,8 @@ async def test_enrichment_node_v2_basic():
     assert "electronics" in prompt_sent
 
 @pytest.mark.asyncio
-async def test_enrichment_node_v2_empty_dsl():
+async def test_enrichment_node_empty_dsl():
     """测试当 note_document 为空时，节点应直接返回空字典。"""
     state = {"note_document": {"document_meta": {"title": "空页"}, "blocks": [], "assets": []}, "active_archetype": "general"}
-    result = await enrichment_node_v2(state)
+    result = await enrichment_node(state)
     assert result == {}

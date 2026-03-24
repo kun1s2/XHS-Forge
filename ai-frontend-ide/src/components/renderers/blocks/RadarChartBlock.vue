@@ -5,6 +5,7 @@ import FactBindingFooter from './FactBindingFooter.vue'
 const props = defineProps<{
   node: any
   data: {
+    mode?: string
     title?: string
     metrics?: Array<{ label: string; value: number; reason?: string; confidence?: string; evidence?: string }>
     dimensions?: string[]
@@ -14,6 +15,7 @@ const props = defineProps<{
 }>()
 
 const activeIndex = ref<number | null>(null)
+const cardMode = computed(() => String(props.data.mode || 'judgment_summary'))
 
 const normalizedMetrics = computed(() => {
   if (Array.isArray(props.data.metrics) && props.data.metrics.length) {
@@ -43,7 +45,7 @@ const normalizedMetrics = computed(() => {
   ]
 })
 
-const title = computed(() => props.data.title || '综合能力评估')
+const title = computed(() => props.data.title || (cardMode.value === 'scored_evidence' ? '重点维度对比' : '判断摘要'))
 const cssClasses = computed(() => props.style?.css_classes || '')
 const inlineStyles = computed(() => props.style?.inline_styles || {})
 const cardStyle = computed(() => ({
@@ -77,9 +79,10 @@ const interpretation = computed(() => {
 })
 
 const scoreBand = computed(() => {
-  if (averageScore.value >= 85) return '高亮优势档'
-  if (averageScore.value >= 70) return '稳定均衡档'
-  return '需要保守表达档'
+  if (cardMode.value !== 'scored_evidence') return '当前更适合做倾向判断'
+  if (averageScore.value >= 85) return '优势比较明确'
+  if (averageScore.value >= 70) return '整体比较均衡'
+  return '更适合保守解读'
 })
 
 const evidenceChips = computed(() => [
@@ -143,10 +146,10 @@ const metricAxis = (idx: number) => {
     <div class="pointer-events-none absolute inset-0 opacity-80" :style="{ background: 'radial-gradient(circle at top left, color-mix(in srgb, var(--primary-vibe) 16%, white 84%) 0%, transparent 32%), radial-gradient(circle at bottom right, rgba(15,23,42,0.06) 0%, transparent 42%)' }"></div>
     <div class="flex flex-col gap-3">
       <div>
-        <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">Evidence Radar</div>
+        <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--primary-vibe)' }">{{ cardMode === 'scored_evidence' ? '维度对比' : '重点判断' }}</div>
         <div class="mt-2 text-xl font-black leading-tight" :style="{ color: 'var(--text-color)' }">{{ title }}</div>
         <div class="mt-2 text-sm leading-relaxed" :style="{ color: 'var(--text-muted)' }">
-          不只是一个静态图形，而是把结论、短板和维度强弱说清楚。
+          {{ cardMode === 'scored_evidence' ? '把关键维度放在一张图里看清楚，但不过度包装成精确评分。' : '当前更适合作为判断摘要展示，不把它包装成精确评分报告。' }}
         </div>
         <div class="mt-3 flex flex-wrap gap-2">
           <span
@@ -161,23 +164,23 @@ const metricAxis = (idx: number) => {
       </div>
       <div class="grid gap-2 sm:grid-cols-2">
         <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
-          <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">最强维度</div>
+          <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">{{ cardMode === 'scored_evidence' ? '更值得先看' : '当前重点' }}</div>
           <div class="mt-1 text-sm font-black" :style="{ color: 'var(--text-color)' }">{{ strongestMetric?.label }}</div>
-          <div class="text-[12px]" :style="{ color: 'var(--primary-vibe)' }">{{ strongestMetric?.value }}</div>
+          <div class="text-[12px]" :style="{ color: 'var(--primary-vibe)' }">{{ cardMode === 'scored_evidence' ? strongestMetric?.value : '优先展开' }}</div>
         </div>
         <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
-          <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">补强空间</div>
+          <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">{{ cardMode === 'scored_evidence' ? '更需要留意' : '需要留意' }}</div>
           <div class="mt-1 text-sm font-black" :style="{ color: 'var(--text-color)' }">{{ weakestMetric?.label }}</div>
-          <div class="text-[12px]" :style="{ color: '#b45309' }">{{ weakestMetric?.value }}</div>
+          <div class="text-[12px]" :style="{ color: '#b45309' }">{{ cardMode === 'scored_evidence' ? weakestMetric?.value : '谨慎表达' }}</div>
         </div>
         <div class="col-span-2 rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">综合判断</div>
-              <div class="mt-1 text-sm font-black" :style="{ color: 'var(--text-color)' }">平均表现 {{ averageScore }}</div>
+              <div class="text-[10px] font-black uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">整体结论</div>
+              <div class="mt-1 text-sm font-black" :style="{ color: 'var(--text-color)' }">{{ cardMode === 'scored_evidence' ? `当前均值 ${averageScore}` : '当前更适合保守解读' }}</div>
             </div>
             <div class="rounded-full px-3 py-1 text-[10px] font-black" :style="{ background: 'color-mix(in srgb, var(--primary-vibe) 12%, white 88%)', color: 'var(--primary-vibe)' }">
-              {{ strongestMetric?.label }} 更适合作为主要卖点
+              {{ cardMode === 'scored_evidence' ? `${strongestMetric?.label} 更适合优先讲清楚` : `${strongestMetric?.label} 更值得优先展开` }}
             </div>
           </div>
           <div class="mt-2 text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">
@@ -245,7 +248,7 @@ const metricAxis = (idx: number) => {
         <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div class="rounded-full border px-4 py-3 text-center backdrop-blur-md" :style="{ borderColor: 'rgba(255,255,255,0.16)', background: 'rgba(15,23,42,0.42)', boxShadow: '0 18px 36px rgba(15,23,42,0.16)' }">
             <div class="text-[9px] font-black uppercase tracking-[0.22em] text-white/60">Average</div>
-            <div class="mt-1 text-[24px] font-black leading-none text-white">{{ averageScore }}</div>
+            <div class="mt-1 text-[24px] font-black leading-none text-white">{{ cardMode === 'scored_evidence' ? averageScore : 'S' }}</div>
             <div class="mt-1 text-[10px] text-white/68">{{ scoreBand }}</div>
           </div>
         </div>
@@ -314,14 +317,14 @@ const metricAxis = (idx: number) => {
         <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Evidence Posture</div>
         <div class="mt-2 grid gap-2 sm:grid-cols-2">
           <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
-            <div class="text-[9px] uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">Strongest</div>
+              <div class="text-[9px] uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">先看这一项</div>
             <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ strongestMetric?.label }}</div>
-            <div class="mt-1 text-[11px]" :style="{ color: 'var(--primary-vibe)' }">适合写进标题下或结论区</div>
+            <div class="mt-1 text-[11px]" :style="{ color: 'var(--primary-vibe)' }">更适合放在结论前面讲清楚</div>
           </div>
           <div class="rounded-2xl border px-3 py-3" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)' }">
-            <div class="text-[9px] uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">Weakest</div>
+              <div class="text-[9px] uppercase tracking-[0.18em]" :style="{ color: 'var(--text-muted)' }">这项要更保守</div>
             <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">{{ weakestMetric?.label }}</div>
-            <div class="mt-1 text-[11px]" :style="{ color: '#b45309' }">适合用更克制的语气解释取舍</div>
+            <div class="mt-1 text-[11px]" :style="{ color: '#b45309' }">更适合用克制语气解释取舍</div>
           </div>
         </div>
       </div>
@@ -330,14 +333,14 @@ const metricAxis = (idx: number) => {
     <div class="mt-4 rounded-[24px] border px-4 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg-soft)' }">
       <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
-          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">Evidence Reading</div>
+          <div class="text-[10px] font-black uppercase tracking-[0.22em]" :style="{ color: 'var(--text-muted)' }">怎么看这张图</div>
           <div class="mt-1 text-sm font-bold" :style="{ color: 'var(--text-color)' }">
-            这不是装饰图，而是把维度强弱翻译成结论和边界
+            重点不是分数本身，而是看清哪些地方更强、哪些地方要保守讲
           </div>
         </div>
         <div class="flex flex-wrap gap-2">
-          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--text-muted)' }">适合：证据总结 / 评分总览</span>
-          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--primary-vibe)' }">不适合：孤立炫技图形</span>
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--text-muted)' }">适合：快速判断 / 对比总结</span>
+          <span class="rounded-full border px-2.5 py-1 text-[10px] font-bold" :style="{ borderColor: 'var(--card-border)', background: 'rgba(15,23,42,0.02)', color: 'var(--primary-vibe)' }">不适合：脱离依据单看分数</span>
         </div>
       </div>
     </div>

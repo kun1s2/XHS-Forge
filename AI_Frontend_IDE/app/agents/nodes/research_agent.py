@@ -5,8 +5,21 @@ from app.agents.tools_registry import TOOL_POOL
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.query_heuristics import wants_image_search
 from app.services.rag_ingestion import ingest_retrieved_knowledge
+from app.services.knowledge_hub import (
+    build_confirmed_facts_from_records,
+    build_knowledge_plan,
+    build_knowledge_records_from_structured,
+    build_structured_slots_from_records,
+    extract_candidate_records_from_text,
+    knowledge_hub_service,
+    merge_candidate_records_into_retrieved,
+    query_persistent_records,
+    query_session_records,
+    records_from_user_provided_facts,
+)
 from app.services.rag_policy import build_query_variants_for_profile, choose_retrieval_policy, rerank_fact_sources
 from app.services.rag_knowledge import evaluate_retrieval_quality
+from app.services.rag_service import retrieve_knowledge_hits
 from app.services.retrieval_profiles import (
     infer_retrieval_profile,
     extract_fact_slots,
@@ -86,10 +99,79 @@ async def research_agent(state: UIProjectState) -> dict:
                 })
         return "\n".join(formatted_lines), fact_sources
 
+    def _merge_structured_fact_sources(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            locator = item.get("evidence_locator") or {}
+            sources.append({
+                "title": str(item.get("source_title") or item.get("normalized_entity") or "知识条目"),
+                "url": str((locator or {}).get("source_url") or ""),
+                "snippet": str(item.get("summary") or item.get("value") or ""),
+                "source_type": str(item.get("source_type") or "session_kb"),
+                "source_scope": str(item.get("knowledge_scope") or "session"),
+                "query": str(item.get("normalized_entity") or ""),
+            })
+        return _dedupe_fact_sources(sources)
+
+    def _dedupe_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = (
+                str(item.get("normalized_entity") or ""),
+                str(item.get("field_or_topic") or ""),
+                str(item.get("value") or item.get("summary") or ""),
+            )
+            deduped[key] = item
+        return list(deduped.values())
+
     main_msgs = state.get("main_messages", [])
-    if not main_msgs: return {}
-    user_query = _extract_user_text(main_msgs[-1].content)
+    if not main_msgs:
+        return {}
+    latest_message = main_msgs[-1]
+    raw_message_content = getattr(latest_message, "content", None)
+    if raw_message_content is None and isinstance(latest_message, dict):
+        raw_message_content = latest_message.get("content")
+    user_query = _extract_user_text(raw_message_content)
     entity_name = normalize_entity_name(user_query)
+    existing_knowledge = state.get("retrieved_knowledge") if isinstance(state.get("retrieved_knowledge"), dict) else {}
+    knowledge_plan = build_knowledge_plan(state)
+    required_fields = [str(item) for item in (knowledge_plan.get("required_fields") or []) if str(item).strip()]
+    persistent_snapshot = await knowledge_hub_service.list_persistent_snapshot(entity_name=entity_name or user_query)
+    seeded_knowledge = merge_candidate_records_into_retrieved(
+        existing_knowledge,
+        knowledge_plan=knowledge_plan,
+        session_records=records_from_user_provided_facts(
+            state.get("user_provided_facts") if isinstance(state.get("user_provided_facts"), dict) else {},
+            entity_name=entity_name or user_query,
+            active_archetype=str(state.get("active_archetype") or "seeding"),
+        ),
+        persistent_snapshot=persistent_snapshot,
+    )
+    structured_session_records = query_session_records(
+        seeded_knowledge,
+        entity_name=entity_name or user_query,
+        required_fields=required_fields,
+    )
+    structured_persistent_records = query_persistent_records(
+        persistent_snapshot,
+        entity_name=entity_name or user_query,
+        required_fields=required_fields,
+    )
+    structured_records = _dedupe_records([*structured_session_records, *structured_persistent_records])
+    structured_slots = build_structured_slots_from_records(structured_records)
+    structured_confirmed = build_confirmed_facts_from_records(structured_records)
+    structured_fields = {
+        str(item.get("field_or_topic") or "")
+        for item in structured_records
+        if isinstance(item, dict) and not str(item.get("field_or_topic") or "").startswith("topic::")
+    }
+    required_hit_count = len([field for field in required_fields if field in structured_fields])
+    structured_threshold = min(max(2, int(knowledge_plan.get("knowledge_budget") or 3)), len(required_fields)) if required_fields else 2
+    structured_enough = (required_fields and required_hit_count >= structured_threshold) or (not required_fields and len(structured_records) >= 2)
     retrieval_profile = infer_retrieval_profile(
         user_query=user_query,
         entity_name=entity_name or user_query,
@@ -101,6 +183,153 @@ async def research_agent(state: UIProjectState) -> dict:
         needs_assets=_infer_asset_mode_from_query(user_query),
         retrieval_profile=retrieval_profile,
     )
+
+    if structured_enough:
+        retrieval_summary = {
+            "strategy": "structured_knowledge_first",
+            "policy_name": retrieval_policy.get("policy_name") or "structured_first",
+            "policy_path": "user/session/persistent_before_live_search",
+            "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
+            "retrieval_domain": retrieval_profile.get("domain") or "general",
+            "cache_hit": False,
+            "live_search_used": False,
+            "query": user_query,
+            "entity_name": entity_name or user_query,
+            "source_count": len(structured_records),
+            "citation_count": len(structured_records),
+            "image_count": 0,
+            "freshness": "session_or_persistent",
+            "grounding_status": "grounded" if structured_records else "weak",
+            "missing_fields": [
+                label
+                for label in compute_missing_fields(
+                    slot_labels=dict(knowledge_plan.get("field_labels") or {}),
+                    fact_slots=structured_slots,
+                )
+            ],
+            "record_count": len(build_knowledge_records_from_structured(structured_records)),
+            "structured_hit_count": len(structured_records),
+            "knowledge_budget": int(knowledge_plan.get("knowledge_budget") or 0),
+        }
+        next_knowledge = merge_candidate_records_into_retrieved(
+            seeded_knowledge,
+            knowledge_plan=knowledge_plan,
+            persistent_snapshot=persistent_snapshot,
+        )
+        next_knowledge["fact_slots"] = {
+            **(next_knowledge.get("fact_slots") or {}),
+            **structured_slots,
+        }
+        next_knowledge["confirmed_facts"] = {
+            **(next_knowledge.get("confirmed_facts") or {}),
+            **structured_confirmed,
+        }
+        next_knowledge["fact_sources"] = _merge_structured_fact_sources(structured_records)
+        next_knowledge["retrieval_summary"] = retrieval_summary
+        next_knowledge["knowledge_records"] = [
+            *[item for item in (next_knowledge.get("knowledge_records") or []) if isinstance(item, dict)],
+            *build_knowledge_records_from_structured(structured_persistent_records),
+        ]
+        next_knowledge["retrieval_eval"] = evaluate_retrieval_quality(
+            retrieval_hits=[],
+            fact_sources=next_knowledge.get("fact_sources") or [],
+            knowledge_records=next_knowledge.get("knowledge_records") or [],
+        )
+        return {
+            "knowledge_plan": knowledge_plan,
+            "retrieved_knowledge": next_knowledge,
+            "agent_backends": {"research_agent": "structured_first_orchestrator"},
+            "messages": [AIMessage(content=f"我先复用了当前会话和正式知识库里关于「{entity_name or user_query}」的已确认知识。")],
+        }
+
+    rag_result = await retrieve_knowledge_hits(
+        user_query,
+        limit=max(4, int(knowledge_plan.get("knowledge_budget") or 4)),
+        metadata_filter={
+            "scene_hint": str(state.get("active_archetype") or "seeding"),
+            "entity_hint": entity_name or user_query,
+        },
+    )
+    rag_hits = [item for item in (rag_result.get("hits") or []) if isinstance(item, dict)]
+    if rag_hits:
+        rag_fact_sources: list[dict[str, Any]] = []
+        rag_sections: list[str] = []
+        rag_retrieval_hits: list[dict[str, Any]] = []
+        for idx, hit in enumerate(rag_hits):
+            metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+            content = str(hit.get("page_content") or "").strip()
+            title = str(metadata.get("file_name") or metadata.get("document_id") or f"RAG 片段 {idx + 1}")
+            if content:
+                rag_sections.append(f"【{title}】\n{content}")
+            rag_fact_sources.append({
+                "title": title,
+                "url": str(metadata.get("source_url") or metadata.get("source_path") or ""),
+                "snippet": content[:240],
+                "source_type": str(metadata.get("source_type") or "user_kb"),
+                "source_scope": str(metadata.get("kb_scope") or "session"),
+                "query": str(rag_result.get("refined_query") or user_query),
+            })
+            rag_retrieval_hits.append({
+                "scope": "rag_hybrid",
+                "query": str(rag_result.get("refined_query") or user_query),
+                "count": len(rag_hits),
+                "titles": [title],
+                "mode": str(rag_result.get("mode") or "hybrid_rrf"),
+            })
+        rag_candidate_records = extract_candidate_records_from_text(
+            title=f"{entity_name or user_query} RAG 候选知识",
+            text="\n\n".join(rag_sections),
+            entity_hint=entity_name or user_query,
+            scene_hint=str(state.get("active_archetype") or "seeding"),
+            source_type="user_kb",
+        )
+        next_knowledge = merge_candidate_records_into_retrieved(
+            seeded_knowledge,
+            knowledge_plan=knowledge_plan,
+            candidate_records=rag_candidate_records,
+            persistent_snapshot=persistent_snapshot,
+        )
+        next_knowledge["fact_sources"] = _dedupe_fact_sources(rag_fact_sources)
+        next_knowledge["retrieval_hits"] = rag_retrieval_hits
+        next_knowledge["retrieval_summary"] = {
+            "strategy": "hybrid_rag_evidence",
+            "policy_name": retrieval_policy.get("policy_name") or "structured_then_rag_then_live",
+            "policy_path": "structured_first_then_hybrid_rag",
+            "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
+            "retrieval_domain": retrieval_profile.get("domain") or "general",
+            "cache_hit": False,
+            "live_search_used": False,
+            "query": user_query,
+            "entity_name": entity_name or user_query,
+            "source_count": len(rag_fact_sources),
+            "citation_count": len(rag_fact_sources),
+            "image_count": 0,
+            "freshness": "session_or_persistent_docs",
+            "grounding_status": "grounded" if rag_fact_sources else "weak",
+            "record_count": len(next_knowledge.get("knowledge_records") or []),
+            "candidate_record_count": len(rag_candidate_records),
+            "missing_fields": [
+                label
+                for label in compute_missing_fields(
+                    slot_labels=dict(knowledge_plan.get("field_labels") or {}),
+                    fact_slots=next_knowledge.get("fact_slots") or {},
+                )
+            ],
+            "rag_mode": str(rag_result.get("mode") or ""),
+            "parsed_filter": rag_result.get("parsed_filter") or {},
+            "refined_query": str(rag_result.get("refined_query") or user_query),
+        }
+        next_knowledge["retrieval_eval"] = evaluate_retrieval_quality(
+            retrieval_hits=rag_retrieval_hits,
+            fact_sources=next_knowledge.get("fact_sources") or [],
+            knowledge_records=next_knowledge.get("knowledge_records") or [],
+        )
+        return {
+            "knowledge_plan": knowledge_plan,
+            "retrieved_knowledge": next_knowledge,
+            "agent_backends": {"research_agent": "structured_plus_hybrid_rag"},
+            "messages": [AIMessage(content=f"我先从知识库里补回了关于「{entity_name or user_query}」的证据片段，并整理成待审知识。")],
+        }
 
     # 1. 缓存嗅探
     from app.services.cache_service import cache_service
@@ -115,7 +344,11 @@ async def research_agent(state: UIProjectState) -> dict:
         cached = await cache_service.get_hot_knowledge(hit_keywords[0])
         if cached:
             print(f"🚀 [哨兵加速] 命中缓存: {hit_keywords[0]}")
-            next_knowledge = dict(cached or {})
+            next_knowledge = merge_candidate_records_into_retrieved(
+                dict(cached or {}),
+                knowledge_plan=knowledge_plan,
+                persistent_snapshot=persistent_snapshot,
+            )
             kb_snapshot = await cache_service.get_knowledge_snapshot(hit_keywords[0])
             cache_snapshot = await cache_service.get_hot_knowledge_snapshot(hit_keywords[0])
             retrieval_eval = evaluate_retrieval_quality(
@@ -147,19 +380,22 @@ async def research_agent(state: UIProjectState) -> dict:
                 "cache_age_seconds": int(cache_snapshot.get("age_seconds") or 0),
                 "cache_ttl_seconds": int(cache_snapshot.get("ttl_seconds") or 0),
                 "cache_remaining_ttl_seconds": int(cache_snapshot.get("remaining_ttl_seconds") or 0),
-                "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
+                "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
                 "retrieval_domain": retrieval_profile.get("domain") or "general",
             })
             next_knowledge["retrieval_summary"] = retrieval_summary
             next_knowledge["retrieval_eval"] = retrieval_eval
             next_knowledge["knowledge_records"] = kb_snapshot.get("records") or []
-            return {"retrieved_knowledge": next_knowledge, "agent_backends": {"research_agent": "deterministic_tool_orchestrator"}}
+            return {
+                "knowledge_plan": knowledge_plan,
+                "retrieved_knowledge": next_knowledge,
+                "agent_backends": {"research_agent": "deterministic_tool_orchestrator"},
+            }
 
     # 2. 信号提取
-    intent_v2 = state.get("intent_result_v2") or {}
-    if isinstance(intent_v2, dict) and intent_v2:
-        needs_assets = str(intent_v2.get("needs_assets") or "none").lower()
-        asset_mode = "SEARCH" if needs_assets == "search" else "NONE"
+    intent_decision = state.get("intent_decision") or {}
+    if isinstance(intent_decision, dict) and intent_decision:
+        asset_mode = "SEARCH" if bool(intent_decision.get("needs_assets")) else "NONE"
     else:
         asset_mode = _infer_asset_mode_from_query(user_query)
     retrieval_policy = choose_retrieval_policy(
@@ -201,22 +437,49 @@ async def research_agent(state: UIProjectState) -> dict:
     raw_web_content_2 = ""
     try:
         results = await asyncio.wait_for(
-            asyncio.gather(search_task_1, search_task_2, *structured_tasks, image_task),
+            asyncio.gather(search_task_1, search_task_2, *structured_tasks, image_task, return_exceptions=True),
             timeout=25.0,
         )
-        raw_web_content_1, raw_web_content_2, *structured_results, real_image_urls = results
-        structured_results_map = {
-            query_variants[idx]["scope"]: structured_results[idx]
-            for idx in range(min(len(query_variants), len(structured_results)))
-        }
+        raw_result_1, raw_result_2, *structured_result_items, image_result = results
+
+        if isinstance(raw_result_1, Exception):
+            print(f"⚠️ [搜证引擎] 官方文本搜证失败: {raw_result_1}")
+            raw_web_content_1 = ""
+        else:
+            raw_web_content_1 = str(raw_result_1 or "")
+
+        if isinstance(raw_result_2, Exception):
+            print(f"⚠️ [搜证引擎] 评价文本搜证失败: {raw_result_2}")
+            raw_web_content_2 = ""
+        else:
+            raw_web_content_2 = str(raw_result_2 or "")
+
+        structured_results_map = {}
+        for idx, structured_result in enumerate(structured_result_items[: len(query_variants)]):
+            scope = query_variants[idx]["scope"]
+            if isinstance(structured_result, Exception):
+                print(f"⚠️ [搜证引擎] 结构化搜证失败 ({scope}): {structured_result}")
+                structured_results_map[scope] = []
+            else:
+                structured_results_map[scope] = list(structured_result or [])
+
         official_results = structured_results_map.get("official") or []
         review_results = structured_results_map.get("review") or []
+
+        if isinstance(image_result, Exception):
+            print(f"⚠️ [搜证引擎] 图片搜证失败: {image_result}")
+            real_image_urls = []
+        else:
+            real_image_urls = list(image_result or [])
+
         raw_web_content = f"""【官方资料】:
 {raw_web_content_1}
 【用户评价】:
 {raw_web_content_2}"""
     except Exception as e:
-        print(f"⚠️ [搜证引擎] 物理强取超时或失败: {e}，返回兜底空数据。")
+        print(f"⚠️ [搜证引擎] 并发阶段整体失败: {e}，返回兜底空数据。")
+        raw_web_content_1 = ""
+        raw_web_content_2 = ""
         raw_web_content = "无网络数据"
         real_image_urls = []
         official_results = []
@@ -319,7 +582,7 @@ async def research_agent(state: UIProjectState) -> dict:
         "strategy": "live_search_with_citations",
         "policy_name": retrieval_policy.get("policy_name") or "cache_then_live_grounded",
         "policy_path": retrieval_policy.get("policy_path") or "cache_first_then_live_search",
-        "retrieval_profile": retrieval_profile.get("profile_name") or "general_grounded",
+        "retrieval_profile": retrieval_profile.get("profile_name") or "digital_grounded",
         "retrieval_domain": retrieval_profile.get("domain") or "general",
         "cache_hit": False,
         "cache_freshness": "miss",
@@ -353,6 +616,13 @@ async def research_agent(state: UIProjectState) -> dict:
 {raw_web_content_2}
 {review_summary if review_summary else ""}
 {chr(10).join(followup_sections) if followup_sections else ""}"""
+    candidate_records = extract_candidate_records_from_text(
+        title=f"{entity_name or user_query} 搜索候选知识",
+        text=combined_text_facts,
+        entity_hint=entity_name or user_query,
+        scene_hint=str(state.get("active_archetype") or "seeding"),
+        source_type="web_search",
+    )
     knowledge = {
         "entity_name": entity_name or user_query,
         "is_fact_ready": True,
@@ -379,8 +649,38 @@ async def research_agent(state: UIProjectState) -> dict:
     }
     knowledge["retrieval_eval"] = ingest_result["retrieval_eval"]
     knowledge["knowledge_records"] = ingest_result["records"]
+    knowledge = merge_candidate_records_into_retrieved(
+        merge_candidate_records_into_retrieved(
+            seeded_knowledge,
+            knowledge_plan=knowledge_plan,
+            persistent_snapshot=persistent_snapshot,
+        ),
+        candidate_records=candidate_records,
+        persistent_snapshot=persistent_snapshot,
+    )
+    knowledge.update({
+        "entity_name": entity_name or user_query,
+        "is_fact_ready": True,
+        "battle_report": None,
+        "text_facts": str(combined_text_facts),
+        "fact_sources": fact_sources,
+        "fact_slots": fact_slots,
+        "missing_fields": missing_fields,
+        "retrieval_hits": retrieval_hits,
+        "retrieval_summary": {
+            **retrieval_summary,
+            "record_count": ingest_result["kb_snapshot"].get("record_count") or 0,
+            "fresh_record_count": ingest_result["kb_snapshot"].get("fresh_record_count") or 0,
+            "stale_record_count": ingest_result["kb_snapshot"].get("stale_record_count") or 0,
+            "freshness": ingest_result["kb_snapshot"].get("freshness") or retrieval_summary["freshness"],
+            "candidate_record_count": len(candidate_records),
+        },
+        "retrieval_eval": ingest_result["retrieval_eval"],
+        "knowledge_records": ingest_result["records"],
+    })
 
     return {
+        "knowledge_plan": knowledge_plan,
         "agent_backends": {"research_agent": "deterministic_tool_orchestrator"},
         # 直接将战术情报返回给全局状态，而不是去污染聊天记录！
         "retrieved_knowledge": {

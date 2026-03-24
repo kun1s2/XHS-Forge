@@ -18,6 +18,7 @@ class CheckpointInfo(BaseModel):
 class WorkspaceDataResponse(BaseResponse):
     """首屏加载的完整状态数据"""
     is_new: bool
+    checkpoint_id: Optional[str] = None
     messages: Dict[str, List[Dict[str, Any]]]  # 分面板的结构化聊天记录
     active_panel: str
     selected_element_id: Optional[str]
@@ -39,6 +40,10 @@ class BenchmarkOverviewResponse(BaseResponse):
 
 
 class EvaluationOverviewResponse(BaseResponse):
+    data: Dict[str, Any] = {}
+
+
+class TraceExportResponse(BaseResponse):
     data: Dict[str, Any] = {}
 
 

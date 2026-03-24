@@ -188,8 +188,9 @@ def evaluate_retrieval_quality(
     sources = [item for item in (fact_sources or []) if isinstance(item, dict)]
     records = [item for item in (knowledge_records or []) if isinstance(item, dict)]
     freshness = summarize_record_freshness(records)
-    scopes = {str(item.get("scope") or "") for item in hits if item.get("count")}
-    citation_coverage = round(min(1.0, len(sources) / max(1, len(hits))), 2) if hits else 0.0
+    non_empty_hits = [item for item in hits if int(item.get("count") or 0) > 0]
+    scopes = {str(item.get("scope") or "") for item in non_empty_hits if item.get("scope")}
+    citation_coverage = round(min(1.0, len(sources) / max(1, len(non_empty_hits))), 2) if non_empty_hits else 0.0
     grounding_score = round(min(1.0, (len(sources) * 0.4) + (len(scopes) * 0.2)), 2)
     source_quality = "high" if any(str(item.get("trust_level") or "") == "high" for item in records) else ("medium" if records else "low")
     if sources and freshness["stale_record_count"] == 0:

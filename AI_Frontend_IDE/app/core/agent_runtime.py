@@ -32,6 +32,7 @@ def create_controlled_agent(
     state_schema: Any = None,
     name: str | None = None,
     prefer_create_agent: bool = True,
+    middleware: list[Any] | None = None,
 ) -> CompatibleAgentRunner:
     if not prefer_create_agent:
         raise ValueError("Legacy react-style agent runtime is no longer supported in the formal product path")
@@ -47,5 +48,6 @@ def create_controlled_agent(
         tools=tools,
         system_prompt=prompt,
         name=name,
+        middleware=middleware or [],
     )
     return CompatibleAgentRunner(runnable, backend="langchain_create_agent")

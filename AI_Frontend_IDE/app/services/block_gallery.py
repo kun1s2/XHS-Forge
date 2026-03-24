@@ -55,10 +55,10 @@ def _build_theme(primary: str, accent: str, bg: str = "#fff8f7") -> dict[str, An
 
 MATE_HERO_A = "/demo-assets/mate-hero-a.jpg"
 MATE_HERO_B = "/demo-assets/mate-hero-b.jpg"
-TRAVEL_HERO_A = "/demo-assets/travel-hero-a.jpg"
-TRAVEL_HERO_B = "/demo-assets/travel-hero-b.jpg"
-DAILY_HERO = "/demo-assets/daily-hero.jpg"
-DAILY_COFFEE = "/demo-assets/daily-coffee.jpg"
+PHONE_ALT_A = "/demo-assets/travel-hero-a.jpg"
+PHONE_ALT_B = "/demo-assets/travel-hero-b.jpg"
+LAPTOP_ALT = "/demo-assets/daily-hero.jpg"
+EARBUD_ALT = "/demo-assets/daily-coffee.jpg"
 
 
 def _component_note(block: dict[str, Any], *, title: str, scenarios: list[str], theme: dict[str, Any]) -> dict[str, Any]:
@@ -76,7 +76,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "TitleBlock",
         "label": "标题块",
         "semantic_role": "heading",
-        "supported_scenarios": ["general", "seeding", "travel", "daily_share"],
+        "supported_scenarios": ["seeding"],
         "summary": "适合承接页面总判断，别把它写成无意义的大口号。",
         "fixture": {
             "id": "component_title_block",
@@ -103,7 +103,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "StoryText",
         "label": "正文块",
         "semantic_role": "narrative_text",
-        "supported_scenarios": ["general", "seeding", "travel", "daily_share"],
+        "supported_scenarios": ["seeding"],
         "summary": "更适合分成“开场判断 / 事实补充 / 边界提醒”，不要退化成长文墙。",
         "fixture": {
             "id": "component_story_text",
@@ -138,7 +138,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "ProductSpecCard",
         "label": "参数卡",
         "semantic_role": "evidence_summary",
-        "supported_scenarios": ["general", "seeding", "travel"],
+        "supported_scenarios": ["seeding"],
         "summary": "参数卡更适合回答“为什么重要”，不适合只堆字符串。",
         "fixture": {
             "id": "component_product_spec",
@@ -168,7 +168,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "RadarChartBlock",
         "label": "雷达图",
         "semantic_role": "score_overview",
-        "supported_scenarios": ["general", "seeding"],
+        "supported_scenarios": ["seeding"],
         "summary": "雷达图应该解释每个维度为什么高低，而不是只当装饰。",
         "fixture": {
             "id": "component_radar_chart",
@@ -203,8 +203,8 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "VersusCard",
         "label": "对比卡",
         "semantic_role": "comparison",
-        "supported_scenarios": ["general", "seeding"],
-        "summary": "更像路线分流卡，不该再退化成左右两坨长文。",
+        "supported_scenarios": ["seeding"],
+        "summary": "更像购买分流卡，不该再退化成左右两坨长文。",
         "fixture": {
             "id": "component_versus_card",
             "title": "对比卡真实样例",
@@ -253,7 +253,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "PollBlock",
         "label": "投票卡",
         "semantic_role": "interactive_opinion",
-        "supported_scenarios": ["general", "seeding", "daily_share"],
+        "supported_scenarios": ["seeding"],
         "summary": "投票卡应该承接表达和分流，而不是伪装真实平台票仓。",
         "fixture": {
             "id": "component_poll_block",
@@ -286,7 +286,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "CoverSwiper",
         "label": "封面轮播",
         "semantic_role": "hero_media",
-        "supported_scenarios": ["general", "seeding", "travel", "daily_share"],
+        "supported_scenarios": ["seeding"],
         "summary": "封面块要负责定调，不应该只有空壳或跑题图。",
         "fixture": {
             "id": "component_cover_swiper",
@@ -310,25 +310,25 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "LocationBlock",
         "label": "地点卡",
         "semantic_role": "location_info",
-        "supported_scenarios": ["travel", "general"],
-        "summary": "地点卡要回答“去哪、怎么走、为什么要去”，不是只贴地址。",
+        "supported_scenarios": ["seeding"],
+        "summary": "地点卡在正式产品里只作为线下看机或购买地点补充，不作为主内容承载。",
         "fixture": {
             "id": "component_location_block",
             "title": "地点卡真实样例",
-            "description": "适合观察地点信息和生活方式内容是否兼容。",
+            "description": "适合观察线下看机或购买渠道信息是否能自然补充进决策页。",
             "note_document": _component_note(
                 {
                     "id": "location_1",
                     "type": "LocationBlock",
                     "semantic_role": "location_info",
                     "props": {
-                        "poi_name": "阿那亚社区",
-                        "location": "从园区步行到海边、书店和礼堂都很顺，路线建议围绕海边散步和日落展开。",
+                        "poi_name": "华为线下体验店",
+                        "location": "如果你想先摸真机，建议先去线下体验店确认手感、屏幕和影像风格，再决定是否下单。",
                     },
                 },
                 title="地点卡真实样例",
-                scenarios=["travel"],
-                theme=_build_theme("#4f46e5", "#dbeafe", "#f6f7ff"),
+                scenarios=["seeding"],
+                theme=_build_theme("#2563eb", "#dbeafe", "#f8fbff"),
             ),
         },
     },
@@ -337,7 +337,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "WeatherPolaroid",
         "label": "氛围拍立得",
         "semantic_role": "ambience_snapshot",
-        "supported_scenarios": ["travel", "daily_share"],
+        "supported_scenarios": ["seeding"],
         "summary": "氛围块应该补情绪和现场感，不该冒出无关风景图。",
         "fixture": {
             "id": "component_weather_polaroid",
@@ -349,15 +349,15 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     "type": "WeatherPolaroid",
                     "semantic_role": "ambience_snapshot",
                     "props": {
-                        "image_url": DAILY_COFFEE,
-                        "desc": "当天的海风偏软，晚霞落下来的那十几分钟最适合慢慢走。",
-                        "location": "阿那亚海边步道",
-                        "weather": "Cloudy",
-                        "time": "18:24",
+                        "image_url": EARBUD_ALT,
+                        "desc": "这类氛围图在正式产品里只适合作为第一眼补充，不应该盖过购买结论本身。",
+                        "location": "产品首屏氛围",
+                        "weather": "Studio",
+                        "time": "首图",
                     },
                 },
                 title="氛围拍立得真实样例",
-                scenarios=["travel"],
+                scenarios=["seeding"],
                 theme=_build_theme("#4f46e5", "#dbeafe", "#f6f7ff"),
             ),
         },
@@ -367,7 +367,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "QuoteBlock",
         "label": "金句块",
         "semantic_role": "quote_highlight",
-        "supported_scenarios": ["general", "daily_share", "travel"],
+        "supported_scenarios": ["seeding"],
         "summary": "金句块适合承接观点，不适合凭空端一句空话。",
         "fixture": {
             "id": "component_quote_block",
@@ -394,7 +394,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "TimelineBlock",
         "label": "时间轴",
         "semantic_role": "timeline",
-        "supported_scenarios": ["general", "travel", "daily_share"],
+        "supported_scenarios": ["seeding"],
         "summary": "时间轴适合讲过程和节奏，不适合只挂几个无意义时间点。",
         "fixture": {
             "id": "component_timeline_block",
@@ -477,66 +477,66 @@ SCENARIO_FIXTURES: list[dict[str, Any]] = [
         },
     },
     {
-        "scenario_id": "travel_story",
-        "title": "旅行生活方式页",
-        "description": "重点观察封面、地点卡和氛围块是否和主题一致。",
+        "scenario_id": "seeding_budget_pick",
+        "title": "预算优先决策页",
+        "description": "重点观察价格、参数和取舍边界是否能自然落成一页。",
         "fixture": {
-            "id": "travel_story",
-            "title": "旅行生活方式页",
-            "description": "重点观察封面、地点卡和氛围块是否和主题一致。",
+            "id": "seeding_budget_pick",
+            "title": "预算优先决策页",
+            "description": "重点观察价格、参数和取舍边界是否能自然落成一页。",
             "note_document": {
-                "document_meta": {"title": "阿那亚一日游：不赶行程，也能把海边过得很满", "scenarios": ["travel"]},
-                "theme": _build_theme("#4f46e5", "#dbeafe", "#f6f7ff"),
+                "document_meta": {"title": "小米 14：预算优先时更容易给出明确结论", "scenarios": ["seeding"]},
+                "theme": _build_theme("#2563eb", "#dbeafe", "#f8fbff"),
                 "blocks": [
-                    {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [TRAVEL_HERO_A, TRAVEL_HERO_B]}},
-                    COMPONENT_FIXTURES[7]["fixture"]["note_document"]["blocks"][0],
+                    {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [PHONE_ALT_A, PHONE_ALT_B]}},
+                    {"id": "title_1", "type": "TitleBlock", "semantic_role": "heading", "props": {"title": "小米 14：预算优先时更容易给出明确结论"}},
                     {
                         "id": "story_2",
                         "type": "StoryText",
                         "semantic_role": "narrative_text",
                         "props": {
                             "paragraphs": [
-                                "这篇攻略不追求把景点打卡清单塞满，而是更强调“什么时候去、怎么走、哪里最容易出片”。",
-                                "如果时间只有一天，最值得保留的是海边散步、书店停留和傍晚那段光线变化。",
+                                "如果你最在意的是价格、性能和充电效率，小米 14 会比强调整机氛围感的机型更容易做出直接判断。",
+                                "这类页面最重要的不是堆参数，而是把“更低预算换到什么”和“因此要接受什么”讲清楚。",
                             ],
                             "sections": [
-                                {"label": "路线判断", "role": "summary", "paragraph": "这篇攻略不追求把景点打卡清单塞满，而是更强调“什么时候去、怎么走、哪里最容易出片”。", "summary": "先告诉用户重点不是清单堆砌。"},
-                                {"label": "真正值得留的时间", "role": "selling_point", "paragraph": "如果时间只有一天，最值得保留的是海边散步、书店停留和傍晚那段光线变化。", "summary": "把最值得留的体验留给读者。"},
+                                {"label": "预算判断", "role": "summary", "paragraph": "如果你最在意的是价格、性能和充电效率，小米 14 会比强调整机氛围感的机型更容易做出直接判断。", "summary": "先告诉用户适合谁。"},
+                                {"label": "为什么成立", "role": "selling_point", "paragraph": "这类页面最重要的不是堆参数，而是把“更低预算换到什么”和“因此要接受什么”讲清楚。", "summary": "把取舍讲透。"},
                             ],
                         },
                     },
-                    COMPONENT_FIXTURES[8]["fixture"]["note_document"]["blocks"][0],
+                    COMPONENT_FIXTURES[4]["fixture"]["note_document"]["blocks"][0],
                 ],
                 "assets": [],
             },
         },
     },
     {
-        "scenario_id": "daily_share",
-        "title": "日常分享页",
-        "description": "更轻的叙事和互动，重点看整体节奏是否自然。",
+        "scenario_id": "seeding_camera_focus",
+        "title": "影像优先决策页",
+        "description": "更强调影像、质感和偏好分流，重点看判断是否足够鲜明。",
         "fixture": {
-            "id": "daily_share",
-            "title": "日常分享页",
-            "description": "更轻的叙事和互动，重点看整体节奏是否自然。",
+            "id": "seeding_camera_focus",
+            "title": "影像优先决策页",
+            "description": "更强调影像、质感和偏好分流，重点看判断是否足够鲜明。",
             "note_document": {
-                "document_meta": {"title": "周末书店散步：轻叙事也要有层次", "scenarios": ["daily_share"]},
+                "document_meta": {"title": "iPhone 17：如果你只看影像和系统质感", "scenarios": ["seeding"]},
                 "theme": _build_theme("#f59e0b", "#fde68a", "#fffdf6"),
                 "blocks": [
-                    {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [DAILY_HERO]}},
-                    {"id": "title_1", "type": "TitleBlock", "semantic_role": "heading", "props": {"title": "周末书店散步：轻叙事也要有层次"}},
+                    {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [LAPTOP_ALT, EARBUD_ALT]}},
+                    {"id": "title_1", "type": "TitleBlock", "semantic_role": "heading", "props": {"title": "iPhone 17：如果你只看影像和系统质感"}},
                     {
                         "id": "story_1",
                         "type": "StoryText",
                         "semantic_role": "narrative_text",
                         "props": {
                             "paragraphs": [
-                                "这类日常分享最怕的是“看起来很松弛，实际上什么也没说”。",
-                                "真正好看的地方不只在照片，而在于你有没有把当下那点轻松和停顿感写出来。",
+                                "如果你只在意影像风格、系统一致性和拍完就能发的稳定感，iPhone 17 的判断会非常直接。",
+                                "但如果你更在意价格门槛或快充效率，这个结论就必须明显收一收。",
                             ],
                             "sections": [
-                                {"label": "开场氛围", "role": "summary", "paragraph": "这类日常分享最怕的是“看起来很松弛，实际上什么也没说”。", "summary": "先把写作目标说清楚。"},
-                                {"label": "真正有感觉的地方", "role": "selling_point", "paragraph": "真正好看的地方不只在照片，而在于你有没有把当下那点轻松和停顿感写出来。", "summary": "把情绪落点讲出来。"},
+                                {"label": "开场判断", "role": "summary", "paragraph": "如果你只在意影像风格、系统一致性和拍完就能发的稳定感，iPhone 17 的判断会非常直接。", "summary": "先给面向谁的结论。"},
+                                {"label": "边界提醒", "role": "selling_point", "paragraph": "但如果你更在意价格门槛或快充效率，这个结论就必须明显收一收。", "summary": "把边界讲清楚。"},
                             ],
                         },
                     },
@@ -545,13 +545,13 @@ SCENARIO_FIXTURES: list[dict[str, Any]] = [
                         "type": "PollBlock",
                         "semantic_role": "interactive_opinion",
                         "props": {
-                            "question": "周末你更想留在书店还是去外面散步？",
-                            "option_a": "留在书店慢慢翻",
-                            "option_b": "出去走一圈看天色",
-                            "explanation": "轻互动更适合承接情绪和偏好，而不是假票仓。",
+                            "question": "买旗舰时你更看重影像质感还是价格效率？",
+                            "option_a": "影像和系统质感",
+                            "option_b": "价格和快充效率",
+                            "explanation": "互动块更适合承接偏好分流，而不是装饰。",
                             "option_cards": [
-                                {"label": "留在书店慢慢翻", "stance": "安静一点", "vote_hint": "更适合承接停下来、慢慢看的情绪。", "why_it_matters": "它代表的是更安静的周末节奏。"},
-                                {"label": "出去走一圈看天色", "stance": "动起来", "vote_hint": "更适合承接走出去、看光线变化的情绪。", "why_it_matters": "它代表的是更流动的周末节奏。"},
+                                {"label": "影像和系统质感", "stance": "偏体验", "vote_hint": "更适合已经明确接受高预算的人。", "why_it_matters": "它代表的是为稳定体验买单。"},
+                                {"label": "价格和快充效率", "stance": "偏效率", "vote_hint": "更适合预算更敏感、看重参数兑现的人。", "why_it_matters": "它代表的是更明确的性能价格取舍。"},
                             ],
                         },
                     },
@@ -564,7 +564,9 @@ SCENARIO_FIXTURES: list[dict[str, Any]] = [
 
 
 def get_block_gallery_overview() -> dict[str, Any]:
-    fixtures = [deepcopy(item["fixture"]) for item in COMPONENT_FIXTURES] + [deepcopy(item["fixture"]) for item in SCENARIO_FIXTURES]
+    allowed_components = [item for item in COMPONENT_FIXTURES if "seeding" in list(item.get("supported_scenarios") or [])]
+    allowed_scenarios = [item for item in SCENARIO_FIXTURES if str(item.get("scenario_id") or "").startswith("seeding_")]
+    fixtures = [deepcopy(item["fixture"]) for item in allowed_components] + [deepcopy(item["fixture"]) for item in allowed_scenarios]
     return {
         "generated_at": "2026-03-22T16:00:00+08:00",
         "components": [
@@ -572,11 +574,11 @@ def get_block_gallery_overview() -> dict[str, Any]:
                 "component_type": item["component_type"],
                 "label": item["label"],
                 "semantic_role": item["semantic_role"],
-                "supported_scenarios": item["supported_scenarios"],
+                "supported_scenarios": ["seeding"],
                 "summary": item["summary"],
                 "fixture": deepcopy(item["fixture"]),
             }
-            for item in COMPONENT_FIXTURES
+            for item in allowed_components
         ],
         "scenarios": [
             {
@@ -585,12 +587,12 @@ def get_block_gallery_overview() -> dict[str, Any]:
                 "description": item["description"],
                 "fixture": deepcopy(item["fixture"]),
             }
-            for item in SCENARIO_FIXTURES
+            for item in allowed_scenarios
         ],
         "fixtures": fixtures,
         "recommendations": [
-            "先看单积木，再看整页场景，能更快判断是数据问题还是比例问题。",
-            "优先用场景页观察主题贴合和块之间的节奏，不要只看单块细节。",
+            "先看单积木，再看整页购买决策场景，能更快判断是数据问题还是比例问题。",
+            "优先用场景页观察结论、事实、对比和风险边界的节奏，不要只看单块细节。",
             "当某个积木需要改结构时，先更新它的 fixture，再更新视觉回归基线。",
         ],
     }
@@ -599,12 +601,12 @@ def get_block_gallery_overview() -> dict[str, Any]:
 def get_block_gallery_component(component_type: str) -> dict[str, Any] | None:
     normalized = str(component_type or "").strip()
     for item in COMPONENT_FIXTURES:
-        if item["component_type"] == normalized:
+        if item["component_type"] == normalized and "seeding" in list(item.get("supported_scenarios") or []):
             return deepcopy({
                 "component_type": item["component_type"],
                 "label": item["label"],
                 "semantic_role": item["semantic_role"],
-                "supported_scenarios": item["supported_scenarios"],
+                "supported_scenarios": ["seeding"],
                 "summary": item["summary"],
                 "fixture": item["fixture"],
             })
@@ -614,7 +616,7 @@ def get_block_gallery_component(component_type: str) -> dict[str, Any] | None:
 def get_block_gallery_scenario(scenario_id: str) -> dict[str, Any] | None:
     normalized = str(scenario_id or "").strip()
     for item in SCENARIO_FIXTURES:
-        if item["scenario_id"] == normalized:
+        if item["scenario_id"] == normalized and str(item["scenario_id"]).startswith("seeding_"):
             return deepcopy({
                 "scenario_id": item["scenario_id"],
                 "title": item["title"],

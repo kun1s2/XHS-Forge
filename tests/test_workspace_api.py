@@ -1,11 +1,11 @@
 from datetime import datetime
 from types import SimpleNamespace
 
-from app.schemas.responses import BlockGalleryOverviewResponse, EvaluationOverviewResponse, TrendListResponse, WorkspaceDataResponse
+from app.schemas.responses import BlockGalleryOverviewResponse, EvaluationOverviewResponse, TraceExportResponse, TrendListResponse, WorkspaceDataResponse
 from langchain_core.messages import HumanMessage
 import pytest
 
-from app.api.workspace import _build_benchmark_overview, _build_evaluation_overview, _build_inspector_summary, _extract_session_title, _format_checkpoint_timestamp, _pick_row_value, dedupe_assets, format_messages, rollback_thread_to_checkpoint
+from app.api.workspace import _build_benchmark_overview, _build_evaluation_overview, _build_inspector_summary, _build_trace_export_bundle, _extract_session_title, _format_checkpoint_timestamp, _pick_row_value, dedupe_assets, format_messages, rollback_thread_to_checkpoint
 from app.schemas.requests import ThreadRollbackRequest
 from app.services.block_gallery import get_block_gallery_component, get_block_gallery_overview, get_block_gallery_scenario
 
@@ -23,6 +23,7 @@ def test_format_checkpoint_timestamp_accepts_string():
 def test_workspace_data_response_accepts_structured_messages_and_prompts():
     response = WorkspaceDataResponse(
         is_new=False,
+        checkpoint_id="ckpt_1",
         messages={
             "main": [
                 {"role": "user", "content": "帮我生成一篇 Mate 60 笔记"},
@@ -43,6 +44,7 @@ def test_workspace_data_response_accepts_structured_messages_and_prompts():
     )
 
     assert response.messages["main"][0]["role"] == "user"
+    assert response.checkpoint_id == "ckpt_1"
     assert response.node_prompts["intent_agent"][0]["role"] == "system"
     assert response.image_assets[0]["source_type"] == "search"
     assert response.agent_backends["note_editor"] == "structured_function_calling"
@@ -138,6 +140,7 @@ def test_pick_row_value_supports_dict_row():
 def test_workspace_data_response_accepts_turn_trace():
     response = WorkspaceDataResponse(
         is_new=False,
+        checkpoint_id="ckpt_trace",
         messages={"main": []},
         active_panel="main",
         selected_element_id=None,
@@ -152,6 +155,7 @@ def test_workspace_data_response_accepts_turn_trace():
 def test_workspace_data_response_no_longer_requires_legacy_page_or_style_fields():
     response = WorkspaceDataResponse(
         is_new=True,
+        checkpoint_id=None,
         messages={"main": []},
         active_panel="main",
         selected_element_id=None,
@@ -163,6 +167,62 @@ def test_workspace_data_response_no_longer_requires_legacy_page_or_style_fields(
     dumped = response.model_dump()
     assert "document_view" not in dumped
     assert "block_style_map" not in dumped
+
+
+def test_trace_export_response_accepts_structured_payload():
+    response = TraceExportResponse(
+        data={
+            "thread_id": "thread_demo",
+            "checkpoint_id": "ckpt_demo",
+            "turn_trace": {"query": "阿那亚一日游"},
+            "planner_output": {"block_intents": [{"intent_type": "location_info"}]},
+            "retrieval": {"retrieval_profile": "travel_guide"},
+            "document": {"block_count": 3},
+        }
+    )
+
+    assert response.data["thread_id"] == "thread_demo"
+    assert response.data["retrieval"]["retrieval_profile"] == "travel_guide"
+
+
+def test_build_trace_export_bundle_contains_planner_retrieval_and_document_outline():
+    bundle = _build_trace_export_bundle(
+        {
+            "active_panel": "main",
+            "selected_element_id": None,
+            "intent_route": "research_agent",
+            "active_archetype": "travel",
+            "scenarios": ["travel", "general"],
+            "planner_output": {"block_intents": [{"intent_type": "location_info"}]},
+            "planner_policy": {"layout_policy": {"preferred_block_intents": ["location_info"]}},
+            "turn_trace": {"query": "帮我做阿那亚一日游", "changed_blocks": [{"id": "loc_1", "type": "LocationBlock"}]},
+            "agent_backends": {"planner": "deterministic_policy_builder"},
+            "retrieved_knowledge": {
+                "entity_name": "阿那亚",
+                "fact_slots": {"transport": {"summary": "打车前往"}},
+                "fact_sources": [{"title": "阿那亚官方", "link": "https://example.com/aranya"}],
+                "retrieval_summary": {"retrieval_profile": "travel_guide", "missing_fields": ["hours"]},
+                "retrieval_eval": {"grounding_score": 0.86},
+            },
+            "note_document": {
+                "document_meta": {"title": "阿那亚一日游"},
+                "blocks": [{"id": "loc_1", "type": "LocationBlock", "semantic_role": "location_info", "content_brief": "地点信息"}],
+                "assets": [],
+            },
+        },
+        thread_id="thread_trace",
+        checkpoint_id="ckpt_trace",
+    )
+
+    assert bundle["thread_id"] == "thread_trace"
+    assert bundle["checkpoint_id"] == "ckpt_trace"
+    assert bundle["retrieval"]["retrieval_profile"] == "travel_guide"
+    assert bundle["document"]["blocks"][0]["type"] == "LocationBlock"
+    assert bundle["turn_trace"]["changed_blocks"][0]["id"] == "loc_1"
+    assert "console_tail" in bundle
+    assert "html_preview" in bundle
+    assert "checkpoint_history" in bundle
+    assert bundle["document"]["final_blocks"][0]["id"] == "loc_1"
 
 
 class _FakeSnapshot:

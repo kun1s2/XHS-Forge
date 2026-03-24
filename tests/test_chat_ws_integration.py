@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import pytest
 from starlette.websockets import WebSocketState
 
-from app.api.chat import _build_turn_end_payload, _run_graph_loop
+from app.api.chat import _build_turn_end_payload, _run_graph_loop, _send_capability_reply
+from app.schemas.requests import ChatWSPayload
 from app.core.note_document import build_note_document
 
 
@@ -52,6 +53,39 @@ class FakeWebSocket:
 
     async def send_json(self, payload):
         self.messages.append(payload)
+
+
+@pytest.mark.asyncio
+async def test_send_capability_reply_streams_direct_chat_response_without_rendering():
+    snapshot = FakeSnapshot(
+        {
+            "image_assets": [],
+            "note_document": build_note_document(
+                document_view={"page_title": "当前页面", "blocks": [{"id": "title_1", "component_type": "TitleBlock"}]},
+                block_style_map={},
+            ),
+            "final_html": "<html></html>",
+            "node_prompts": {},
+        },
+        checkpoint_id="ckpt_direct_chat",
+    )
+    agent = FakeAgent(snapshot)
+    websocket = FakeWebSocket()
+    payload = ChatWSPayload(content="你有什么功能?", panel="main")
+
+    await _send_capability_reply(
+        agent=agent,
+        thread_id="thread-capability",
+        payload=payload,
+        websocket=websocket,
+        user_query_str="你有什么功能?",
+    )
+
+    assert websocket.messages[0]["event"] == "thought"
+    assert websocket.messages[1]["event"] == "token"
+    assert websocket.messages[1]["node"] == "direct_chat_node"
+    assert "我现在主要可以这样和你配合" in websocket.messages[1]["data"]
+    assert websocket.messages[-1]["event"] == "turn_end"
 
 
 @pytest.mark.asyncio

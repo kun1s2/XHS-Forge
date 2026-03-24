@@ -6,13 +6,14 @@ from starlette.websockets import WebSocketState
 from pydantic import ValidationError
 from langgraph.types import Command
 from app.schemas.requests import ChatWSPayload
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from app.services.cache_service import get_trend_cache, set_trend_cache, RiskControlCache
 from app.services.trend_pipeline import process_new_trend_background
 from app.services.trend_intelligence import infer_trend_profile
 from app.core.config import settings
 from app.core.note_document import build_note_document_from_state
-from app.core.query_heuristics import looks_like_existing_canvas_edit
+from app.core.capability_response import build_capability_reply
+from app.core.query_heuristics import looks_like_capability_query, looks_like_existing_canvas_edit
 from app.core.request_semantics import payload_requests_create
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.runtime_log import (
@@ -33,7 +34,9 @@ NODE_THOUGHT_MAP = {
     "tools": "🔧 正在调用专业工具执行任务...",
     "controversy_sniffer": "🛡️ 正在进行内容合规与舆情审计...",
     "note_editor": "✍️ 正在为您整理页面内容与编辑策略...",
+    "truth_mode_checkpoint": "🧾 正在和您确认是否需要按真实经历或已确认事实来写...",
     "structure_checkpoint": "🧩 正在和您确认页面骨架方向...",
+    "knowledge_review_checkpoint": "🧠 正在和您确认这轮候选知识怎么采用...",
     "fact_gap_checkpoint": "📌 正在和您确认缺失的关键信息...",
     "asset_checkpoint": "🖼️ 正在和您确认素材使用方案...",
     "fact_conflict_checkpoint": "⚖️ 正在和您确认冲突事实采用哪种说法...",
@@ -117,9 +120,115 @@ def _build_block_change_set(before_values, after_values):
     return changes
 
 
+def _build_status_timeline(timeline: list[dict[str, Any]] | None) -> list[str]:
+    statuses: list[str] = []
+    seen: set[str] = set()
+    for item in timeline or []:
+        if not isinstance(item, dict):
+            continue
+        event_type = str(item.get("event") or "")
+        node_name = str(item.get("node") or "")
+        status = ""
+        if event_type == "tool_start":
+            status = TOOL_THOUGHT_MAP.get(node_name, f"我正在调用工具补齐这轮关键信息。")
+        elif event_type == "node_start":
+            status = NODE_THOUGHT_MAP.get(node_name, "")
+        normalized = str(status or "").strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            statuses.append(normalized)
+    return statuses[:6]
+
+
+def _build_agent_plan(turn_context: dict[str, Any] | None, after_values: dict[str, Any] | None) -> dict[str, Any]:
+    context = turn_context or {}
+    values = after_values or {}
+    query = str(context.get("user_query") or "").strip()
+    message_kind = str(context.get("message_kind") or "user_prompt").strip() or "user_prompt"
+    selected_element_id = str(context.get("selected_element_id") or "").strip()
+    active = str(values.get("active_archetype") or "").strip()
+    if message_kind == "critique_action":
+        return {
+            "title": "我先按你刚才选中的复盘建议继续收口",
+            "summary": "这次我会沿着最需要优先处理的问题继续优化当前页面，而不是重新起一版。",
+            "steps": [
+                "先锁定这次要改的重点范围",
+                "按建议定向调整页面内容或结构",
+                "最后再检查这一轮是否还有明显缺口",
+            ],
+            "watch_points": ["如果你只想改局部，我会尽量不动无关区块。"],
+        }
+    if selected_element_id and selected_element_id not in {"无", "无 (全局修改)", "none", "global"}:
+        return {
+            "title": "我会先按你的指令定向修改当前选中的积木",
+            "summary": "这次会优先处理你刚刚点中的区域，尽量不扩大到整页重写。",
+            "steps": [
+                "先锁定这块当前承担的作用",
+                "只修改你提到的标题、段落或局部信息",
+                "改完后再把变化明确标出来给你看",
+            ],
+            "watch_points": ["如果这块和别的区域强耦合，我会尽量保持其它部分不被顺手改乱。"],
+        }
+
+    if active == "seeding":
+        steps = [
+            "先判断这页更适合购买判断、参数对比还是体验分流",
+            "再补足影响判断的关键信息和图片",
+            "最后把结论、事实、对比和风险边界收紧成完整档案",
+        ]
+        watch_points = ["如果事实或素材不够稳，我会先给你推荐方案，再继续往下搭。"]
+    else:
+        steps = [
+            "先把这轮内容收成更像数码购买决策档案的判断结构",
+            "再补当前最影响结论可信度的关键信息",
+            "最后把判断、事实和素材收成完整版本",
+        ]
+        watch_points = ["如果中途出现关键信息缺口，我会先在聊天里和你确认，而不是硬写成完整结论。"]
+
+    return {
+        "title": "我先按当前目标把这页搭起来",
+        "summary": f"我理解你这轮想处理的是：{query or '当前页面'}。",
+        "steps": steps,
+        "watch_points": watch_points,
+    }
+
+
+def _build_agent_summary(turn_context: dict[str, Any] | None, after_values: dict[str, Any] | None, critique_summary: dict[str, Any] | None) -> dict[str, Any]:
+    values = after_values or {}
+    critique = critique_summary or {}
+    after_summary = _summarize_document(values)
+    block_count = int(after_summary.get("block_count") or 0)
+    changed_blocks = _build_block_change_set((turn_context or {}).get("before_values") or {}, values or {})
+    remaining_gaps: list[str] = []
+    for item in (critique.get("factual_issues") or [])[:2]:
+        normalized = str(item).strip()
+        if normalized:
+            remaining_gaps.append(normalized)
+    for item in (critique.get("completeness_issues") or [])[:2]:
+        normalized = str(item).strip()
+        if normalized and normalized not in remaining_gaps:
+            remaining_gaps.append(normalized)
+    next_actions: list[str] = []
+    for item in (critique.get("action_recipes") or [])[:3]:
+        label = str((item or {}).get("label") or "").strip()
+        if label:
+            next_actions.append(label)
+    changed_count = len(changed_blocks)
+    summary = f"这一轮我已经把页面更新成 {block_count} 个区块。"
+    if changed_count > 0:
+        summary = f"这一轮我更新了 {changed_count} 个重点区块，当前页面共有 {block_count} 个区块。"
+    return {
+        "title": "这一轮我已经先帮你推进到这里",
+        "summary": summary,
+        "remaining_gaps": remaining_gaps[:3],
+        "next_actions": next_actions[:3],
+    }
+
+
 def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
     changed_blocks = _build_block_change_set(before_values or {}, after_values or {})
-    note_editor_trace = ((after_values or {}).get("turn_trace") or {}).get("note_editor") or {}
+    existing_trace = (after_values or {}).get("turn_trace") or {}
+    note_editor_trace = existing_trace.get("note_editor") or {}
     content_like_fields = {"props", "type", "order", "added", "removed"}
     style_only = bool(changed_blocks) and any("style" in item.get("changed_fields", []) for item in changed_blocks) and not any(content_like_fields & set(item.get("changed_fields", [])) for item in changed_blocks)
     warnings = []
@@ -129,21 +238,54 @@ def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
         warnings.append("fallback_used")
     if style_only:
         warnings.append("style_changed_without_content")
+    critique_feedback = (after_values or {}).get("critique_feedback") if isinstance((after_values or {}).get("critique_feedback"), dict) else {}
+    critique_summary = {
+        "score": critique_feedback.get("score"),
+        "needs_revision": bool((after_values or {}).get("needs_revision")),
+        "suggestions": [str(item) for item in (critique_feedback.get("suggestions") or []) if str(item).strip()][:3],
+        "factual_issues": [str(item) for item in (critique_feedback.get("factual_issues") or []) if str(item).strip()][:3],
+        "completeness_issues": [str(item) for item in (critique_feedback.get("completeness_issues") or []) if str(item).strip()][:3],
+        "has_hook": critique_feedback.get("has_hook"),
+        "has_call_to_action": critique_feedback.get("has_call_to_action"),
+        "action_recipes": [
+            {
+                "label": str(item.get("label") or "").strip(),
+                "prompt": str(item.get("prompt") or "").strip(),
+                "scope": str(item.get("scope") or "").strip() or None,
+                "why_now": str(item.get("why_now") or "").strip() or None,
+                "expected_effect": str(item.get("expected_effect") or "").strip() or None,
+                "expected_blocks": [
+                    str(block).strip()
+                    for block in (item.get("expected_blocks") or [])
+                    if str(block).strip()
+                ][:4],
+            }
+            for item in (critique_feedback.get("action_recipes") or [])
+            if isinstance(item, dict) and str(item.get("label") or "").strip()
+        ][:4],
+    } if critique_feedback else {}
+    status_timeline = _build_status_timeline(timeline)
     return {
         "query": turn_context.get("user_query", ""),
+        "message_kind": turn_context.get("message_kind") or "user_prompt",
         "selected_element_id": turn_context.get("selected_element_id"),
         "panel": turn_context.get("panel", "main"),
         "timeline": timeline,
+        "status_timeline": status_timeline,
         "route": {
             "intent_route": (after_values or {}).get("intent_route", ""),
             "active_archetype": (after_values or {}).get("active_archetype", ""),
         },
-        "planner": ((after_values or {}).get("turn_trace") or {}).get("planner") or {},
+        "planner": existing_trace.get("planner") or {},
         "note_editor": note_editor_trace,
         "before_summary": _summarize_document(before_values or {}),
         "after_summary": _summarize_document(after_values or {}),
         "changed_blocks": changed_blocks,
         "warnings": warnings,
+        "conversation_checkpoints": existing_trace.get("conversation_checkpoints") or {},
+        "critique": critique_summary,
+        "agent_plan": _build_agent_plan(turn_context, after_values),
+        "agent_summary": _build_agent_summary(turn_context, after_values, critique_summary),
     }
 
 
@@ -270,6 +412,106 @@ def _build_runtime_image_assets(payload: "ChatWSPayload") -> list[dict[str, Any]
     return [{"__replace__": True}, *runtime_assets]
 
 
+def _extract_truth_mode_progress(values: dict[str, Any] | None) -> dict[str, Any]:
+    progress = ((values or {}).get("checkpoint_progress") or {}) if isinstance(values, dict) else {}
+    if not isinstance(progress, dict):
+        return {}
+    return dict(progress.get("truth_mode") or {})
+
+
+def _should_use_capability_reply(*, payload: "ChatWSPayload", query: str, awaiting_user_facts: bool) -> bool:
+    normalized_query = str(query or "").strip()
+    normalized_selected = str(payload.selected_element_id or "").strip()
+    return (
+        bool(normalized_query)
+        and not awaiting_user_facts
+        and not bool(payload.image_urls or [])
+        and not looks_like_existing_canvas_edit(normalized_query)
+        and looks_like_capability_query(normalized_query)
+        and normalized_selected in {"", "无", "无 (全局修改)", "none", "global"}
+    )
+
+
+async def _send_capability_reply(
+    *,
+    agent,
+    thread_id: str,
+    payload: "ChatWSPayload",
+    websocket: WebSocket,
+    user_query_str: str,
+):
+    latest_config = {"configurable": {"thread_id": thread_id}}
+    before_state = await agent.aget_state(latest_config)
+    reply = build_capability_reply(before_state.values or {})
+    msg_key = f"{payload.panel}_messages"
+    human_msg = HumanMessage(content=user_query_str)
+    await _aupdate_state_compat(
+        agent,
+        latest_config,
+        {
+            msg_key: [human_msg, AIMessage(content=reply)],
+            "intent_route": "direct_chat_node",
+            "agent_backends": {
+                "intent_agent": "deterministic_capability_fast_path",
+                "direct_chat_node": "deterministic_capability_reply",
+            },
+        },
+        as_node="direct_chat_node",
+    )
+    snapshot = await agent.aget_state(latest_config)
+    checkpoint_id = snapshot.config["configurable"]["checkpoint_id"]
+    turn_trace = {
+        "query": user_query_str,
+        "message_kind": payload.message_kind or "user_prompt",
+        "selected_element_id": payload.selected_element_id or "无 (全局修改)",
+        "panel": payload.panel,
+        "timeline": [
+            {"event": "node_start", "node": "intent_agent"},
+            {"event": "node_end", "node": "intent_agent"},
+            {"event": "node_start", "node": "direct_chat_node"},
+            {"event": "node_end", "node": "direct_chat_node"},
+        ],
+        "status_timeline": ["我先直接告诉你我现在能怎么配合。"],
+        "route": {
+            "intent_route": "direct_chat_node",
+            "active_archetype": snapshot.values.get("active_archetype", "seeding"),
+        },
+        "changed_blocks": [],
+        "warnings": [],
+    }
+    trace_patch = {"turn_trace": turn_trace}
+    trace_patch.update(
+        _build_turn_anchor_patch(
+            snapshot.values or {},
+            panel=payload.panel,
+            checkpoint_id=checkpoint_id,
+        )
+    )
+    await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
+    snapshot = await agent.aget_state(latest_config)
+
+    append_latest_console_log("🧭 [DIRECT CHAT] 命中能力问答，直接走聊天答复，不触发页面生成。")
+    await websocket.send_json({"event": "thought", "data": "🧭 我先直接告诉你我现在能怎么配合。"})
+    await websocket.send_json({"event": "token", "node": "direct_chat_node", "data": reply})
+    await websocket.send_json(
+        {
+            "event": "turn_end",
+            "data": _build_turn_end_payload(
+                checkpoint_id,
+                oss_url=snapshot.values.get("final_oss_url"),
+                image_assets=snapshot.values.get("image_assets", []),
+                source_code=snapshot.values.get("final_html", ""),
+                node_prompts=snapshot.values.get("node_prompts"),
+                note_document=snapshot.values.get("note_document"),
+                planner_output=snapshot.values.get("planner_output"),
+                planner_policy=snapshot.values.get("planner_policy"),
+                turn_trace=turn_trace,
+                agent_backends=snapshot.values.get("agent_backends"),
+            ),
+        }
+    )
+
+
 def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] | None:
     """把 LangGraph interrupt value 归一化成聊天区 action_required 载荷。"""
     if not isinstance(raw_interrupt, dict):
@@ -290,6 +532,7 @@ def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] |
                 "asset_url": str(item.get("asset_url") or "") or None,
                 "selected_asset_ids": list(item.get("selected_asset_ids") or []),
                 "selected_fact_value": str(item.get("selected_fact_value") or "") or None,
+                "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else None,
             }
         )
     return {
@@ -300,7 +543,12 @@ def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] |
         "summary": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
         "message": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
         "recommended_option": str(raw_interrupt.get("recommended_option") or ""),
+        "recommended_reason": str(raw_interrupt.get("recommended_reason") or ""),
+        "proposal_summary": str(raw_interrupt.get("proposal_summary") or ""),
+        "other_allowed": bool(raw_interrupt.get("other_allowed")),
+        "other_placeholder": str(raw_interrupt.get("other_placeholder") or "") or None,
         "blocking": bool(raw_interrupt.get("blocking", True)),
+        "input_schema": raw_interrupt.get("input_schema") if isinstance(raw_interrupt.get("input_schema"), dict) else None,
         "options": options,
     }
 
@@ -344,6 +592,8 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                             "decision": payload_dict.get("decision"),
                             "selected_asset_ids": payload_dict.get("selected_asset_ids") or [],
                             "selected_fact_value": payload_dict.get("selected_fact_value"),
+                            "user_provided_facts": payload_dict.get("user_provided_facts") or {},
+                            "custom_note": payload_dict.get("custom_note"),
                         }
                         await _run_graph_loop(
                             agent,
@@ -354,6 +604,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                                 "user_query": "",
                                 "selected_element_id": payload_dict.get("selected_element_id"),
                                 "panel": payload_dict.get("panel", "main"),
+                                "message_kind": payload_dict.get("message_kind") or "checkpoint_decision",
                                 "before_values": {},
                             },
                         )
@@ -388,13 +639,29 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 if not user_query_str and not pending_urls:
                     await websocket.send_json({"event": "error", "data": "请输入修改指令，或上传本轮要使用的新图片。"})
                     continue
+
+                thread_state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+                truth_mode_progress = _extract_truth_mode_progress(thread_state.values or {})
+                awaiting_user_facts = bool(truth_mode_progress.get("awaiting_user_facts"))
+                if awaiting_user_facts:
+                    append_latest_console_log("🧾 [TRUTH MODE] 当前消息将作为用户补充事实继续执行。")
+
+                if _should_use_capability_reply(payload=payload, query=user_query_str, awaiting_user_facts=awaiting_user_facts):
+                    await _send_capability_reply(
+                        agent=agent,
+                        thread_id=thread_id,
+                        payload=payload,
+                        websocket=websocket,
+                        user_query_str=user_query_str,
+                    )
+                    continue
                 
                 # --- 🛡️ 【第一防御梯队：风控网关拦截】 ---
                 is_vetoed = await RiskControlCache.check_veto(user_query_str)
                 if is_vetoed:
                     print(f"🛑 [绝对防御] 发现违规内容，已在入口点阻断: {user_query_str[:15]}")
                     veto_note_document = {
-                        "document_meta": {"title": "🚫 触发系统安全保护", "active_archetype": "general", "scenarios": ["general"]},
+                        "document_meta": {"title": "🚫 触发系统安全保护", "active_archetype": "seeding", "scenarios": ["seeding"]},
                         "theme": {"page_theme": {}, "global_vars": {"--primary-vibe": "#ff2442"}},
                         "blocks": [
                             {
@@ -475,7 +742,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     )
                 
                 cached_result = await get_trend_cache(user_query_str, selected_el)
-                if cached_result and _can_use_trend_cache_fast_path(payload):
+                if cached_result and _can_use_trend_cache_fast_path(payload) and not awaiting_user_facts:
                     print(f"🚀 [语义缓存] 命中热点: {user_query_str[:15]}")
                     await websocket.send_json({"event": "token", "node": "cache", "data": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"})
                     await websocket.send_json({
@@ -518,6 +785,20 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     "image_assets": _build_runtime_image_assets(payload),
                     "pending_images": pending_urls,
                 }
+                if awaiting_user_facts:
+                    inputs["user_provided_facts"] = {
+                        "raw_text": user_query_str,
+                        "source": "chat_followup",
+                        "requested_by": "truth_mode_checkpoint",
+                    }
+                    inputs["checkpoint_progress"] = {
+                        "truth_mode": {
+                            "awaiting_user_facts": False,
+                            "resolved": True,
+                            "query": str(truth_mode_progress.get("query") or ""),
+                            "selected": "provide_user_facts",
+                        }
+                    }
                 
                 config = {"configurable": {"thread_id": thread_id, "vector_store": websocket.app.state.vector_store}}
                 if payload.parent_checkpoint_id: config["configurable"]["checkpoint_id"] = payload.parent_checkpoint_id
@@ -533,6 +814,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                         "user_query": user_query_str,
                         "selected_element_id": payload.selected_element_id or "无 (全局修改)",
                         "panel": payload.panel,
+                        "message_kind": payload.message_kind or "user_prompt",
                         "before_values": before_state.values or {},
                     },
                 )

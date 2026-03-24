@@ -45,11 +45,14 @@ def choose_retrieval_policy(
     *,
     user_query: str,
     cache_keywords: list[str] | None,
-    needs_assets: str,
+    needs_assets: Any,
     retrieval_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cache_hit_candidate = bool(cache_keywords)
-    asset_mode = "search" if str(needs_assets or "").lower() == "search" else "none"
+    if isinstance(needs_assets, bool):
+        asset_mode = "search" if needs_assets else "none"
+    else:
+        asset_mode = "search" if str(needs_assets or "").lower() == "search" else "none"
     return {
         "policy_name": "cache_then_live_grounded",
         "policy_path": "cache_first_then_live_search",
@@ -57,9 +60,9 @@ def choose_retrieval_policy(
         "enable_live_search": True,
         "enable_image_search": asset_mode == "search",
         "asset_mode": asset_mode,
-        "retrieval_profile": str((retrieval_profile or {}).get("profile_name") or "general_grounded"),
-        "retrieval_domain": str((retrieval_profile or {}).get("domain") or "general"),
-        "reason": "优先复用热点知识底座，对长尾或未命中主题再做在线 grounded search。",
+        "retrieval_profile": str((retrieval_profile or {}).get("profile_name") or "digital_grounded"),
+        "retrieval_domain": str((retrieval_profile or {}).get("domain") or "digital_review"),
+        "reason": "优先复用数码知识快照与会话知识，对未命中或证据不足的机型再做在线 grounded search。",
         "user_query": user_query,
     }
 

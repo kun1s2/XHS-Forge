@@ -5,6 +5,12 @@ import { useChatStore } from '../../stores/useChatStore'
 import AgentInspectorJsonTree from './AgentInspectorJsonTree.vue'
 import { useAgentInspectorDiagnostics } from './useAgentInspectorDiagnostics'
 
+const props = withDefaults(defineProps<{
+  scope?: 'session' | 'global'
+}>(), {
+  scope: 'session',
+})
+
 const chatStore = useChatStore()
 const {
   renderPageData,
@@ -22,19 +28,24 @@ const {
   evaluationOverview,
 } = storeToRefs(chatStore)
 
-const activeTab = ref<'meta' | 'dsl' | 'plan' | 'rag' | 'evaluation' | 'benchmark' | 'patch' | 'trace'>('meta')
+const activeTab = ref<'meta' | 'dsl' | 'plan' | 'rag' | 'evaluation' | 'benchmark' | 'patch' | 'trace'>(props.scope === 'global' ? 'benchmark' : 'meta')
 const JsonTree = AgentInspectorJsonTree
 
-const tabs = [
-  { id: 'meta', name: '总览', icon: '⚡' },
-  { id: 'trace', name: '本轮追踪', icon: '📍' },
-  { id: 'plan', name: '策略规划', icon: '🧭' },
-  { id: 'rag', name: '事实与检索', icon: '🔍' },
-  { id: 'evaluation', name: '评估', icon: '🧪' },
-  { id: 'benchmark', name: 'Benchmark', icon: '📊' },
-  { id: 'patch', name: '补丁历史', icon: '💉' },
-  { id: 'dsl', name: '原始协议', icon: '🛠️' },
-]
+const tabs = computed(() => (
+  props.scope === 'global'
+    ? [
+        { id: 'benchmark', name: 'Benchmark', icon: '📊' },
+        { id: 'evaluation', name: '评估', icon: '🧪' },
+      ]
+    : [
+        { id: 'meta', name: '总览', icon: '⚡' },
+        { id: 'trace', name: '本轮追踪', icon: '📍' },
+        { id: 'plan', name: '策略规划', icon: '🧭' },
+        { id: 'rag', name: '事实与检索', icon: '🔍' },
+        { id: 'patch', name: '补丁历史', icon: '💉' },
+        { id: 'dsl', name: '原始协议', icon: '🛠️' },
+      ]
+))
 
 const metaInfo = computed(() => [
   { label: '创作者人设', value: chatStore.creatorPersona || '默认博主', color: 'text-yellow-400' },
@@ -47,6 +58,7 @@ const {
   factSources,
   factConflicts,
   factConfidence,
+  knowledgeRecords,
   retrievalHits,
   retrievalQueryVariants,
   retrievalHitScopes,
@@ -150,12 +162,16 @@ const {
   humanizeTraceWarning,
   tracePrimaryTarget,
   copiedDebugSummary,
+  copiedTraceExport,
+  traceExportPending,
   traceStructuredStatus,
   tracePrimarySignal,
   traceDiagnostics,
   getStructuredStatusClasses,
   structuredStatusLabel,
   copyTraceDebugSummary,
+  copyStructuredTraceExport,
+  downloadStructuredTraceExport,
   noteFactBindings,
   formatFactFieldLabels,
   confirmFact,
@@ -177,7 +193,7 @@ const {
 
 <template>
   <div class="bg-[#1e1e1e] text-gray-400 rounded-[26px] font-sans text-xs shadow-2xl border border-[#333] w-full overflow-hidden flex flex-col h-full min-h-[720px]">
-    <div class="shrink-0 border-b border-[#333] bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_35%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] px-6 py-5 lg:px-7">
+    <div v-if="props.scope === 'session'" class="shrink-0 border-b border-[#333] bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_35%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] px-6 py-5 lg:px-7">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0 space-y-2">
           <div class="flex flex-wrap items-center gap-2">
@@ -191,7 +207,7 @@ const {
           </div>
           <div class="text-[14px] font-bold text-gray-100">{{ inspectorHeadline }}</div>
           <div class="text-[10px] leading-relaxed text-gray-400 max-w-3xl">
-            当前焦点：{{ inspectorFocus.entity_name || '未识别主体' }} · 场景 {{ (inspectorFocus.scenarios || []).join(' / ') || 'general' }} · 命中 {{ inspectorExecution.target_block_id || inspectorFocus.selected_block_id || 'global' }}
+            当前焦点：{{ inspectorFocus.entity_name || '未识别主体' }} · 场景 {{ (inspectorFocus.scenarios || []).join(' / ') || 'seeding' }} · 命中 {{ inspectorExecution.target_block_id || inspectorFocus.selected_block_id || 'global' }}
           </div>
         </div>
         <div class="grid min-w-[240px] grid-cols-2 gap-2 sm:min-w-[320px]">
@@ -206,6 +222,34 @@ const {
         <span v-for="(tip, idx) in inspectorSuggestions" :key="idx" class="inline-flex items-center rounded-full border border-[#3a3a3a] bg-black/10 px-3 py-1 text-[9px] leading-relaxed text-gray-300">
           {{ tip }}
         </span>
+      </div>
+    </div>
+    <div v-else class="shrink-0 border-b border-[#333] bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,0.12),_transparent_35%),linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(30,30,30,1))] px-6 py-5 lg:px-7">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="space-y-2">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1 rounded-full border border-violet-700/30 bg-violet-950/15 px-2 py-1 text-[9px] font-bold text-violet-300">
+              <span>📊</span>
+              <span>全局观测</span>
+            </span>
+          </div>
+          <div class="text-[14px] font-bold text-gray-100">Benchmark 与 Evaluation</div>
+          <div class="text-[10px] leading-relaxed text-gray-400 max-w-3xl">
+            这里展示跨会话、全局级的稳定性与评估结果，不再混入当前会话的事实确认或块级编辑交互。
+          </div>
+        </div>
+        <div class="grid min-w-[240px] grid-cols-2 gap-2 sm:min-w-[320px]">
+          <div class="rounded-2xl border border-violet-800/25 bg-violet-950/10 p-3">
+            <div class="text-[9px] uppercase tracking-widest text-gray-500">Benchmark</div>
+            <div class="mt-1 text-[12px] font-bold text-gray-100">{{ benchmarkCards[0]?.value || 0 }}</div>
+            <div class="mt-1 text-[9px] leading-relaxed text-gray-500">{{ benchmarkCards[0]?.helper || '暂无聚合会话。' }}</div>
+          </div>
+          <div class="rounded-2xl border border-cyan-800/25 bg-cyan-950/10 p-3">
+            <div class="text-[9px] uppercase tracking-widest text-gray-500">Evaluation</div>
+            <div class="mt-1 text-[12px] font-bold text-gray-100">{{ evaluationOverallScore.toFixed(1) }}</div>
+            <div class="mt-1 text-[9px] leading-relaxed text-gray-500">{{ evaluationSummary || '暂无评估摘要。' }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -660,14 +704,10 @@ const {
                 <span class="text-gray-500"> ← {{ (item.sources || []).join(' / ') }}</span>
               </div>
               <button
-                @click="confirmFact(conflict.field, item.value, item.sources || [])"
-                :disabled="chatStore.factConfirmingField === conflict.field"
-                class="rounded-md border px-2 py-1 text-[9px] font-bold transition-all"
-                :class="chatStore.factConfirmingField === conflict.field
-                  ? 'border-[#444] text-gray-500 bg-[#2a2a2a] cursor-not-allowed'
-                  : 'border-emerald-700/40 text-emerald-300 bg-emerald-900/10 hover:bg-emerald-900/20'"
+                @click="chatStore.setWorkspaceMode('session_knowledge')"
+                class="rounded-md border border-cyan-700/40 bg-cyan-900/10 px-2 py-1 text-[9px] font-bold text-cyan-300 transition-all hover:bg-cyan-900/20"
               >
-                {{ chatStore.factConfirmingField === conflict.field ? '确认中...' : '采用这个值' }}
+                去会话知识处理
               </button>
             </div>
           </div>
@@ -1164,6 +1204,20 @@ const {
                   >
                     <span>{{ copiedDebugSummary ? '✅' : '📋' }}</span>
                     <span>{{ copiedDebugSummary ? '已复制摘要' : '复制 debug 摘要' }}</span>
+                  </button>
+                  <button
+                    @click="copyStructuredTraceExport"
+                    class="inline-flex items-center gap-1 rounded-full border border-slate-700/30 bg-slate-950/20 px-2 py-1 text-[9px] font-bold text-slate-200 transition hover:border-violet-700/30 hover:text-violet-300"
+                  >
+                    <span>{{ copiedTraceExport ? '✅' : '🧾' }}</span>
+                    <span>{{ copiedTraceExport ? '已复制 trace 包' : (traceExportPending ? '导出中...' : '复制结构化 trace') }}</span>
+                  </button>
+                  <button
+                    @click="downloadStructuredTraceExport"
+                    class="inline-flex items-center gap-1 rounded-full border border-slate-700/30 bg-slate-950/20 px-2 py-1 text-[9px] font-bold text-slate-200 transition hover:border-emerald-700/30 hover:text-emerald-300"
+                  >
+                    <span>⬇️</span>
+                    <span>{{ traceExportPending ? '准备中...' : '下载 trace JSON' }}</span>
                   </button>
                 </div>
                 <div class="text-[12px] font-bold text-gray-100">{{ humanizeTraceAction(String(noteEditorTrace.action || '')) }}</div>

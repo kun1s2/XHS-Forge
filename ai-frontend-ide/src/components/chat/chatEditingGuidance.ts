@@ -195,9 +195,9 @@ const buildComponentSpecificGuidance = (
     case 'CoverSwiper':
       return {
         direct: [
-          { label: '只改首图文案', prompt: '只改这个封面轮播的首图文案和说明，不动其他图片与顺序。' },
-          { label: '只改轮播说明', prompt: '只改这个封面轮播下方的说明文案，不动图片。' },
-          { label: '封面图更贴主题', prompt: '只改这个封面轮播的首屏表达，让它更贴当前主题。' },
+          { label: '只改首屏大标题', prompt: '只改这个封面轮播当前页的大标题，不动图片与顺序。' },
+          { label: '只改画面说明', prompt: '只改这个封面轮播当前页画面上的补充说明，不动图片。' },
+          { label: '只改下方摘要', prompt: '只改这个封面轮播下方的摘要说明，不动图片和上方标题。' },
         ],
         quick: [
           { label: '封面更克制', prompt: '把这个封面区块改得更克制一点，减少花哨感。' },
@@ -205,11 +205,12 @@ const buildComponentSpecificGuidance = (
           { label: '首屏更贴主题', prompt: '让这个封面区块更贴当前主题，不要跑到泛风景感。' },
         ],
         recipes: [
-          { label: '只改封面文案', prompt: '只改这个封面区块的文案说明，不动图片排序。' },
+          { label: '只改首屏标题和说明', prompt: '只改这个封面区块当前页的标题和说明，不动图片排序。' },
+          { label: '只改下方摘要说明', prompt: '只改这个封面区块下方的摘要说明，不动图片和当前页标题。' },
           { label: '更像开场导语', prompt: '让这个封面区块更像整页开场导语，强化主题感。' },
           { label: '更像生活方式封面', prompt: '把这个封面区块改得更像生活方式内容，而不是硬广告。' },
         ],
-        placeholder: '例如：只改封面文案，让首屏更贴主题，不改图片顺序。',
+        placeholder: '例如：只改下方摘要说明，让首屏更贴主题，不改图片顺序。',
       }
     case 'PollBlock':
       return {

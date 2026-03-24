@@ -83,12 +83,12 @@ def _build_spec_decision_impact(label: str) -> str:
     if any(token in field for token in ("电池", "续航", "充电")):
         return "更直接决定全天使用时的安心感。"
     if any(token in field for token in ("价格", "预算")):
-        return "更适合放进购买门槛和取舍成本里解释。"
+        return "更适合用来解释预算边界和取舍成本。"
     if any(token in field for token in ("影像", "拍照", "镜头")):
-        return "适合承接“值不值得为了它买单”的结论。"
+        return "更适合解释这类体验为什么会影响偏好判断。"
     if any(token in field for token in ("性能", "芯片", "跑分")):
         return "更适合解释重度使用和长期流畅度。"
-    return "更适合写成参数之外的购买判断依据。"
+    return "更适合作为理解这页内容时的辅助依据。"
 
 
 def _build_metric_reason(label: str, value: int) -> str:
@@ -301,6 +301,9 @@ def build_component_fallback(
     user_query: str,
     retrieved_knowledge: Any,
     image_assets: list[dict[str, Any]],
+    *,
+    active_archetype: str = "general",
+    user_provided_facts: dict[str, Any] | None = None,
 ) -> dict:
     """在模型输出不足时，为不同组件生成安全 fallback 数据。"""
     knowledge = retrieved_knowledge if isinstance(retrieved_knowledge, dict) else {}
@@ -338,6 +341,7 @@ def build_component_fallback(
     ]
     verified_feature_items = [f"{VERIFIED_FEATURE_PREFIX}{item}" for item in confirmed_summaries]
     fact_sources = [item for item in (knowledge.get("fact_sources") or []) if isinstance(item, dict)]
+    user_fact_text = str((user_provided_facts or {}).get("raw_text") or "").strip()
     slot_summaries = {
         str(key): str((value or {}).get("summary") or "").strip()
         for key, value in (knowledge.get("fact_slots") or {}).items()
@@ -536,7 +540,7 @@ def build_component_fallback(
                     "label": f"判断点 {idx + 1}",
                     "value": str(item),
                     "status": "default",
-                    "decision_impact": "更适合作为购买判断的补充说明。",
+                    "decision_impact": "更适合作为理解这页内容时的补充说明。",
                     "sources": [],
                     "source_items": [],
                     "confidence": "medium",
@@ -544,9 +548,33 @@ def build_component_fallback(
                 }
                 for idx, item in enumerate(features)
             ]
-        return {"type": comp_type, "core_features": features, "feature_meta": feature_meta, "spec_items": spec_items}
+        mode = "purchase_judgment"
+        if active_archetype in {"gourmet", "food"}:
+            mode = "store_facts"
+        elif active_archetype not in {"seeding"}:
+            mode = "neutral_facts"
+        return {"type": comp_type, "mode": mode, "core_features": features, "feature_meta": feature_meta, "spec_items": spec_items}
     if comp_type == "CoverSwiper":
-        return {"type": comp_type, "image_urls": image_urls[:5]}
+        cover_title = content_brief or f"{entity_name} 封面"
+        frame_headlines = [f"封面视角 {idx + 1}" for idx in range(min(len(image_urls[:5]), 5))]
+        frame_captions = [
+            "补充当前主题的核心画面和氛围。"
+            for _ in range(min(len(image_urls[:5]), 5))
+        ]
+        if frame_headlines:
+            frame_headlines[0] = cover_title
+        if frame_captions:
+            frame_captions[0] = summary or "这张图负责把当前主题的第一眼重点讲清楚。"
+        return {
+            "type": comp_type,
+            "image_urls": image_urls[:5],
+            "title": cover_title,
+            "description": summary or "补充当前主题的核心画面和氛围。",
+            "deck_summary": f"共 {max(len(image_urls[:5]), 1)} 张图，适合承接首屏氛围、补充视角和封面说明。",
+            "cover_focus": "封面对齐当前主题",
+            "frame_headlines": frame_headlines,
+            "frame_captions": frame_captions,
+        }
     if comp_type == "RadarChartBlock":
         dimensions = ["性能", "影像", "续航", "设计", "体验"]
         score_seed = min(95, 60 + len(selling_points) * 5)
@@ -562,7 +590,7 @@ def build_component_fallback(
                 "confidence": _build_metric_confidence(status),
                 "evidence": evidence_labels[idx % len(evidence_labels)] if evidence_labels else f"{label} 表现较为突出",
             })
-        return {"type": comp_type, "dimensions": dimensions, "scores": scores, "metrics": metrics}
+        return {"type": comp_type, "mode": "judgment_summary", "dimensions": dimensions, "scores": scores, "metrics": metrics}
     if comp_type == "PollBlock":
         option_a = selling_points[0] if selling_points else "影像表现"
         option_b = known_issues[0] if known_issues else "价格门槛"
@@ -611,15 +639,50 @@ def build_component_fallback(
             "risk_note": battle_report.get("risk_note") or "如果两边都很长，就说明内容还没被压成真正可决策的对比卡。",
         }
     if comp_type == "LocationBlock":
-        return {"type": comp_type, "poi_name": entity_name, "location": summary}
+        location_text = (
+            slot_summaries.get("transport")
+            or slot_summaries.get("route")
+            or slot_summaries.get("duration")
+            or summary
+        )
+        return {"type": comp_type, "mode": "recommended", "poi_name": entity_name, "location": location_text}
     if comp_type == "WeatherPolaroid":
         return {
             "type": comp_type,
+            "mode": "confirmed_snapshot" if user_fact_text else "ambience",
             "image_url": image_urls[0] if image_urls else None,
-            "weather": "晴",
-            "temperature": "24C",
-            "time": "今日",
-            "desc": summary,
+            "desc": slot_summaries.get("atmosphere") or summary,
+            **({"time": "用户补充时段"} if user_fact_text else {}),
+        }
+    if comp_type == "TimelineBlock":
+        timeline_seed = (
+            [("用户补充", user_fact_text)]
+            if user_fact_text
+            else [
+                ("上午", slot_summaries.get("transport") or "先把交通方式和第一站安排清楚，避免前半天被路程拖慢。"),
+                ("下午", slot_summaries.get("route") or "先抓住最值得逛的主线，再把补充点位往后顺延。"),
+                ("收尾", slot_summaries.get("duration") or "预留一点机动时间给散步、拍照和临时起意的停留。"),
+            ]
+        )
+        return {
+            "type": comp_type,
+            "mode": "user_journal" if user_fact_text else "recommended",
+            "events": [
+                {
+                    "timestamp": label,
+                    "title": label,
+                    "description": text,
+                }
+                for label, text in timeline_seed
+                if text
+            ],
+        }
+    if comp_type == "QuoteBlock":
+        return {
+            "type": comp_type,
+            "mode": "user_quote" if user_fact_text else "summary",
+            "quote": user_fact_text or summary or content_brief or "把这段重点浓缩成一句话总结。",
+            "author": "用户补充" if user_fact_text else "",
         }
     return {"type": comp_type, "title": content_brief or "内容整理中"}
 
@@ -660,6 +723,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
     user_query = state.get("user_query", "")
     planner_policy = state.get("planner_policy", {}) if isinstance(state.get("planner_policy", {}), dict) else {}
     component_contract = build_component_contract_context(comp_type)
+    user_provided_facts = state.get("user_provided_facts", {}) if isinstance(state.get("user_provided_facts", {}), dict) else {}
     
     # 1. 先把事实、资产、策略压缩成小摘要，避免工兵重新“读全局”。
     retrieved_knowledge = state.get("retrieved_knowledge", {})
@@ -720,6 +784,8 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                 user_query=user_query,
                 retrieved_knowledge=retrieved_knowledge,
                 image_assets=state.get("image_assets", []),
+                active_archetype=state.get("active_archetype", "general"),
+                user_provided_facts=user_provided_facts,
             )
             result: ComponentBuilderOutput = await structured_llm.ainvoke([
                 ("system", system_prompt),
@@ -794,6 +860,8 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                 user_query=user_query,
                 retrieved_knowledge=retrieved_knowledge,
                 image_assets=state.get("image_assets", []),
+                active_archetype=state.get("active_archetype", "general"),
+                user_provided_facts=user_provided_facts,
             )
             
             # 最后的兜底：如果是对比卡且已有对战摘要，直接硬填

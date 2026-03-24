@@ -28,12 +28,17 @@ from app.core.request_semantics import (
 )
 from app.core.schema import OutlineOutput
 from app.core.note_document import build_note_document_layout_from_state, build_note_document_from_state, build_note_document_from_structure_patch
-from app.core.component_manifest import resolve_component_for_block_intent
+from app.core.component_manifest import (
+    normalize_component_type,
+    resolve_component_candidates_for_block_intent,
+    resolve_component_for_block_intent,
+)
 
 # 引入节点
 from app.agents.nodes.asset_node import asset_processor_node
 from app.agents.nodes.intent_node import intent_agent
-from app.agents.nodes.research_agent import research_agent
+from app.agents.nodes.direct_chat_node import direct_chat_node
+from app.agents.nodes.retrieval_agent_node import retrieval_agent_node
 from app.agents.nodes.distill_node import distill_node # ✨ 导入提纯节点
 from app.agents.nodes.review_node import controversy_sniffer_node
 from app.agents.nodes.structure_node import structure_agent
@@ -43,16 +48,19 @@ from app.agents.nodes.document_renderer_node import document_renderer
 from app.agents.nodes.refusal_node import refusal_node
 from app.agents.nodes.battle_node import battle_node
 from app.agents.nodes.component_builder import component_builder_node
-from app.agents.nodes.note_editor_node import note_editor_node
+from app.agents.nodes.composition_agent_node import composition_agent_node
 from app.agents.nodes.planner_node import planner_node
 from app.agents.nodes.retrieval_gap_fill_node import retrieval_gap_fill_node
 from app.agents.nodes.conversational_checkpoint_nodes import (
     asset_checkpoint_node,
     fact_conflict_checkpoint_node,
     fact_gap_checkpoint_node,
+    knowledge_review_checkpoint_node,
     structure_checkpoint_node,
+    truth_mode_checkpoint_node,
 )
 from app.agents.nodes.verify_note_node import verify_note_node
+from app.agents.nodes.critique_agent import critique_node
 from app.agents.tools_registry import RESEARCH_TOOLS
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.agents.utils.fact_utils import summarize_confirmed_attributes
@@ -122,21 +130,90 @@ def _materialize_blocks_from_planner(state: UIProjectState) -> list[dict[str, An
     if not block_intents:
         return []
 
+    scenario_scores = planner_output.get("scenario_scores") or {}
+    active_archetype = str(state.get("active_archetype") or "seeding")
+    user_query = _latest_user_text(state)
+    retrieved_knowledge = state.get("retrieved_knowledge") if isinstance(state.get("retrieved_knowledge"), dict) else {}
+    has_images = bool(state.get("image_assets"))
+
+    def _supports_component(component_type: str, intent_type: str) -> bool:
+        normalized_type = normalize_component_type(component_type) or component_type
+        query = user_query
+        fact_slots = retrieved_knowledge.get("fact_slots") if isinstance(retrieved_knowledge.get("fact_slots"), dict) else {}
+        confirmed_facts = retrieved_knowledge.get("confirmed_facts") if isinstance(retrieved_knowledge.get("confirmed_facts"), dict) else {}
+        if normalized_type == "CoverSwiper":
+            return has_images
+        if normalized_type == "WeatherPolaroid":
+            return has_images or any(token in query for token in ("氛围", "天气", "风景", "照片", "海边", "夜景"))
+        if normalized_type == "TimelineBlock":
+            return any(token in query for token in ("行程", "路线", "一日游", "攻略", "顺序", "安排", "怎么玩")) or any(
+                key in fact_slots for key in ("timeline", "route", "duration", "transport")
+            )
+        if normalized_type == "LocationBlock":
+            return any(
+                token in query for token in ("地点", "地址", "位置", "怎么去", "店铺")
+            ) or any(key in fact_slots or key in confirmed_facts for key in ("location",))
+        if normalized_type == "ProductSpecCard":
+            if active_archetype == "seeding":
+                return True
+            return any(token in query for token in ("价格", "预算", "参数", "配置", "规格", "套餐", "门票", "人均", "值不值得", "怎么选")) or bool(
+                retrieved_knowledge.get("core_attributes") or confirmed_facts
+            )
+        if normalized_type == "RadarChartBlock":
+            if active_archetype == "seeding":
+                return True
+            return any(token in query for token in ("评分", "雷达", "维度", "综合判断", "优缺点", "对比")) and (
+                len(retrieved_knowledge.get("key_selling_points") or []) >= 3 or len(confirmed_facts) >= 3
+            )
+        if normalized_type == "QuoteBlock":
+            return any(token in query for token in ("一句话", "金句", "引用", "原话", "总结"))
+        if normalized_type == "VersusCard":
+            return bool(retrieved_knowledge.get("battle_report")) or any(token in query for token in ("对比", "区别", "优缺点", "更适合", "pk", "vs"))
+        if normalized_type == "PollBlock":
+            return any(token in query for token in ("投票", "站队", "你选", "更喜欢")) or bool(state.get("has_controversy"))
+        if normalized_type == "StoryText":
+            return True
+        return True
+
+    def _select_component(intent: dict[str, Any], intent_type: str) -> str | None:
+        candidates = [
+            normalize_component_type(item) or str(item or "").strip()
+            for item in list(intent.get("candidate_components") or [])
+            if str(item or "").strip()
+        ]
+        if not candidates:
+            candidates = resolve_component_candidates_for_block_intent(
+                intent_type,
+                has_images=has_images,
+                scenario_scores=scenario_scores,
+                user_query=user_query,
+                active_archetype=active_archetype,
+                retrieved_knowledge=retrieved_knowledge,
+                preferred_component=intent.get("preferred_component"),
+            )
+        if not candidates:
+            preferred_component = intent.get("preferred_component")
+            fallback = preferred_component or resolve_component_for_block_intent(
+                intent_type,
+                has_images=has_images,
+                scenario_scores=scenario_scores,
+            )
+            candidates = [fallback] if fallback else []
+        for candidate in candidates:
+            if _supports_component(candidate, intent_type):
+                return candidate
+        return candidates[0] if candidates else None
+
     blocks = []
     seen_types: set[str] = set()
     for idx, intent in enumerate(block_intents):
         intent_type = str(intent.get("intent_type") or "narrative_text")
-        preferred_component = intent.get("preferred_component")
-        component_type = preferred_component or resolve_component_for_block_intent(
-            intent_type,
-            has_images=bool(state.get("image_assets")),
-            scenario_scores=planner_output.get("scenario_scores") or {},
-        )
+        component_type = _select_component(intent, intent_type)
         if not component_type:
             continue
         base_id = component_type.replace("Block", "").replace("Card", "").lower()
         block_id = f"{base_id}_{idx + 1}"
-        if component_type in seen_types and intent_type not in {"narrative_text"}:
+        if component_type in seen_types and intent_type not in {"narrative_text"} and component_type not in {"StoryText"}:
             continue
         seen_types.add(component_type)
         brief = str(intent.get("goal") or intent_type.replace("_", " ")).strip()
@@ -158,40 +235,51 @@ def route_intent(state: UIProjectState) -> str:
     这里特别强调顺序：明显的编辑请求先走便宜的确定性判断，再决定是否进入
     更重的创建/搜证链路，避免已有画布编辑多绕一层。
     """
-    intent_v2 = state.get("intent_result_v2") or {}
-    task_type = str(intent_v2.get("task_type") or "").lower()
-    edit_scope = str(intent_v2.get("edit_scope") or "").lower()
-    needs_research = bool(intent_v2.get("needs_research"))
+    intent_decision = state.get("intent_decision") or {}
+    task_type = str(intent_decision.get("task_type") or "").lower()
+    scope = str(intent_decision.get("scope") or "").lower()
+    operation_type = str(intent_decision.get("operation_type") or "").lower()
+    needs_research = bool(intent_decision.get("needs_research"))
+    needs_assets = bool(intent_decision.get("needs_assets"))
+    fallback_required = bool(intent_decision.get("fallback_required"))
 
     route = str(state.get("intent_route", "") or "").lower()
     has_local_selection = _has_local_selection(state)
     has_existing_canvas = _has_existing_canvas(state)
     latest_user_text = _latest_user_text(state)
 
-    if task_type == "refuse" or "refusal" in route:
-        return "refusal_node"
+    if route == "direct_chat_node":
+        return "direct_chat_node"
 
-    if edit_scope in {"selected_block", "selected_paragraph"} or has_local_selection:
-        return "note_editor"
+    if fallback_required:
+        return "knowledge_review_checkpoint"
+
+    if task_type in {"review", "ingest"}:
+        return "knowledge_review_checkpoint"
+
+    if scope == "selected_block" or has_local_selection:
+        return "composition_agent"
 
     if task_type == "edit":
-        return "note_editor"
+        if operation_type == "asset_edit" or needs_assets or needs_research:
+            return "retrieval_agent"
+        return "composition_agent"
 
     if has_existing_canvas and looks_like_existing_canvas_edit(latest_user_text):
-        return "note_editor"
+        return "composition_agent"
 
     if task_type == "create":
-        return "research_agent"
+        return "retrieval_agent"
 
-    if task_type in {"inspect", "confirm_fact"}:
-        return END
+    if task_type == "inspect":
+        return "direct_chat_node"
 
     if "patch" in route:
         return "patch_node"
-    if any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]) or needs_research:
-        return "research_agent"
+    if any(kw in route for kw in ["content", "文案", "rag", "search", "image", "图"]) or needs_research or needs_assets:
+        return "retrieval_agent"
     if "structure" in route or "结构" in route or "theme_compiler" in route or "style" in route or "样式" in route:
-        return "note_editor"
+        return "composition_agent"
     return END
 
 async def outline_synthesizer(state: UIProjectState) -> dict:
@@ -217,7 +305,7 @@ async def outline_synthesizer(state: UIProjectState) -> dict:
             for block in execution_view.get("blocks", [])
         ]
 
-    if (force_rebuild or not blocks) and settings.ENABLE_PLANNER_V2:
+    if force_rebuild or not blocks:
         blocks = _materialize_blocks_from_planner(state)
     retrieved_knowledge = state.get("retrieved_knowledge", {}) if isinstance(state.get("retrieved_knowledge", {}), dict) else {}
     planner_output = state.get("planner_output") or {}
@@ -321,7 +409,7 @@ def map_components(state: UIProjectState) -> list:
     if not blocks: return ["theme_compiler"]
     
     user_query = _latest_user_text(state)
-    active_archetype = state.get("active_archetype", "general")
+    active_archetype = state.get("active_archetype", "seeding")
     retrieved_knowledge = state.get("retrieved_knowledge", {})
     creator_persona = state.get("creator_persona", "硬核数码博主")
     
@@ -338,9 +426,18 @@ def map_components(state: UIProjectState) -> list:
             "planner_policy": state.get("planner_policy", {}),
             "content_messages": [],
             "note_document": state.get("note_document", {}),
+            "user_provided_facts": state.get("user_provided_facts", {}),
         })
         for b in blocks
     ]
+
+
+def _after_truth_mode_checkpoint(state: UIProjectState) -> str:
+    progress = state.get("checkpoint_progress") or {}
+    truth_mode = dict(progress.get("truth_mode") or {}) if isinstance(progress, dict) else {}
+    if truth_mode.get("awaiting_user_facts"):
+        return END
+    return "structure_checkpoint"
 
 def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None):
     workflow = StateGraph(UIProjectState)
@@ -348,8 +445,9 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
     # 1. 注册节点。这里的名字直接对应运行时和诊断面板术语。
     workflow.add_node("asset_processor", with_performance_profiling("asset_processor", asset_processor_node))
     workflow.add_node("intent_agent", with_performance_profiling("intent_agent", intent_agent))
+    workflow.add_node("direct_chat_node", with_performance_profiling("direct_chat_node", direct_chat_node))
     workflow.add_node("refusal_node", with_performance_profiling("refusal_node", refusal_node))
-    workflow.add_node("research_agent", with_performance_profiling("research_agent", research_agent))
+    workflow.add_node("retrieval_agent", with_performance_profiling("retrieval_agent", retrieval_agent_node))
     workflow.add_node("tools", ToolNode(RESEARCH_TOOLS)) 
     workflow.add_node("distill_node", with_performance_profiling("distill_node", distill_node)) # ✨ 注册提纯节点
     workflow.add_node("controversy_sniffer", with_performance_profiling("controversy_sniffer", controversy_sniffer_node))
@@ -359,13 +457,16 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
 
     workflow.add_node("component_builder", component_builder_node)
     workflow.add_node("planner", with_performance_profiling("planner", planner_node))
+    workflow.add_node("truth_mode_checkpoint", with_performance_profiling("truth_mode_checkpoint", truth_mode_checkpoint_node))
     workflow.add_node("structure_checkpoint", with_performance_profiling("structure_checkpoint", structure_checkpoint_node))
     workflow.add_node("retrieval_gap_fill", with_performance_profiling("retrieval_gap_fill", retrieval_gap_fill_node))
+    workflow.add_node("knowledge_review_checkpoint", with_performance_profiling("knowledge_review_checkpoint", knowledge_review_checkpoint_node))
     workflow.add_node("fact_gap_checkpoint", with_performance_profiling("fact_gap_checkpoint", fact_gap_checkpoint_node))
     workflow.add_node("asset_checkpoint", with_performance_profiling("asset_checkpoint", asset_checkpoint_node))
     workflow.add_node("fact_conflict_checkpoint", with_performance_profiling("fact_conflict_checkpoint", fact_conflict_checkpoint_node))
-    workflow.add_node("note_editor", with_performance_profiling("note_editor", note_editor_node))
+    workflow.add_node("composition_agent", with_performance_profiling("composition_agent", composition_agent_node))
     workflow.add_node("verify_note", with_performance_profiling("verify_note", verify_note_node))
+    workflow.add_node("critique", with_performance_profiling("critique", critique_node))  # ✨ 注册质量评审节点
     workflow.add_node("structure_node", with_performance_profiling("structure_node", structure_agent))
     workflow.add_node("patch_node", with_performance_profiling("patch_node", surgical_patch_agent))
     workflow.add_node("theme_compiler", with_performance_profiling("theme_compiler", theme_compiler))
@@ -377,39 +478,46 @@ def compile_my_graph(checkpointer: BaseCheckpointSaver, store: BaseStore = None)
 
     workflow.add_conditional_edges("intent_agent", route_intent, {
         "patch_node": "patch_node",
-        "research_agent": "research_agent",
-        "note_editor": "note_editor",
+        "retrieval_agent": "retrieval_agent",
+        "composition_agent": "composition_agent",
+        "direct_chat_node": "direct_chat_node",
         "refusal_node": "refusal_node",
         END: END
     })
 
+    workflow.add_edge("direct_chat_node", END)
+
     workflow.add_edge("patch_node", "document_renderer")
-    workflow.add_edge("note_editor", "verify_note")
+    workflow.add_edge("composition_agent", "verify_note")
     workflow.add_edge("verify_note", "theme_compiler")
+    
     workflow.add_edge("refusal_node", END)
 
     # RAG 链：决策与物理强取 -> 提纯 -> 争议嗅探
-    workflow.add_edge("research_agent", "distill_node")
+    workflow.add_edge("retrieval_agent", "distill_node")
     workflow.add_edge("distill_node", "controversy_sniffer")
     workflow.add_edge("controversy_sniffer", "battle_node")
     
-    if settings.ENABLE_PLANNER_V2:
-        workflow.add_edge("battle_node", "planner")
-        workflow.add_edge("planner", "structure_checkpoint")
-        workflow.add_edge("structure_checkpoint", "retrieval_gap_fill")
-        workflow.add_edge("retrieval_gap_fill", "fact_gap_checkpoint")
-        workflow.add_edge("fact_gap_checkpoint", "asset_checkpoint")
-        workflow.add_edge("asset_checkpoint", "fact_conflict_checkpoint")
-        workflow.add_edge("fact_conflict_checkpoint", "outline_resolver")
-    else:
-        workflow.add_edge("battle_node", "outline_resolver")
+    workflow.add_edge("battle_node", "planner")
+    workflow.add_edge("planner", "truth_mode_checkpoint")
+    workflow.add_conditional_edges("truth_mode_checkpoint", _after_truth_mode_checkpoint, {
+        "structure_checkpoint": "structure_checkpoint",
+        END: END,
+    })
+    workflow.add_edge("structure_checkpoint", "retrieval_gap_fill")
+    workflow.add_edge("retrieval_gap_fill", "knowledge_review_checkpoint")
+    workflow.add_edge("knowledge_review_checkpoint", "fact_gap_checkpoint")
+    workflow.add_edge("fact_gap_checkpoint", "asset_checkpoint")
+    workflow.add_edge("asset_checkpoint", "fact_conflict_checkpoint")
+    workflow.add_edge("fact_conflict_checkpoint", "outline_resolver")
 
     # 解析完毕后分发并发任务
     workflow.add_conditional_edges("outline_resolver", map_components, ["component_builder", "theme_compiler"])
     workflow.add_edge("component_builder", "theme_compiler")
 
     workflow.add_edge("theme_compiler", "document_renderer")
-    workflow.add_edge("document_renderer", END)
+    workflow.add_edge("document_renderer", "critique")
+    workflow.add_edge("critique", END)
 
     interrupt_nodes = ["controversy_sniffer"] if settings.HITL_ENABLED else []
 

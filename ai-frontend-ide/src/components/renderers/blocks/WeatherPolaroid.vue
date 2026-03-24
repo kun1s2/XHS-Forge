@@ -4,6 +4,7 @@ import { computed } from 'vue';
 const props = defineProps<{
   node: any;
   data: {
+    mode?: string;
     image_url?: string;
     caption?: string;
     desc?: string;
@@ -15,9 +16,11 @@ const props = defineProps<{
 
 const url = computed(() => props.data.image_url || "");
 const caption = computed(() => props.data.caption || props.data.desc || "等待补充更贴合主题的场景说明");
+const mode = computed(() => String(props.data.mode || 'ambience'))
 const location = computed(() => props.data.location || "");
 const weather = computed(() => props.data.weather || "");
 const time = computed(() => props.data.time || "");
+const showSnapshotChips = computed(() => mode.value === 'confirmed_snapshot' && Boolean(weather.value || time.value))
 
 const weatherIcon = computed(() => {
   const icons: Record<string, string> = {
@@ -60,7 +63,7 @@ const weatherIcon = computed(() => {
         </div>
         
         <!-- 天气/时间挂件 -->
-        <div v-if="weather || time" class="absolute top-3 left-3 flex flex-col gap-1">
+        <div v-if="showSnapshotChips" class="absolute top-3 left-3 flex flex-col gap-1">
           <div v-if="weather" class="bg-black/40 backdrop-blur-md px-2 py-1 rounded flex items-center gap-1.5 border border-white/20">
             <span class="text-xs">{{ weatherIcon }}</span>
             <span class="text-[9px] text-white font-bold tracking-widest uppercase">{{ weather }}</span>
@@ -79,9 +82,12 @@ const weatherIcon = computed(() => {
         <p class="font-['STKaiti','KaiTi',serif] text-sm text-gray-700 leading-tight italic">
           {{ caption }}
         </p>
-        <div v-if="location" class="flex items-center gap-1 opacity-40">
+        <div v-if="location && mode === 'confirmed_snapshot'" class="flex items-center gap-1 opacity-40">
           <span class="text-[8px]">📍</span>
           <span class="text-[8px] font-bold uppercase tracking-tighter">{{ location }}</span>
+        </div>
+        <div v-else class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a4456]/65">
+          {{ mode === 'confirmed_snapshot' ? '已确认现场信息' : '场景氛围卡' }}
         </div>
       </div>
     </div>

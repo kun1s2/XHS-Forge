@@ -61,7 +61,7 @@
               class="absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-20"
               :style="slideInfoStyle"
             >
-              <div class="max-w-[82%]">
+              <div class="max-w-[82%] rounded-[24px] p-2" :style="localHighlightStyle(recentFields.has('title') || recentFields.has('description'))">
                 <div class="text-[10px] font-black uppercase tracking-[0.22em] text-white/72">
                   {{ imageList.length > 1 ? '封面组图' : '封面图' }}
                 </div>
@@ -125,7 +125,7 @@
 
       <div class="border-t px-5 py-4" :style="{ borderColor: 'var(--card-border)', background: 'var(--card-bg)' }">
         <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div class="max-w-2xl">
+          <div class="max-w-2xl rounded-[20px] p-2" :style="localHighlightStyle(recentFields.has('title') || recentFields.has('deck_summary'))">
             <div class="text-sm font-bold leading-relaxed" :style="{ color: 'var(--text-color)' }">
               {{ slideHeadline(currentIdx) }}
             </div>
@@ -147,7 +147,8 @@
 
         <div
           v-if="imageList.length > 1"
-          class="mt-4 grid gap-2 sm:grid-cols-3"
+          class="mt-4 grid gap-2 rounded-[24px] p-2 sm:grid-cols-3"
+          :style="localHighlightStyle(recentFields.has('images'))"
         >
           <button
             v-for="(img, idx) in imageList.slice(0, 3)"
@@ -178,12 +179,21 @@ const props = defineProps<{
   compId: string
   data: any
   style: any
+  recentChange?: { fields?: string[] } | null
 }>()
 
 const currentIdx = ref(0)
 const isHovered = ref(false)
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
 const isVisualLab = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('visual_lab') === '1'
+const recentFields = computed(() => new Set((props.recentChange?.fields || []).map((item) => String(item))))
+const localHighlightStyle = (active: boolean) => active
+  ? {
+      borderColor: 'rgba(251,191,36,0.58)',
+      background: 'linear-gradient(180deg, rgba(255,251,235,0.24) 0%, rgba(255,255,255,0.10) 100%)',
+      boxShadow: '0 0 0 1px rgba(251,191,36,0.18), 0 18px 40px rgba(251,191,36,0.14)',
+    }
+  : {}
 
 const imageList = computed<string[]>(() => {
   const urls = props.data?.image_urls || []

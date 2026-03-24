@@ -69,3 +69,152 @@ export async function uploadImages(files: File[]): Promise<{ urls: string[] }> {
   if (!Array.isArray(data.urls)) throw new Error('后端未返回 urls 数组')
   return { urls: data.urls }
 }
+
+type KnowledgeScope = 'session' | 'persistent'
+
+type KnowledgeUploadBase = {
+  threadId: string
+  kbScope?: KnowledgeScope
+  entityHint?: string
+  sceneHint?: string
+}
+
+async function parseJsonOrThrow(res: Response) {
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = (data as { detail?: string }).detail ?? res.statusText
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+  }
+  return data as Record<string, unknown>
+}
+
+export async function uploadKnowledgeFile(
+  file: File,
+  options: KnowledgeUploadBase,
+): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const form = new FormData()
+  form.append('file', file)
+  form.append('thread_id', options.threadId)
+  form.append('kb_scope', options.kbScope || 'session')
+  form.append('entity_hint', options.entityHint || '')
+  form.append('scene_hint', options.sceneHint || '')
+  const res = await fetch(base ? `${base}/upload/knowledge/file` : '/upload/knowledge/file', {
+    method: 'POST',
+    body: form,
+  })
+  return parseJsonOrThrow(res)
+}
+
+export async function uploadKnowledgeText(
+  payload: KnowledgeUploadBase & { title: string; text: string },
+): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/text` : '/upload/knowledge/text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      thread_id: payload.threadId,
+      kb_scope: payload.kbScope || 'session',
+      entity_hint: payload.entityHint || '',
+      scene_hint: payload.sceneHint || '',
+      title: payload.title,
+      text: payload.text,
+    }),
+  })
+  return parseJsonOrThrow(res)
+}
+
+export async function uploadKnowledgeUrl(
+  payload: KnowledgeUploadBase & { url: string },
+): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/url` : '/upload/knowledge/url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      thread_id: payload.threadId,
+      kb_scope: payload.kbScope || 'session',
+      entity_hint: payload.entityHint || '',
+      scene_hint: payload.sceneHint || '',
+      url: payload.url,
+    }),
+  })
+  return parseJsonOrThrow(res)
+}
+
+export async function listKnowledgeDemoPacks(): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/demo-packs` : '/upload/knowledge/demo-packs')
+  return parseJsonOrThrow(res)
+}
+
+export async function listKnowledgeEvalSets(): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/eval-sets` : '/upload/knowledge/eval-sets')
+  return parseJsonOrThrow(res)
+}
+
+export async function fetchGlobalKnowledgeOverview(): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/global-overview` : '/upload/knowledge/global-overview')
+  return parseJsonOrThrow(res)
+}
+
+export async function importKnowledgeDemoPack(
+  payload: KnowledgeUploadBase & { packId: string },
+): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/demo-pack` : '/upload/knowledge/demo-pack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      thread_id: payload.threadId,
+      kb_scope: payload.kbScope || 'session',
+      pack_id: payload.packId,
+    }),
+  })
+  return parseJsonOrThrow(res)
+}
+
+export async function promoteKnowledgeToPersistent(payload: {
+  threadId: string
+  recordIds?: string[]
+  normalizedEntity?: string
+  fieldOrTopic?: string
+}): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/promote` : '/upload/knowledge/promote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      thread_id: payload.threadId,
+      record_ids: payload.recordIds || [],
+      normalized_entity: payload.normalizedEntity || null,
+      field_or_topic: payload.fieldOrTopic || null,
+    }),
+  })
+  return parseJsonOrThrow(res)
+}
+
+export async function reviewKnowledgeCandidates(payload: {
+  threadId: string
+  decision: string
+  recordIds?: string[]
+  normalizedEntity?: string
+  fieldOrTopic?: string
+}): Promise<Record<string, unknown>> {
+  const base = getBaseUrl()
+  const res = await fetch(base ? `${base}/upload/knowledge/review` : '/upload/knowledge/review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      thread_id: payload.threadId,
+      decision: payload.decision,
+      record_ids: payload.recordIds || [],
+      normalized_entity: payload.normalizedEntity || null,
+      field_or_topic: payload.fieldOrTopic || null,
+    }),
+  })
+  return parseJsonOrThrow(res)
+}

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.query_heuristics import looks_like_existing_canvas_edit
+from app.core.query_heuristics import (
+    looks_like_capability_query,
+    looks_like_existing_canvas_edit,
+)
 
 
 GLOBAL_SELECTION_VALUES = {"", "无", "无 (全局修改)", "none", "null"}
@@ -30,7 +33,11 @@ def latest_user_text_from_messages(messages: list[Any] | None) -> str:
     safe_messages = list(messages or [])
     if not safe_messages:
         return ""
-    content = getattr(safe_messages[-1], "content", "") or ""
+    last_message = safe_messages[-1]
+    if isinstance(last_message, dict):
+        content = last_message.get("content", "") or ""
+    else:
+        content = getattr(last_message, "content", "") or ""
     if isinstance(content, list):
         text_parts = []
         for part in content:
@@ -51,22 +58,24 @@ def is_create_like_request(
     normalized_task = str(task_type or "").strip().lower()
     if normalized_task == "create":
         return True
-    if normalized_task in {"edit", "inspect", "confirm_fact", "refuse"}:
+    if normalized_task in {"edit", "inspect", "review", "ingest"}:
         return False
     if has_local_selection(selected_element_id):
         return False
     if str(active_panel or "main").strip().lower() != "main":
         return False
     latest_text = str(user_text or "").strip()
+    if looks_like_capability_query(latest_text):
+        return False
     return bool(latest_text) and not looks_like_existing_canvas_edit(latest_text)
 
 
 def state_requests_create(state: dict[str, Any] | None) -> bool:
     """从统一 state 判断当前请求是否是 create-like。"""
     safe_state = state or {}
-    intent_v2 = safe_state.get("intent_result_v2") or {}
+    intent_decision = safe_state.get("intent_decision") or {}
     return is_create_like_request(
-        task_type=str(intent_v2.get("task_type") or ""),
+        task_type=str(intent_decision.get("task_type") or ""),
         selected_element_id=safe_state.get("selected_element_id"),
         active_panel=safe_state.get("active_panel"),
         user_text=latest_user_text_from_messages(safe_state.get("main_messages") or []),

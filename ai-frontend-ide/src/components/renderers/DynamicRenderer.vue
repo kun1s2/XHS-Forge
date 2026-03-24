@@ -19,6 +19,8 @@
           :index="idx" 
           :interactive="true"
           :selection-enabled="previewInteractionMode === 'select'"
+          :recently-changed="recentlyChangedBlockIds.includes(block.id)"
+          :recent-change="recentlyChangedBlockDetails[block.id] || null"
         />
       </template>
       
@@ -51,7 +53,7 @@ import { useChatStore } from '../../stores/useChatStore'
 import { storeToRefs } from 'pinia'
 
 const chatStore = useChatStore()
-const { currentNode, renderPageData, renderStyleData, previewInteractionMode } = storeToRefs(chatStore)
+const { currentNode, renderPageData, renderStyleData, previewInteractionMode, recentlyChangedBlockIds, recentlyChangedBlockDetails } = storeToRefs(chatStore)
 
 const blocks = computed(() => {
   return (renderPageData.value as any)?.blocks || []

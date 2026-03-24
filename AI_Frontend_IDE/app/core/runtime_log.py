@@ -117,3 +117,21 @@ def write_latest_frontend_observation(payload: dict[str, Any]) -> None:
         json.dumps(enriched, ensure_ascii=False, indent=2),
         encoding='utf-8',
     )
+
+
+def read_latest_console_tail(*, max_lines: int = 120) -> str:
+    _ensure_log_dir()
+    if not LATEST_CONSOLE_LOG_PATH.exists():
+        return ''
+    lines = LATEST_CONSOLE_LOG_PATH.read_text(encoding='utf-8').splitlines()
+    return '\n'.join(lines[-max_lines:])
+
+
+def read_latest_html_preview(*, max_chars: int = 12000) -> str:
+    _ensure_log_dir()
+    if not LATEST_HTML_PATH.exists():
+        return ''
+    html = LATEST_HTML_PATH.read_text(encoding='utf-8')
+    if len(html) <= max_chars:
+        return html
+    return html[:max_chars]

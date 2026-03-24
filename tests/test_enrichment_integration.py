@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from unittest.mock import AsyncMock, patch
 from langchain_core.messages import ToolMessage
 
-from AI_Frontend_IDE.app.agents.nodes.enrichment_agent import enrichment_node_v2
+from AI_Frontend_IDE.app.agents.nodes.enrichment_agent import enrichment_node
 from AI_Frontend_IDE.app.agents.state import UIProjectState
 from AI_Frontend_IDE.app.core.note_document import build_note_document
 
@@ -13,7 +13,7 @@ load_dotenv(dotenv_path="AI_Frontend_IDE/.env")
 
 
 @pytest.mark.asyncio
-async def test_enrichment_node_v2_integration():
+async def test_enrichment_node_integration():
     """
     真实增强回归：验证 enrichment 不会破坏核心块结构，并能补强商品卡。
     地点块允许只保留原地址，不再强绑必须拿到坐标。
@@ -89,7 +89,7 @@ async def test_enrichment_node_v2_integration():
     }
 
     with patch("AI_Frontend_IDE.app.agents.nodes.enrichment_agent.create_controlled_agent", return_value=mock_agent):
-        result = await enrichment_node_v2(initial_state)
+        result = await enrichment_node(initial_state)
     note_document = result.get("note_document", {})
 
     print(f"✅ [集成测试] 增强后的数据: {json.dumps(note_document, ensure_ascii=False, indent=2)}")

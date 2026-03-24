@@ -1,8 +1,17 @@
 /** WS 协议与消息类型定义 */
 
-export type WorkspaceViewMode = 'preview' | 'code' | 'prompts' | 'state' | 'assets' | 'gallery' | 'trends' | 'showcase'
+export type WorkspaceArea = 'session' | 'global'
+export type WorkspaceViewMode =
+  | 'session_preview'
+  | 'session_code'
+  | 'session_prompts'
+  | 'session_state'
+  | 'session_knowledge'
+  | 'global_assets'
+  | 'global_gallery'
+  | 'global_observability'
 export type PreviewInteractionMode = 'browse' | 'select'
-export type WorkbenchInteractionMode = 'browse' | 'select' | 'edit' | 'diagnostics' | 'assets' | 'gallery' | 'trends' | 'showcase'
+export type WorkbenchInteractionMode = 'browse' | 'select' | 'edit' | 'diagnostics'
 
 export interface FactBinding {
   field: string
@@ -82,6 +91,8 @@ export interface PlannerIntent {
   intent?: string
   semantic_role?: string
   preferred_component?: string
+  candidate_components?: string[]
+  selection_mode?: 'anchored' | 'flexible' | string
   content_brief?: string
   [key: string]: unknown
 }
@@ -222,6 +233,55 @@ export interface BenchmarkOverview {
   [key: string]: unknown
 }
 
+export interface KnowledgeRecord {
+  knowledge_id?: string
+  record_id?: string
+  document_id?: string
+  chunk_id?: string
+  entity_type?: string
+  normalized_entity?: string
+  field_or_topic?: string
+  field_label?: string
+  value?: string
+  summary?: string
+  source_type?: string
+  source_scope?: string
+  support_level?: string
+  trust_level?: string
+  knowledge_scope?: string
+  review_status?: string
+  recommended?: boolean
+  source_title?: string
+  snippet?: string
+  evidence_locator?: Record<string, unknown>
+  knowledge_version?: string
+  used_by_blocks?: string[]
+  [key: string]: unknown
+}
+
+export interface KnowledgeGroup {
+  group_id?: string
+  normalized_entity?: string
+  entity_type?: string
+  field_or_topic?: string
+  field_label?: string
+  recommended_record_id?: string | null
+  review_status?: string
+  records?: KnowledgeRecord[]
+  [key: string]: unknown
+}
+
+export interface KnowledgeBucketSnapshot {
+  records?: KnowledgeRecord[]
+  groups?: KnowledgeGroup[]
+  documents?: Array<Record<string, unknown>>
+  review_queue?: Array<Record<string, unknown>>
+  record_count?: number
+  pending_count?: number
+  knowledge_version?: string
+  [key: string]: unknown
+}
+
 export interface EvaluationCategory {
   name: string
   score: number
@@ -272,18 +332,88 @@ export interface EvaluationOverview {
 export interface TurnTrace {
   query?: string
   selected_element_id?: string
+  message_kind?: string
   warnings?: string[]
   timeline?: TurnTraceEvent[]
+  status_timeline?: string[]
   changed_blocks?: ChangedBlockTrace[]
   note_editor?: ExecutionTrace
   workspace_action?: ExecutionTrace
   component_builder?: Record<string, Record<string, unknown>>
+  agent_plan?: {
+    title?: string
+    summary?: string
+    steps?: string[]
+    watch_points?: string[]
+  }
+  agent_summary?: {
+    title?: string
+    summary?: string
+    remaining_gaps?: string[]
+    next_actions?: string[]
+  }
+  critique?: {
+    score?: number
+    needs_revision?: boolean
+    suggestions?: string[]
+    factual_issues?: string[]
+    completeness_issues?: string[]
+    has_hook?: boolean
+    has_call_to_action?: boolean
+    action_recipes?: Array<{
+      label: string
+      prompt: string
+      scope?: string
+      why_now?: string
+      expected_effect?: string
+      expected_blocks?: string[]
+    }>
+  }
+  [key: string]: unknown
+}
+
+export interface TraceExportBundle {
+  generated_at?: string
+  thread_id?: string
+  checkpoint_id?: string
+  console_tail?: string
+  html_preview?: string
+  query?: string
+  active_panel?: string
+  selected_element_id?: string | null
+  intent_route?: string
+  active_archetype?: string
+  scenarios?: string[]
+  planner_output?: PlannerOutput
+  planner_policy?: PlannerPolicy
+  turn_trace?: TurnTrace
+  checkpoint_history?: Array<Record<string, unknown>>
+  agent_backends?: AgentBackends
+  inspector_summary?: InspectorSummary
+  retrieval?: Record<string, unknown>
+  document?: Record<string, unknown>
   [key: string]: unknown
 }
 
 export type AgentBackends = Record<string, string>
 
 export interface RetrievedKnowledge {
+  knowledge_plan?: {
+    goal_summary?: string
+    required_fields?: string[]
+    preferred_sources?: string[]
+    high_risk_fields?: string[]
+    missing_user_inputs?: string[]
+    review_required?: boolean
+    knowledge_budget?: number
+    retrieval_profile?: string
+    field_labels?: Record<string, string>
+    entity_name?: string
+    [key: string]: unknown
+  }
+  candidate_session_kb?: KnowledgeBucketSnapshot
+  session_kb?: KnowledgeBucketSnapshot
+  persistent_kb?: KnowledgeBucketSnapshot
   retrieval_eval?: {
     hit_count?: number
     scope_count?: number
@@ -379,6 +509,8 @@ export interface RetrievedKnowledge {
 }
 
 export interface AgentMeta {
+  checkpoint_id?: string
+  checkpointId?: string
   creator_persona?: string
   active_archetype?: string
   intent_route?: string
@@ -473,7 +605,9 @@ export interface BlockGalleryOverview {
 }
 
 export type ConversationCheckpointActionType =
+  | 'truth_mode_checkpoint'
   | 'structure_checkpoint'
+  | 'knowledge_review_checkpoint'
   | 'fact_gap_checkpoint'
   | 'fact_conflict_checkpoint'
   | 'asset_checkpoint'
@@ -488,6 +622,31 @@ export interface ConversationCheckpointOption {
   asset_url?: string | null
   selected_asset_ids?: string[]
   selected_fact_value?: string | null
+  user_provided_facts?: Record<string, string | string[]>
+  metadata?: Record<string, unknown>
+}
+
+export interface ConversationCheckpointFieldOption {
+  label: string
+  value: string
+  recommended?: boolean
+}
+
+export interface ConversationCheckpointInputField {
+  id: string
+  label: string
+  placeholder?: string
+  type?: 'text' | 'textarea' | 'single_select' | 'multi_select'
+  required?: boolean
+  options?: ConversationCheckpointFieldOption[]
+  allow_custom?: boolean
+  custom_placeholder?: string
+}
+
+export interface ConversationCheckpointInputSchema {
+  submit_label?: string
+  helper_text?: string
+  fields: ConversationCheckpointInputField[]
 }
 
 export interface ConversationCheckpointAction {
@@ -497,15 +656,26 @@ export interface ConversationCheckpointAction {
   summary?: string
   message?: string
   recommended_option?: string
+  recommended_reason?: string
+  proposal_summary?: string
+  other_allowed?: boolean
+  other_placeholder?: string
   blocking?: boolean
+  input_schema?: ConversationCheckpointInputSchema | null
   options: ConversationCheckpointOption[]
+}
+
+export interface AgentNarrativeCard {
+  title: string
+  summary?: string
+  bullets?: string[]
 }
 
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  messageKind?: 'user_prompt' | 'checkpoint_decision'
+  messageKind?: 'user_prompt' | 'checkpoint_decision' | 'critique_action' | 'agent_plan' | 'agent_status' | 'agent_receipt' | 'agent_summary'
   streaming?: boolean
   imageUrls?: string[]
   timestamp?: number
@@ -527,6 +697,7 @@ export interface ChatMessage {
   evaluationOverview?: EvaluationOverview
   blockGalleryOverview?: BlockGalleryOverview
   actionRequired?: ConversationCheckpointAction
+  agentCard?: AgentNarrativeCard
   /** ✨ 思维链实时透传记录 */
   thoughts?: { node: string; text: string; streaming?: boolean }[]
 }
@@ -583,10 +754,13 @@ export interface WSPayload {
   current_assets?: ImageAsset[]
   /** 待打标的新图片 URL，后端塞进 pending_images 由 asset_processor 识图后写入图库 */
   image_urls?: string[]
+  message_kind?: string
   type?: 'submit_checkpoint_decision' | 'submit_stance' | 'submit_disambiguation'
   action_type?: string
   checkpoint_id?: string
   decision?: string
   selected_asset_ids?: string[]
   selected_fact_value?: string | null
+  user_provided_facts?: Record<string, string | string[]>
+  custom_note?: string
 }

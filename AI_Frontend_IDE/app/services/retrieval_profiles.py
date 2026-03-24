@@ -1,8 +1,4 @@
-"""领域化检索 profile。
-
-统一 research 节点的检索框架，但允许不同场景声明自己的关键字段、
-查询变体和缺失字段规则，避免数码、旅行、探店都走同一套泛搜索。
-"""
+"""数码购买决策场景的正式检索 profile。"""
 
 from __future__ import annotations
 
@@ -40,34 +36,6 @@ _DIGITAL_HINTS = (
     "soc",
 )
 
-_TRAVEL_HINTS = (
-    "旅行",
-    "攻略",
-    "城市",
-    "景点",
-    "一日游",
-    "路线",
-    "门票",
-    "阿那亚",
-    "周末去",
-    "海边",
-    "酒店",
-    "民宿",
-)
-
-_STORE_HINTS = (
-    "探店",
-    "咖啡",
-    "奶茶",
-    "火锅",
-    "餐厅",
-    "店",
-    "人均",
-    "营业时间",
-    "排队",
-    "招牌",
-)
-
 _COMPONENT_SLOT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "TitleBlock": (),
     "StoryText": ("core", "highlights"),
@@ -76,10 +44,7 @@ _COMPONENT_SLOT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "VersusCard": ("experience", "highlights"),
     "PollBlock": ("highlights",),
     "CoverSwiper": (),
-    "LocationBlock": ("core", "transport", "route"),
-    "WeatherPolaroid": ("atmosphere",),
     "QuoteBlock": ("highlights",),
-    "TimelineBlock": ("timeline",),
 }
 
 
@@ -93,7 +58,7 @@ def infer_retrieval_profile(*, user_query: str, entity_name: str, active_archety
     archetype = _normalize(active_archetype or "")
     combined = f"{query} {entity}".strip()
 
-    if archetype == "seeding" and any(token in combined for token in _DIGITAL_HINTS):
+    if archetype == "seeding" or any(token in combined for token in _DIGITAL_HINTS):
         return {
             "profile_name": "digital_review",
             "domain": "digital_review",
@@ -126,100 +91,24 @@ def infer_retrieval_profile(*, user_query: str, entity_name: str, active_archety
             },
         }
 
-    if archetype == "travel" or any(token in combined for token in _TRAVEL_HINTS):
-        return {
-            "profile_name": "travel_guide",
-            "domain": "travel_guide",
-            "critical_slot_keys": ["hours", "transport", "route"],
-            "slot_labels": {
-                "ticket": "门票",
-                "hours": "开放时间",
-                "transport": "交通",
-                "route": "路线建议",
-                "duration": "游玩时长",
-            },
-            "followup_limit": 3,
-            "query_variants": [
-                {"scope": "official", "query": f"{entity_name} 门票 开放时间 官方"},
-                {"scope": "review", "query": f"{entity_name} 游玩体验 路线 真实评价"},
-                {"scope": "transport", "query": f"{entity_name} 交通 路线 地铁 打车"},
-                {"scope": "duration", "query": f"{entity_name} 游玩时长 最佳时间 建议"},
-            ],
-            "followup_queries": {
-                "ticket": [f"{entity_name} 门票 预约 价格 官方"],
-                "hours": [f"{entity_name} 开放时间 闭馆时间 官方"],
-                "transport": [f"{entity_name} 地铁 打车 公交 交通 建议"],
-                "route": [f"{entity_name} 游览顺序 路线 推荐"],
-                "duration": [f"{entity_name} 游玩时长 半天 一天 建议"],
-            },
-        }
-
-    if archetype in {"gourmet", "food"} or any(token in combined for token in _STORE_HINTS):
-        return {
-            "profile_name": "store_review",
-            "domain": "store_review",
-            "critical_slot_keys": ["avg_price", "address", "signature"],
-            "slot_labels": {
-                "avg_price": "人均",
-                "signature": "招牌",
-                "hours": "营业时间",
-                "address": "地址",
-                "queue": "排队情况",
-            },
-            "followup_limit": 3,
-            "query_variants": [
-                {"scope": "official", "query": f"{entity_name} 地址 营业时间 人均"},
-                {"scope": "review", "query": f"{entity_name} 招牌 推荐 排队 真实评价"},
-                {"scope": "menu", "query": f"{entity_name} 招牌 菜单 人均"},
-            ],
-            "followup_queries": {
-                "avg_price": [f"{entity_name} 人均 价格 菜单"],
-                "signature": [f"{entity_name} 招牌 推荐 必点"],
-                "hours": [f"{entity_name} 营业时间 官方 店铺信息"],
-                "address": [f"{entity_name} 地址 定位 店铺信息"],
-                "queue": [f"{entity_name} 排队 等位 高峰时段"],
-            },
-        }
-
-    if archetype == "daily_share":
-        return {
-            "profile_name": "daily_story",
-            "domain": "daily_story",
-            "critical_slot_keys": [],
-            "slot_labels": {
-                "context": "场景背景",
-                "timeline": "时间线",
-                "atmosphere": "氛围细节",
-            },
-            "followup_limit": 2,
-            "query_variants": [
-                {"scope": "context", "query": f"{entity_name} 背景 真实细节"},
-                {"scope": "review", "query": f"{entity_name} 体验 氛围 真实描述"},
-            ],
-            "followup_queries": {
-                "context": [f"{entity_name} 背景 真实细节"],
-                "timeline": [f"{entity_name} 时间线 经过 片段"],
-                "atmosphere": [f"{entity_name} 氛围 光线 声音 细节"],
-            },
-        }
-
     return {
-        "profile_name": "general_grounded",
-        "domain": "general",
-        "critical_slot_keys": ["core"],
+        "profile_name": "digital_grounded",
+        "domain": "digital_review",
+        "critical_slot_keys": ["core", "price"],
         "slot_labels": {
             "core": "核心事实",
-            "price": "价格或门槛",
+            "price": "价格与版本",
             "highlights": "亮点",
         },
-        "followup_limit": 2,
+        "followup_limit": 3,
         "query_variants": [
             {"scope": "official", "query": f"{entity_name or user_query} 核心参数 价格 官方"},
             {"scope": "review", "query": f"{entity_name or user_query} 用户评价 真实体验"},
+            {"scope": "price", "query": f"{entity_name or user_query} 价格 版本 官方"},
         ],
         "followup_queries": {
             "core": [f"{entity_name or user_query} 核心信息 官方"],
-            "price": [f"{entity_name or user_query} 价格 门槛 官方"],
+            "price": [f"{entity_name or user_query} 价格 版本 发售价 官方"],
             "highlights": [f"{entity_name or user_query} 亮点 推荐理由 真实体验"],
         },
     }

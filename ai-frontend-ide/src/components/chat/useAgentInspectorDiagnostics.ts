@@ -124,7 +124,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     {
       title: '当前焦点',
       value: inspectorFocus.value.entity_name || '未识别主体',
-      helper: `${(inspectorFocus.value.scenarios || []).join(' / ') || 'general'} · ${inspectorFocus.value.intent_route || '等待指令'}`,
+      helper: `${(inspectorFocus.value.scenarios || []).join(' / ') || 'seeding'} · ${inspectorFocus.value.intent_route || '等待指令'}`,
       tone: 'cyan',
     },
     {
@@ -249,7 +249,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     {
       title: '评测集',
       value: Number(evaluationSuite.value?.case_count || 0),
-      helper: `${evaluationObservedScenarios.value.length} 个场景已覆盖`,
+      helper: `${evaluationObservedScenarios.value.length} 个正式数码场景切片已覆盖`,
       tone: 'violet',
     },
     {
@@ -436,6 +436,8 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
   const traceSummaryTone = computed(() => traceWarnings.value.length ? 'warn' : 'ok')
   const tracePrimaryTarget = computed(() => activeExecutionTrace.value.target_block_id || noteEditorTrace.value.block_id || turnTraceState.value.selected_element_id || 'global')
   const copiedDebugSummary = ref(false)
+  const copiedTraceExport = ref(false)
+  const traceExportPending = ref(false)
   const traceStructuredStatus = computed(() => {
     if (activeExecutionTrace.value.fallback_used) return 'fallback'
     if (activeExecutionTrace.value.structured === false) return 'loose'
@@ -572,6 +574,30 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
       }, 1800)
     } catch (error) {
       console.error('复制 trace 摘要失败', error)
+    }
+  }
+
+  const copyStructuredTraceExport = async () => {
+    traceExportPending.value = true
+    try {
+      const copied = await chatStore.copyCurrentTraceExport()
+      if (copied) {
+        copiedTraceExport.value = true
+        window.setTimeout(() => {
+          copiedTraceExport.value = false
+        }, 1800)
+      }
+    } finally {
+      traceExportPending.value = false
+    }
+  }
+
+  const downloadStructuredTraceExport = async () => {
+    traceExportPending.value = true
+    try {
+      await chatStore.downloadCurrentTraceExport()
+    } finally {
+      traceExportPending.value = false
     }
   }
 
@@ -714,6 +740,8 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     traceSummaryTone,
     tracePrimaryTarget,
     copiedDebugSummary,
+    copiedTraceExport,
+    traceExportPending,
     traceStructuredStatus,
     tracePrimarySignal,
     traceDiagnostics,
@@ -726,6 +754,8 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     structuredStatusLabel,
     traceDebugSummary,
     copyTraceDebugSummary,
+    copyStructuredTraceExport,
+    downloadStructuredTraceExport,
     noteFactBindings,
     formatFactFieldLabels,
     confirmFact,

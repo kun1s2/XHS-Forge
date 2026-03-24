@@ -30,7 +30,7 @@ from app.core.context_engineering import (
     build_selection_context,
 )
 from app.core.llm_factory import create_llm
-from app.core.query_heuristics import wants_before_position, wants_image_search, wants_sharper_tone
+from app.core.query_heuristics import wants_attention_hook, wants_before_position, wants_image_search, wants_sharper_tone
 from app.core.prompt_engineering import build_prompt_snapshot
 from app.core.component_manifest import (
     filter_payload_for_component,
@@ -860,7 +860,7 @@ def _apply_global_edit_plan(
     return final_document_view, final_block_style_map
 
 def _has_tone_rewrite_request(user_query: str) -> bool:
-    return wants_sharper_tone(user_query)
+    return wants_sharper_tone(user_query) or wants_attention_hook(user_query)
 
 
 def _build_tone_rewrite_fallback(
@@ -871,6 +871,9 @@ def _build_tone_rewrite_fallback(
     if not _has_tone_rewrite_request(user_query):
         return {}
 
+    wants_sharp = wants_sharper_tone(user_query)
+    wants_hook = wants_attention_hook(user_query)
+
     component_type = (block_descriptor or {}).get("component_type") or current_payload.get("type")
     if component_type == "PollBlock":
         fallback = {}
@@ -879,11 +882,14 @@ def _build_tone_rewrite_fallback(
         option_b = current_payload.get("option_b")
         if isinstance(question, str) and question.strip():
             stripped = question.rstrip("？?！!。.")
-            fallback["question"] = f"说句难听的，{stripped}？"
+            if wants_sharp:
+                fallback["question"] = f"说句难听的，{stripped}？"
+            elif wants_hook:
+                fallback["question"] = f"先说重点，{stripped}到底值不值得看？"
         if isinstance(option_a, str) and option_a.strip():
-            fallback["option_a"] = f"真爱粉硬冲：{option_a}"
+            fallback["option_a"] = f"真爱粉硬冲：{option_a}" if wants_sharp else f"亮点党先看：{option_a}"
         if isinstance(option_b, str) and option_b.strip():
-            fallback["option_b"] = f"清醒党避雷：{option_b}"
+            fallback["option_b"] = f"清醒党避雷：{option_b}" if wants_sharp else f"理性党先想想：{option_b}"
         return fallback
 
     if component_type == "StoryText":
@@ -891,10 +897,86 @@ def _build_tone_rewrite_fallback(
         if isinstance(paragraphs, list) and paragraphs and all(isinstance(item, str) for item in paragraphs):
             return {
                 "paragraphs": [
-                    f"说句难听的，{paragraphs[0]}" if idx == 0 else text
+                    (
+                        f"说句难听的，{paragraphs[0]}"
+                        if wants_sharp
+                        else f"先说结论，{paragraphs[0]}"
+                    )
+                    if idx == 0 else text
                     for idx, text in enumerate(paragraphs)
                 ]
             }
+
+    if component_type == "VersusCard":
+        fallback: dict[str, Any] = {}
+        title = str(current_payload.get("title") or "").strip()
+        decision_hint = str(current_payload.get("decision_hint") or "").strip()
+        pros = current_payload.get("pros") if isinstance(current_payload.get("pros"), dict) else {}
+        cons = current_payload.get("cons") if isinstance(current_payload.get("cons"), dict) else {}
+        pro_text = str(current_payload.get("proText") or "").strip()
+        con_text = str(current_payload.get("conText") or "").strip()
+
+        if title:
+            fallback["title"] = f"先看结论：{title}" if wants_hook and not wants_sharp else f"说句难听的，{title}"
+        if wants_sharp:
+            fallback["decision_hint"] = decision_hint or "别只看热度，先看你到底愿不愿意接受它的代价。"
+        elif wants_hook:
+            fallback["decision_hint"] = decision_hint or "先看哪边更接近你的使用路线，再决定值不值得继续往下看。"
+
+        if pros:
+            next_pros = dict(pros)
+            summary = str(next_pros.get("summary") or "").strip()
+            if summary:
+                next_pros["summary"] = f"亮点先摆出来：{summary}" if wants_hook and not wants_sharp else f"真要夸的话，{summary}"
+            fallback["pros"] = next_pros
+        elif pro_text:
+            fallback["proText"] = f"亮点先摆出来：{pro_text}" if wants_hook and not wants_sharp else f"真要夸的话，{pro_text}"
+
+        if cons:
+            next_cons = dict(cons)
+            summary = str(next_cons.get("summary") or "").strip()
+            if summary:
+                next_cons["summary"] = f"但也别忽略：{summary}" if wants_hook and not wants_sharp else f"先把代价说清楚：{summary}"
+            fallback["cons"] = next_cons
+        elif con_text:
+            fallback["conText"] = f"但也别忽略：{con_text}" if wants_hook and not wants_sharp else f"先把代价说清楚：{con_text}"
+
+        return fallback
+
+    if component_type == "ProductSpecCard":
+        if isinstance(current_payload.get("spec_items"), list) and current_payload.get("spec_items"):
+            spec_items = [dict(item) if isinstance(item, dict) else item for item in current_payload.get("spec_items")]
+            first_item = spec_items[0] if spec_items and isinstance(spec_items[0], dict) else None
+            if first_item:
+                next_first = dict(first_item)
+                impact = str(next_first.get("decision_impact") or "").strip()
+                value = str(next_first.get("value") or "").strip()
+                if wants_sharp:
+                    next_first["decision_impact"] = impact or "这条如果都不能打动你，后面的参数大概率也不会更有说服力。"
+                elif wants_hook:
+                    next_first["decision_impact"] = impact or "先看这条，它最能决定你会不会继续往下看。"
+                if wants_hook and value:
+                    next_first["value"] = f"先看：{value}"
+                spec_items[0] = next_first
+                return {"spec_items": spec_items}
+
+        core_features = current_payload.get("core_features")
+        if isinstance(core_features, list) and core_features and all(isinstance(item, str) for item in core_features):
+            updated = list(core_features)
+            first = str(updated[0]).strip()
+            if first:
+                updated[0] = f"先看这条：{first}" if wants_hook and not wants_sharp else f"说句难听的，{first}"
+            return {"core_features": updated}
+
+    if component_type == "TitleBlock":
+        fallback = {}
+        title = current_payload.get("title")
+        subtitle = current_payload.get("subtitle")
+        if isinstance(title, str) and title.strip():
+            fallback["title"] = f"先看结论：{title}" if wants_hook and not wants_sharp else f"说句难听的，{title}"
+        if isinstance(subtitle, str) and subtitle.strip():
+            fallback["subtitle"] = f"把最关键的判断直接放到台面上。" if wants_hook else subtitle
+        return fallback
 
     return {}
 
@@ -940,7 +1022,7 @@ async def _maybe_backfill_local_payload_patch(
             if not plan.reason:
                 plan.reason = rewrite.reason
     except Exception as e:
-        print(f"⚠️ [Note Editor V2] 文案补丁回填失败: {e}")
+        print(f"⚠️ [Composition Agent] 文案补丁回填失败: {e}")
 
     if not plan.payload_patch:
         fallback_patch = _build_tone_rewrite_fallback(user_query, block_descriptor, current_payload)
@@ -1090,7 +1172,7 @@ async def note_editor_node(state: UIProjectState) -> dict:
             creation_prompt = _build_canvas_creation_prompt(state, user_query)
             plan = await creation_planner.ainvoke(creation_prompt)
         except Exception as e:
-            print(f"⚠️ [Note Editor V2] 结构化首版创建失败，回退确定性创建: {e}")
+            print(f"⚠️ [Composition Agent] 结构化首版创建失败，回退确定性创建: {e}")
             plan = _build_canvas_creation_fallback(state, user_query)
 
         updated_document_view, updated_block_style_map = _apply_canvas_creation_plan(
@@ -1102,7 +1184,7 @@ async def note_editor_node(state: UIProjectState) -> dict:
             image_assets=state.get("image_assets", []) or [],
         )
         next_note_document = _build_next_note_document_from_execution(state, updated_document_view, updated_block_style_map)
-        print(f"✅ [Note Editor V2] 首版画布创建完成: blocks={len(updated_document_view.get('blocks', []))}")
+        print(f"✅ [Composition Agent] 首版画布创建完成: blocks={len(updated_document_view.get('blocks', []))}")
         return {
             "note_document": next_note_document,
             "node_prompts": _build_note_editor_prompt_snapshot("create", creation_prompt, plan),
@@ -1151,7 +1233,7 @@ async def note_editor_node(state: UIProjectState) -> dict:
             )
             next_note_document = _build_next_note_document_from_execution(state, updated_document_view, updated_block_style_map)
             print(
-                f"✅ [Note Editor V2] 局部编辑完成: block={selected_element_id} | action={plan.action}"
+                f"✅ [Composition Agent] 局部编辑完成: block={selected_element_id} | action={plan.action}"
             )
             return {
                 "note_document": next_note_document,
@@ -1161,7 +1243,7 @@ async def note_editor_node(state: UIProjectState) -> dict:
                 "agent_backends": {"note_editor": "structured_function_calling"},
             }
         except Exception as e:
-            print(f"❌ [Note Editor V2] 局部编辑失败: {e}")
+            print(f"❌ [Composition Agent] 局部编辑失败: {e}")
             return {
                 "main_messages": [AIMessage(content="当前区块编辑失败，已保留原页面状态。")],
                 "turn_trace": {"note_editor": {"mode": "local", "action": "error", "structured": True, "fallback_used": False, "selected_element_id": selected_element_id, "error": str(e)}},
@@ -1187,7 +1269,7 @@ async def note_editor_node(state: UIProjectState) -> dict:
             image_assets=state.get("image_assets", []) or [],
         )
         next_note_document = _build_next_note_document_from_execution(state, updated_document_view, updated_block_style_map)
-        print(f"✅ [Note Editor V2] 整页编辑完成: action={plan.action} | block={plan.block_id or plan.block_index}")
+        print(f"✅ [Composition Agent] 整页编辑完成: action={plan.action} | block={plan.block_id or plan.block_index}")
         return {
             "note_document": next_note_document,
             "main_messages": [AIMessage(content=plan.reason or "已完成页面更新。")],
@@ -1195,7 +1277,7 @@ async def note_editor_node(state: UIProjectState) -> dict:
             "agent_backends": {"note_editor": "structured_function_calling"},
         }
     except Exception as e:
-        print(f"❌ [Note Editor V2] 整页编辑失败: {e}")
+        print(f"❌ [Composition Agent] 整页编辑失败: {e}")
         return {
             "main_messages": [AIMessage(content="整页编辑失败，已保留原页面状态。")],
             "turn_trace": {"note_editor": {"mode": "global", "action": "error", "structured": True, "fallback_used": False, "selected_element_id": selected_element_id, "error": str(e)}},

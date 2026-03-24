@@ -1,6 +1,5 @@
-import json
 import logging
-from typing import Optional, Dict, List
+from typing import Any, Dict, List
 from app.core.persistence import generate_vector_store
 from app.core.config import settings
 from app.core.llm_factory import create_llm
@@ -52,42 +51,71 @@ async def _parse_self_query(query: str) -> QueryFilter:
         logger.warning(f"Self-Query 解析失败: {e}")
         return QueryFilter(filter_dict={}, refined_query=query)
 
+async def retrieve_knowledge_hits(
+    query: str,
+    *,
+    limit: int = 5,
+    metadata_filter: Dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """统一的 RAG 召回层：支持 self-query、metadata filter 与混合检索。"""
+    if not query:
+        return {"hits": [], "mode": "empty", "parsed_filter": {}, "refined_query": ""}
+
+    parsed = await _parse_self_query(query)
+    merged_filter: Dict[str, Any] = {}
+    if isinstance(parsed.filter_dict, dict):
+        merged_filter.update(parsed.filter_dict)
+    if isinstance(metadata_filter, dict):
+        merged_filter.update({k: v for k, v in metadata_filter.items() if v is not None})
+
+    logger.info("🔍 [RAG 检索] 正在通过结构化过滤 + 混合召回搜寻知识片段 (limit=%s)", limit)
+    try:
+        if merged_filter:
+            async with generate_vector_store() as store:
+                docs = await store.asimilarity_search(
+                    parsed.refined_query,
+                    k=limit,
+                    filter=merged_filter,
+                )
+                hits = [
+                    {
+                        "page_content": d.page_content,
+                        "metadata": dict(d.metadata or {}),
+                        "score": None,
+                    }
+                    for d in docs
+                ]
+                mode = "vector_filtered"
+        else:
+            hits = await hybrid_search_rrf(parsed.refined_query, k=limit)
+            mode = "hybrid_rrf"
+        if not hits:
+            logger.info("⚠️ [RAG 检索] 未找到匹配的私域知识。")
+        return {
+            "hits": hits,
+            "mode": mode,
+            "parsed_filter": merged_filter,
+            "refined_query": parsed.refined_query,
+        }
+    except Exception as e:
+        logger.error(f"RAG 检索失败: {e}")
+        return {
+            "hits": [],
+            "mode": "error",
+            "parsed_filter": merged_filter,
+            "refined_query": parsed.refined_query,
+            "error": str(e),
+        }
+
+
 async def retrieve_brand_knowledge(query: str, limit: int = 3) -> str:
     """
     【终极 RAG 检索引擎】：支持 Self-Query 过滤 + 混合召回 (Hybrid Search)。
     """
-    if not query:
+    result = await retrieve_knowledge_hits(query, limit=limit)
+    hits = [item for item in (result.get("hits") or []) if isinstance(item, dict)]
+    if not hits:
         return ""
-
-    # 1. 预处理：解析语义过滤条件
-    parsed = await _parse_self_query(query)
-    
-    print(f"🔍 [RAG 检索] 正在通过【混合召回】搜寻私域知识库 (Limit: {limit})...")
-    
-    try:
-        # 2. 执行混合召回 (向量 + 全文检索)
-        # 如果有解析出硬过滤条件，优先走 LangChain 向量检索（因为它处理 JSONB Filter 更成熟）
-        if parsed.filter_dict:
-            async with generate_vector_store() as store:
-                docs = await store.asimilarity_search(
-                    parsed.refined_query, 
-                    k=limit,
-                    filter=parsed.filter_dict
-                )
-                results = [{"page_content": d.page_content} for d in docs]
-        else:
-            # 如果没有硬过滤条件，走我们的原生混合召回以获得最佳相关性
-            results = await hybrid_search_rrf(parsed.refined_query, k=limit)
-            
-        if not results:
-            print("⚠️ [RAG 检索] 未找到匹配的私域知识。")
-            return ""
-        
-        # 3. 拼接文档内容
-        context = "\n---\n".join([r["page_content"] for r in results])
-        print(f"✅ [RAG 检索] 成功提取 {len(results)} 条强关联知识。")
-        return context
-            
-    except Exception as e:
-        logger.error(f"RAG 检索失败: {e}")
-        return ""
+    context = "\n---\n".join([str(r.get("page_content") or "") for r in hits if str(r.get("page_content") or "").strip()])
+    logger.info("✅ [RAG 检索] 成功提取 %s 条强关联知识。", len(hits))
+    return context

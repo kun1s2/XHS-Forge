@@ -16,6 +16,7 @@ from app.core.prompt_engineering import build_prompt_snapshot, render_string_pro
 from app.services.location_enricher import enrich_location_blocks
 from app.services.search_enricher import enrich_product_document
 from app.services.image_generator import auto_generate_images
+from app.core.tool_safety import truth_safe_tool_middleware
 
 
 def _merge_note_documents(base: dict, patch: dict) -> dict:
@@ -73,7 +74,7 @@ _tool_llm = create_llm(
     temperature=0.1
 )
 
-async def enrichment_node_v2(state: UIProjectState) -> dict:
+async def enrichment_node(state: UIProjectState) -> dict:
     """
     【架构升级：闭包 Tool Calling 引擎】
     消除 Token 爆炸风险，保证数据深度合并的绝对安全。
@@ -124,6 +125,7 @@ async def enrichment_node_v2(state: UIProjectState) -> dict:
         tools=tools,
         name="enrichment_agent",
         prompt=system_prompt,
+        middleware=[truth_safe_tool_middleware],
     )
 
     # === 🛡️ 核心优化 2：极简摘要 Prompt，节约 Token ===

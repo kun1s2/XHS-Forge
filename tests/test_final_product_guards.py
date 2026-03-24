@@ -83,33 +83,19 @@ def test_frontend_note_document_types_stay_first_class():
     assert "noteDocument?: Record<string, unknown>" not in text
 
 
-def test_block_gallery_is_exposed_in_workspace_api_frontend_store_and_types():
-    workspace_path = ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py"
-    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+def test_formal_product_preview_no_longer_exposes_block_gallery_as_mainline_workspace_tab():
     preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
-    types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
-    workspace_text = workspace_path.read_text(encoding="utf-8")
-
-    assert '"/block-gallery/overview"' in workspace_text
-    assert "fetchBlockGalleryOverview" in store_text
-    assert "blockGalleryOverview" in store_text
-    assert "积木大全" in preview_text
-    assert "BlockGalleryPanel" in preview_text
-    assert "export interface BlockGalleryOverview " in types_text
-    assert "export interface BlockGalleryFixture " in types_text
+    assert "积木大全" not in preview_text
+    assert "BlockGalleryPanel" not in preview_text
 
 
-def test_block_gallery_preview_is_read_only_and_matches_formal_preview_shell_width():
-    gallery_path = ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "BlockGalleryPanel.vue"
+def test_formal_product_preview_keeps_selection_capability_inside_real_preview_shell_only():
     renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "XForgeRenderer.vue"
     dynamic_renderer_path = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "DynamicRenderer.vue"
 
-    gallery_text = gallery_path.read_text(encoding="utf-8")
     renderer_text = renderer_path.read_text(encoding="utf-8")
     dynamic_renderer_text = dynamic_renderer_path.read_text(encoding="utf-8")
 
-    assert ':interactive="false"' in gallery_text
-    assert "max-width: min(100%, 580px);" in gallery_text
     assert "interactive?: boolean;" in renderer_text
     assert "const isInteractive = computed(() => props.interactive !== false);" in renderer_text
     assert ':interactive="true"' in dynamic_renderer_text
@@ -133,10 +119,45 @@ def test_preview_exposes_explicit_select_mode_and_renderer_uses_selection_overla
     assert "当前点击积木会直接选中并高亮" in preview_text
     assert "当前是浏览模式，组件原生交互优先" in preview_text
     assert "selectionEnabled?: boolean;" in renderer_text
+    assert "recentlyChanged?: boolean;" in renderer_text
     assert "data-selection-overlay" in renderer_text
     assert "点击选择" in renderer_text
     assert "已选中" in renderer_text
+    assert "刚刚修改" in renderer_text
     assert ':selection-enabled="previewInteractionMode === \'select\'"' in dynamic_renderer_text
+    assert ':recently-changed="recentlyChangedBlockIds.includes(block.id)"' in dynamic_renderer_text
+    assert ':recent-change="recentlyChangedBlockDetails[block.id] || null"' in dynamic_renderer_text
+    assert "const recentlyChangedBlockIds = computed(() => getRecentlyChangedBlockIds(turnTrace.value))" in store_text
+    assert "const recentlyChangedBlockDetails = ref<Record<string, { fields: string[]; paragraph_indices?: number[]; item_indices?: number[] }>>({})" in store_text
+    assert "recentlyChangedBlockDetails.value = buildRecentlyChangedBlockDetails(previousNoteDocument, nextNoteDocument, nextTurnTrace)" in store_text
+
+
+def test_recent_change_local_highlight_is_wired_into_high_frequency_blocks():
+    block_root = ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks"
+
+    story_text = (block_root / "StoryText.vue").read_text(encoding="utf-8")
+    poll_text = (block_root / "PollBlock.vue").read_text(encoding="utf-8")
+    versus_text = (block_root / "VersusCard.vue").read_text(encoding="utf-8")
+    spec_text = (block_root / "ProductSpecCard.vue").read_text(encoding="utf-8")
+    cover_text = (block_root / "CoverSwiper.vue").read_text(encoding="utf-8")
+
+    assert "recentChange?: { fields?: string[]; paragraph_indices?: number[] } | null" in story_text
+    assert "changedParagraphIndices" in story_text
+
+    assert "recentChange?: { fields?: string[] } | null" in poll_text
+    assert "highlightBoxStyle(recentFields.has('question'))" in poll_text
+    assert "highlightBoxStyle(recentFields.has('options'))" in poll_text
+
+    assert "recentChange?: { fields?: string[] } | null" in versus_text
+    assert "localHighlightStyle(recentFields.has('pros'))" in versus_text
+    assert "localHighlightStyle(recentFields.has('cons'))" in versus_text
+    assert "localHighlightStyle(recentFields.has('decision'))" in versus_text
+
+    assert "recentChange?: { fields?: string[]; item_indices?: number[] } | null" in spec_text
+    assert "changedItemIndices" in spec_text
+
+    assert "recentChange?: { fields?: string[] } | null" in cover_text
+    assert "localHighlightStyle(recentFields.has('images'))" in cover_text
 
 
 def test_runtime_note_blocks_no_longer_render_developer_guidance_copy_inside_user_content():
@@ -200,6 +221,70 @@ def test_fact_binding_support_blocks_render_shared_grounding_footer():
         assert '<FactBindingFooter :node="node" />' in text, f"{filename} should render unified grounding footer"
 
 
+def test_radar_and_product_spec_guidance_match_real_contract_slots():
+    manifest_text = (ROOT / "ai-frontend-ide" / "src" / "config" / "componentManifest.json").read_text(encoding="utf-8")
+    guidance_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "chatEditingGuidance.ts").read_text(encoding="utf-8")
+    support_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "note_editor_support.py").read_text(encoding="utf-8")
+    schema_text = (ROOT / "AI_Frontend_IDE" / "app" / "core" / "schema.py").read_text(encoding="utf-8")
+
+    assert '"type": "RadarChartBlock"' in manifest_text
+    assert '"editable_targets": ["title", "dimensions", "scores", "metrics"]' in manifest_text
+    assert '"type": "ProductSpecCard"' in manifest_text
+    assert '"editable_targets": ["core_features", "spec_items", "feature_meta"]' in manifest_text
+
+    assert "metrics: Optional[List[Dict[str, Any]]]" in schema_text
+    assert "feature_meta: Optional[List[Dict[str, Any]]]" in schema_text
+    assert "spec_items: Optional[List[Dict[str, Any]]]" in schema_text
+
+    assert '"metrics": ["结论摘要", "雷达总结", "维度理由", "判断说明"]' in support_text
+    assert '"spec_items": ["参数标题", "参数表达", "参数项", "参数卡", "规格项"]' in support_text
+    assert '"feature_meta": ["边界提醒", "确认提醒", "保守表达", "参数提醒"]' in support_text
+
+    assert "只改这个雷达图的结论摘要，维度和分数不动。" in guidance_text
+    assert "只改这个参数卡每条参数的表达方式，不动事实值。" in guidance_text
+
+
+def test_structure_prompt_uses_current_travel_and_seeding_block_contracts():
+    structure_prompt_text = (ROOT / "AI_Frontend_IDE" / "app" / "prompts" / "structure_system.xml").read_text(encoding="utf-8")
+
+    assert "ProductCard(置顶)" not in structure_prompt_text
+    assert "InteractionsBar" not in structure_prompt_text
+    assert "TagList" not in structure_prompt_text
+    assert "模拟真实打卡" not in structure_prompt_text
+    assert "很像现场感受的旅行金句" not in structure_prompt_text
+    assert "candidate_components 是候选容器" in structure_prompt_text
+    assert "不要为了用积木而用积木" in structure_prompt_text
+    assert "[travel 旅行副场景]: 优先考虑 CoverSwiper, TitleBlock, LocationBlock, TimelineBlock, StoryText, QuoteBlock 作为候选容器。" in structure_prompt_text
+    assert "[seeding 数码测评]: 优先考虑 CoverSwiper, TitleBlock, ProductSpecCard, VersusCard, PollBlock, StoryText 作为候选容器。" in structure_prompt_text
+    assert "允许先退回 StoryText" in structure_prompt_text
+
+
+def test_planner_and_frontend_types_expose_semantic_first_candidate_components():
+    planner_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "planner_node.py").read_text(encoding="utf-8")
+    schema_text = (ROOT / "AI_Frontend_IDE" / "app" / "core" / "schema.py").read_text(encoding="utf-8")
+    frontend_types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+
+    assert '"candidate_components": candidate_components' in planner_text
+    assert '"selection_mode": "flexible"' in planner_text or '"selection_mode": "anchored"' in planner_text
+    assert "candidate_components: List[str]" in schema_text
+    assert "selection_mode: str = \"anchored\"" in schema_text
+    assert "candidate_components?: string[]" in frontend_types_text
+    assert "selection_mode?: 'anchored' | 'flexible' | string" in frontend_types_text
+
+
+def test_high_risk_block_fallbacks_no_longer_invent_fake_weather_or_fake_year_timestamps():
+    builder_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "component_builder.py").read_text(encoding="utf-8")
+    timeline_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "TimelineBlock.vue").read_text(encoding="utf-8")
+    weather_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "WeatherPolaroid.vue").read_text(encoding="utf-8")
+
+    assert '"weather": "晴"' not in builder_text
+    assert '"temperature": "24C"' not in builder_text
+    assert '"time": "今日"' not in builder_text
+    assert '"2023"' not in timeline_text
+    assert '"2024"' not in timeline_text
+    assert "场景氛围卡" in weather_text
+
+
 def test_visual_fixtures_and_block_gallery_use_local_demo_assets_for_media_examples():
     visual_fixtures_path = ROOT / "ai-frontend-ide" / "src" / "visualFixtures.ts"
     block_gallery_path = ROOT / "AI_Frontend_IDE" / "app" / "services" / "block_gallery.py"
@@ -209,6 +294,19 @@ def test_visual_fixtures_and_block_gallery_use_local_demo_assets_for_media_examp
 
     assert "/demo-assets/" in visual_text
     assert "/demo-assets/" in gallery_text
+
+
+def test_frontend_observer_ignores_browser_extension_runtime_errors():
+    observer_text = (ROOT / "ai-frontend-ide" / "src" / "utils" / "frontendObserver.ts").read_text(encoding="utf-8")
+    assert "chrome-extension://" in observer_text
+    assert "moz-extension://" in observer_text
+
+
+def test_note_editor_streaming_output_does_not_append_structured_json_into_user_visible_reply():
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    assert "sourceNode === 'note_editor'" in store_text
+    assert "最终用户可见文案统一在 turn_end 时用结果摘要收口" in store_text
+    assert "['direct_chat_node', 'rag_node'].includes(sourceNode)" in store_text
 
 
 def test_frontend_store_workspace_snapshot_no_longer_reads_legacy_page_or_style_aliases():
@@ -287,7 +385,13 @@ def test_retrieval_gap_fill_is_registered_as_formal_block_aware_followup_search_
 
     assert 'workflow.add_node("retrieval_gap_fill"' in graph_text
     assert 'workflow.add_edge("structure_checkpoint", "retrieval_gap_fill")' in graph_text
-    assert 'workflow.add_edge("retrieval_gap_fill", "fact_gap_checkpoint")' in graph_text
+    assert (
+        'workflow.add_edge("retrieval_gap_fill", "fact_gap_checkpoint")' in graph_text
+        or (
+            'workflow.add_edge("retrieval_gap_fill", "knowledge_review_checkpoint")' in graph_text
+            and 'workflow.add_edge("knowledge_review_checkpoint", "fact_gap_checkpoint")' in graph_text
+        )
+    )
     assert "get_component_required_slot_keys" in retrieval_profile_text
     assert "critical_slot_keys" in retrieval_profile_text
     assert "missing_slot_keys" in gap_fill_text
@@ -310,10 +414,12 @@ def test_conversational_checkpoints_are_registered_in_graph_and_chat_panel():
         '"fact_gap_checkpoint"',
         '"asset_checkpoint"',
         '"fact_conflict_checkpoint"',
+        '"truth_mode_checkpoint"',
     ):
         assert token in graph_text
 
-    assert 'workflow.add_edge("planner", "structure_checkpoint")' in graph_text
+    assert 'workflow.add_edge("planner", "truth_mode_checkpoint")' in graph_text
+    assert 'workflow.add_conditional_edges("truth_mode_checkpoint", _after_truth_mode_checkpoint' in graph_text
     assert 'workflow.add_edge("fact_gap_checkpoint", "asset_checkpoint")' in graph_text
     assert 'workflow.add_edge("asset_checkpoint", "fact_conflict_checkpoint")' in graph_text
     assert 'workflow.add_edge("fact_conflict_checkpoint", "outline_resolver")' in graph_text
@@ -322,6 +428,9 @@ def test_conversational_checkpoints_are_registered_in_graph_and_chat_panel():
     assert "submitCheckpointDecision" in store_text
     assert "ConversationCheckpointCard" in chat_panel_text
     assert "submit_checkpoint_decision" in chat_api_text
+    assert "input_schema" in chat_api_text
+    assert "input_schema" in chat_types_text
+    assert "按这些真实信息继续" in (ROOT / "AI_Frontend_IDE" / "app" / "services" / "conversational_checkpoints.py").read_text(encoding="utf-8")
 
 
 def test_graph_interrupt_checkpoints_are_not_logged_as_failures_by_performance_wrapper():
@@ -329,6 +438,87 @@ def test_graph_interrupt_checkpoints_are_not_logged_as_failures_by_performance_w
     assert "from langgraph.errors import GraphInterrupt" in graph_text
     assert 'except GraphInterrupt:' in graph_text
     assert "等待用户确认" in graph_text
+
+
+def test_critique_agent_runs_as_final_quality_review_and_is_visible_in_chat():
+    graph_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "graph.py").read_text(encoding="utf-8")
+    chat_api_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "chat.py").read_text(encoding="utf-8")
+    chat_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue").read_text(encoding="utf-8")
+    chat_types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+
+    assert 'workflow.add_edge("verify_note", "theme_compiler")' in graph_text
+    assert 'workflow.add_edge("document_renderer", "critique")' in graph_text
+    assert 'workflow.add_edge("critique", END)' in graph_text
+    assert '"critique": critique_summary' in chat_api_text
+    assert "Agent 复盘" in chat_panel_text
+    assert "turnTrace" in chat_panel_text and "critique" in chat_panel_text
+    assert "critique?:" in chat_types_text
+    assert '"action_recipes": [' in chat_api_text
+    assert "下一步怎么做" in chat_panel_text
+    assert "runCritiqueAction" in store_text
+    assert "critique_action" in chat_types_text
+    assert "why_now" in chat_types_text
+    assert "expected_effect" in chat_types_text
+    assert "现在优先处理" in chat_panel_text
+    assert "预计效果" in chat_panel_text
+
+
+def test_primary_user_path_no_longer_points_people_to_right_side_for_next_steps():
+    derivation_text = (ROOT / "ai-frontend-ide" / "src" / "stores" / "chatStoreDerivations.ts").read_text(encoding="utf-8")
+    diagnostics_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace_diagnostics.py").read_text(encoding="utf-8")
+
+    assert "建议在右侧 Agent 状态中确认" not in derivation_text
+    assert "先在右侧确认冲突值" not in diagnostics_text
+    assert "继续在聊天区确认或修正" in derivation_text
+    assert "先在聊天区继续确认或改写成更保守表达" in diagnostics_text
+
+
+def test_agent_narrative_layer_is_visible_in_chat_flow():
+    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
+    chat_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ChatPanel.vue").read_text(encoding="utf-8")
+    chat_types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+    chat_api_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "chat.py").read_text(encoding="utf-8")
+
+    assert "agent_plan" in chat_types_text
+    assert "agent_status" in chat_types_text
+    assert "agent_receipt" in chat_types_text
+    assert "agent_summary" in chat_types_text
+    assert "buildAgentPlanCard" in store_text
+    assert "buildAgentStatusCard" in store_text
+    assert "buildAgentSummaryCard" in store_text
+    assert "buildCheckpointReceiptCard" in store_text
+    assert "Agent 计划" in chat_panel_text
+    assert "Agent 进度" in chat_panel_text
+    assert "Agent 接单" in chat_panel_text
+    assert "Agent 小结" in chat_panel_text
+    assert '"agent_plan": _build_agent_plan' in chat_api_text
+    assert '"agent_summary": _build_agent_summary' in chat_api_text
+
+
+def test_checkpoint_cards_are_rendered_as_agent_proposals_with_other_input():
+    card_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "ConversationCheckpointCard.vue").read_text(encoding="utf-8")
+    checkpoint_text = (ROOT / "AI_Frontend_IDE" / "app" / "services" / "conversational_checkpoints.py").read_text(encoding="utf-8")
+    assert "推荐原因：" in card_text
+    assert "其他补充" in card_text
+    assert "proposal_summary" in checkpoint_text
+    assert "recommended_reason" in checkpoint_text
+    assert "other_allowed" in checkpoint_text
+
+
+def test_content_and_block_language_is_no_longer_defaulting_to_over_marketing_or_fake_checkin_copy():
+    content_prompt_text = (ROOT / "AI_Frontend_IDE" / "app" / "prompts" / "content_system.xml").read_text(encoding="utf-8")
+    block_registry_text = (ROOT / "AI_Frontend_IDE" / "app" / "core" / "block_registry.py").read_text(encoding="utf-8")
+    spec_card_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "ProductSpecCard.vue").read_text(encoding="utf-8")
+    radar_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "renderers" / "blocks" / "RadarChartBlock.vue").read_text(encoding="utf-8")
+
+    assert "多用感叹号和生动的 Emoji" not in content_prompt_text
+    assert "结尾一定要带上几个相关的 #话题标签" not in content_prompt_text
+    assert "地图打卡卡" not in block_registry_text
+    assert "带时间天气水印的图片，增强现场感" not in block_registry_text
+    assert "值不值得买，先看这几条" in spec_card_text
+    assert "重点维度对比" in radar_text
+    assert "维度对比" in radar_text
 
 
 def test_asset_checkpoint_deduplicates_assets_by_url_and_uses_distinguishable_labels():
@@ -349,10 +539,15 @@ def test_history_actions_live_under_user_messages_and_use_formal_thread_rollback
 
     assert "回到这里" in chat_panel_text
     assert "从这里分支" in chat_panel_text
+    assert "撤销最近回滚" in chat_panel_text
     assert "回退到此版本" not in chat_panel_text
     assert "branchFromCheckpoint" in store_text
+    assert "rollbackUndoTarget" in store_text
+    assert "undoLastRollback" in store_text
     assert 'fetch(`${baseUrl}/workspace/${threadId.value}/rollback`' in store_text
     assert 'fetch(`${baseUrl}/workspace/fork`' in store_text
+    assert "已回到这条消息对应的历史状态。" not in store_text
+    assert "已从这条消息创建一个新分支会话。" not in store_text
     assert '@router.post("/{thread_id}/rollback"' in workspace_text
     assert "turn_anchors:" in state_text
 
@@ -417,15 +612,12 @@ def test_asset_deletion_and_upload_flows_are_formalized():
 
 def test_asset_library_exposes_formal_usage_controls_and_backend_preferences_endpoint():
     asset_library_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "AssetLibrary.vue").read_text(encoding="utf-8")
-    preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
     store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
     workspace_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "workspace.py").read_text(encoding="utf-8")
 
     assert "改成正文图" in asset_library_text
     assert "标记必用" in asset_library_text
     assert "暂不使用" in asset_library_text
-    assert "@preference=\"updateAssetPreference\"" in preview_text
-    assert "const updateAssetPreference = async" in preview_text
     assert "const updateAssetPreferences = async" in store_text
     assert '@router.patch("/{thread_id}/assets/preferences"' in workspace_text
     assert "update_note_document_asset_preferences" in workspace_text
@@ -444,21 +636,14 @@ def test_chat_panel_hot_trends_no_longer_uses_one_size_fits_all_deep_seeding_pro
     assert "hotTrends.length > 0" not in chat_panel_text
 
 
-def test_trend_panel_is_exposed_in_right_workbench_instead_of_chat_stream():
+def test_formal_product_preview_no_longer_uses_trend_panel_as_primary_workspace_tab():
     preview_text = FRONTEND_PREVIEW_PATH.read_text(encoding="utf-8")
-    trend_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "TrendPanel.vue").read_text(encoding="utf-8")
-    store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
     types_text = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
 
-    assert "@click=\"setWorkspaceMode('trends')\"" in preview_text
-    assert "workspaceMode === 'trends'" in preview_text
-    assert "TrendPanel" in preview_text
-    assert "Trend Desk" in trend_panel_text
-    assert "开启追踪" in trend_panel_text
-    assert "填到左侧输入框" in trend_panel_text
-    assert "const workspaceMode = ref<WorkspaceViewMode>('preview')" in store_text
-    assert "if (mode === 'trends')" in store_text
-    assert "'trends'" in types_text
+    assert "@click=\"setWorkspaceMode('trends')\"" not in preview_text
+    assert "workspaceMode === 'trends'" not in preview_text
+    assert "TrendPanel" not in preview_text
+    assert "'trends'" not in types_text
 
 
 def test_component_builder_and_note_document_filter_placeholder_image_urls():
@@ -515,7 +700,29 @@ def test_poll_block_and_chat_panel_expose_real_interaction_feedback_and_precise_
     assert "runSelectedDirectAction" in chat_panel_text
     assert "只改这个对比卡左侧的观点和细节" in guidance_text
     assert "只改这个投票块的问题句式" in guidance_text
-    assert "只改这个封面轮播的首图文案和说明" in guidance_text
+    assert "只改这个封面轮播当前页的大标题" in guidance_text
+    assert "只改这个封面轮播下方的摘要说明" in guidance_text
+
+
+def test_cover_swiper_contract_and_guidance_allow_real_text_targeting_not_just_images():
+    manifest_text = (ROOT / "ai-frontend-ide" / "src" / "config" / "componentManifest.json").read_text(encoding="utf-8")
+    schema_text = (ROOT / "AI_Frontend_IDE" / "app" / "core" / "schema.py").read_text(encoding="utf-8")
+    builder_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "component_builder.py").read_text(encoding="utf-8")
+    guidance_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "chatEditingGuidance.ts").read_text(encoding="utf-8")
+    support_text = (ROOT / "AI_Frontend_IDE" / "app" / "agents" / "nodes" / "note_editor_support.py").read_text(encoding="utf-8")
+
+    assert '"type": "CoverSwiper"' in manifest_text
+    assert '"deck_summary"' in manifest_text
+    assert '"frame_headlines"' in manifest_text
+    assert '"frame_captions"' in manifest_text
+    assert 'deck_summary: Optional[str]' in schema_text
+    assert 'frame_headlines: Optional[List[str]]' in schema_text
+    assert 'frame_captions: Optional[List[str]]' in schema_text
+    assert '"deck_summary": f"共 {max(len(image_urls[:5]), 1)} 张图' in builder_text
+    assert '"frame_headlines": frame_headlines' in builder_text
+    assert '"frame_captions": frame_captions' in builder_text
+    assert '"deck_summary": ["摘要", "下方说明", "轮播说明", "整体说明", "底部说明"]' in support_text
+    assert "只改这个封面轮播下方的摘要说明" in guidance_text
 
 
 def test_benchmark_panel_is_exposed_in_frontend_and_workspace_api():
@@ -710,11 +917,9 @@ def test_formal_runtime_uses_single_primary_text_llm_configuration():
 
 
 def test_trend_quick_send_uses_all_current_assets_as_runtime_image_context():
-    trend_panel_text = (ROOT / "ai-frontend-ide" / "src" / "components" / "chat" / "TrendPanel.vue").read_text(encoding="utf-8")
     store_text = FRONTEND_STORE_PATH.read_text(encoding="utf-8")
     chat_api_text = (ROOT / "AI_Frontend_IDE" / "app" / "api" / "chat.py").read_text(encoding="utf-8")
 
-    assert "chatStore.sendMessage(prompt)" in trend_panel_text
     assert "current_assets: assets" in store_text
     assert "image_urls: stagedImageUrls" in store_text
     assert "def _build_runtime_image_assets" in chat_api_text
@@ -758,7 +963,7 @@ def test_decision_blocks_keep_structured_rendering_paths():
 
     assert '"optional_props": ["paragraph_meta", "sections"]' in manifest_text
     assert '"optional_props": ["feature_meta", "spec_items"]' in manifest_text
-    assert '"optional_props": ["metrics"]' in manifest_text
+    assert '"optional_props": ["title", "metrics"]' in manifest_text
     assert '"required_props": ["title", "pros", "cons"]' in manifest_text
     assert '"optional_props": ["decision_hint", "risk_note"]' in manifest_text
     assert '"optional_props": ["option_cards", "explanation"]' in manifest_text

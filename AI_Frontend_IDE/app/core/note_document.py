@@ -6,10 +6,12 @@
 """
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from app.core.component_manifest import get_asset_support, get_component_entry, get_editable_targets, normalize_component_type
 from app.agents.utils.fact_utils import FACT_FIELD_LABELS
+from app.core.truth_safety import has_user_provided_facts, normalize_user_provided_facts
 
 
 def _label_fact_fields(fields: list[str]) -> list[str]:
@@ -59,6 +61,222 @@ def _sanitize_block_media_props(props: dict[str, Any] | None) -> dict[str, Any]:
     if _is_placeholder_image_url(cleaned.get("image_url")):
         cleaned.pop("image_url", None)
     return cleaned
+
+
+def _looks_precise_timestamp(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if "T" in text:
+        return True
+    return any(token in text for token in ("-", "/", ":", "年", "月", "日"))
+
+
+def _timeline_period_label(index: int) -> str:
+    labels = ["上午", "中午", "下午", "傍晚", "收尾"]
+    return labels[min(index, len(labels) - 1)]
+
+
+_PRECISE_TIME_PATTERNS = (
+    re.compile(r"\b\d{1,2}:\d{2}\b"),
+    re.compile(r"(?:凌晨|清晨|早上|上午|中午|下午|傍晚|晚上)?\s*\d{1,2}\s*(?:点|时)(?:\s*\d{1,2}\s*分|\s*半)?"),
+    re.compile(r"\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?)?\b"),
+)
+
+
+def _soften_precise_time_text(text: Any, fallback_label: str) -> str:
+    raw_text = str(text or "").strip()
+    if not raw_text:
+        return ""
+    softened = raw_text
+    for pattern in _PRECISE_TIME_PATTERNS:
+        softened = pattern.sub(fallback_label, softened)
+    softened = re.sub(rf"(?:{fallback_label})[\s，,、]*(?:{fallback_label})+", fallback_label, softened)
+    softened = re.sub(r"\s+", " ", softened).strip()
+    return softened
+
+
+def _extract_location_context_tokens(props: dict[str, Any]) -> list[str]:
+    location_text = str(props.get("location") or "").strip()
+    poi_text = str(props.get("poi_name") or "").strip()
+    text = location_text or poi_text
+    if not text:
+        return []
+    geo_tokens = re.findall(r"[\u4e00-\u9fff]{2,}?(?:市|区|县|镇|乡|街道|路|湾|湖|岛|山|海岸)", text)
+    plain_tokens = [token for token in re.findall(r"[A-Za-z0-9\u4e00-\u9fff]{2,}", text) if token not in {"地点", "位置", "景点", "旅游"}]
+    tokens: list[str] = []
+    for token in [*geo_tokens, *plain_tokens]:
+        cleaned = str(token).strip()
+        if not cleaned or cleaned in tokens:
+            continue
+        tokens.append(cleaned)
+        for suffix in ("市", "区", "县", "镇", "乡", "街道", "路", "湾", "湖", "岛", "山", "海岸"):
+            if cleaned.endswith(suffix) and len(cleaned) > len(suffix) + 1:
+                short = cleaned[: -len(suffix)].strip()
+                if len(short) >= 2 and short not in tokens:
+                    tokens.append(short)
+    return tokens
+
+
+def _filter_location_binding_sources(props: dict[str, Any], binding: dict[str, Any]) -> dict[str, Any]:
+    context_tokens = _extract_location_context_tokens(props)
+    if not context_tokens:
+        return binding
+
+    def _matches(item_text: str) -> bool:
+        return any(token in item_text for token in context_tokens)
+
+    next_binding = deepcopy(binding)
+    source_items = [item for item in (binding.get("source_items") or []) if isinstance(item, dict)]
+    filtered_source_items = []
+    for item in source_items:
+        haystack = " ".join(
+            part
+            for part in (
+                str(item.get("label") or "").strip(),
+                str(item.get("url") or "").strip(),
+            )
+            if part
+        )
+        if haystack and _matches(haystack):
+            filtered_source_items.append(item)
+    if filtered_source_items:
+        next_binding["source_items"] = filtered_source_items
+        next_binding["sources"] = [str(item.get("label") or "").strip() for item in filtered_source_items if str(item.get("label") or "").strip()]
+    return next_binding
+
+
+def _binding_count(block: dict[str, Any]) -> int:
+    return len([item for item in (block.get("fact_bindings") or []) if isinstance(item, dict)])
+
+
+def _has_location_confirmation(props: dict[str, Any], block: dict[str, Any]) -> bool:
+    if props.get("lat") is not None and props.get("lng") is not None:
+        return True
+    return _binding_count(block) > 0
+
+
+def _has_strong_radar_support(props: dict[str, Any], block: dict[str, Any]) -> bool:
+    metrics = [item for item in (props.get("metrics") or []) if isinstance(item, dict)]
+    if len(metrics) < 3:
+        return False
+    evidence_count = len([item for item in metrics if str(item.get("evidence") or "").strip()])
+    return evidence_count >= 3 and _binding_count(block) > 0
+
+
+def _representation_mode_for_block(
+    *,
+    block_type: str,
+    props: dict[str, Any],
+    block: dict[str, Any],
+    active_archetype: str,
+    representation_preferences: dict[str, Any],
+    user_provided_facts: dict[str, Any],
+) -> str:
+    if block_type == "TimelineBlock":
+        preferred = str(representation_preferences.get("timeline") or props.get("mode") or "recommended")
+        if has_user_provided_facts(user_provided_facts) and preferred in {"user_journal", "user_provided"}:
+            return "user_journal"
+        if preferred == "confirmed" and _binding_count(block) > 0:
+            return "confirmed"
+        return "recommended"
+    if block_type == "LocationBlock":
+        preferred = str(representation_preferences.get("location") or props.get("mode") or "recommended")
+        if preferred == "confirmed" and _has_location_confirmation(props, block):
+            return "confirmed"
+        return "recommended"
+    if block_type == "WeatherPolaroid":
+        preferred = str(representation_preferences.get("snapshot") or props.get("mode") or "ambience")
+        if has_user_provided_facts(user_provided_facts) and preferred in {"confirmed_snapshot", "user_provided"}:
+            return "confirmed_snapshot"
+        if preferred == "confirmed_snapshot" and _binding_count(block) > 0:
+            return "confirmed_snapshot"
+        return "ambience"
+    if block_type == "QuoteBlock":
+        preferred = str(representation_preferences.get("quote") or props.get("mode") or "summary")
+        if has_user_provided_facts(user_provided_facts) and preferred in {"user_quote", "user_provided"}:
+            return "user_quote"
+        if preferred == "source_quote" and _binding_count(block) > 0:
+            return "source_quote"
+        return "summary"
+    if block_type == "ProductSpecCard":
+        preferred = str(representation_preferences.get("spec_card") or props.get("mode") or "")
+        if preferred:
+            return preferred
+        if active_archetype == "seeding":
+            return "purchase_judgment"
+        if active_archetype in {"gourmet", "food"}:
+            return "store_facts"
+        return "neutral_facts"
+    if block_type == "RadarChartBlock":
+        preferred = str(representation_preferences.get("radar") or props.get("mode") or "")
+        if preferred == "scored_evidence" and _has_strong_radar_support(props, block):
+            return "scored_evidence"
+        return "judgment_summary"
+    return str(props.get("mode") or "")
+
+
+def _apply_representation_safety_to_block(
+    block: dict[str, Any],
+    *,
+    active_archetype: str,
+    representation_preferences: dict[str, Any],
+    user_provided_facts: dict[str, Any],
+) -> dict[str, Any]:
+    next_block = deepcopy(block)
+    props = _sanitize_block_media_props(next_block.get("props") or {})
+    block_type = str(next_block.get("type") or "")
+    mode = _representation_mode_for_block(
+        block_type=block_type,
+        props=props,
+        block=next_block,
+        active_archetype=active_archetype,
+        representation_preferences=representation_preferences,
+        user_provided_facts=user_provided_facts,
+    )
+
+    if block_type == "TimelineBlock":
+        normalized_events: list[dict[str, Any]] = []
+        for idx, raw_event in enumerate(props.get("events") or []):
+            if not isinstance(raw_event, dict):
+                continue
+            timestamp = str(raw_event.get("timestamp") or "").strip()
+            title = str(raw_event.get("title") or "").strip() or f"第{idx + 1}站"
+            if mode == "recommended":
+                time_label = timestamp if timestamp and not _looks_precise_timestamp(timestamp) else _timeline_period_label(idx)
+                description = _soften_precise_time_text(raw_event.get("description"), time_label)
+            else:
+                time_label = timestamp or _timeline_period_label(idx)
+                description = str(raw_event.get("description") or "").strip()
+            normalized_events.append(
+                {
+                    "timestamp": time_label,
+                    "title": title,
+                    "description": description,
+                }
+            )
+        props["events"] = normalized_events
+        props["mode"] = mode
+    elif block_type == "LocationBlock":
+        props["mode"] = mode
+        next_block["fact_bindings"] = [
+            _filter_location_binding_sources(props, item) if isinstance(item, dict) else item
+            for item in (next_block.get("fact_bindings") or [])
+        ]
+    elif block_type == "WeatherPolaroid":
+        if mode != "confirmed_snapshot":
+            props.pop("weather", None)
+            props.pop("temperature", None)
+            props.pop("time", None)
+        props["mode"] = mode
+    elif block_type == "QuoteBlock":
+        props["mode"] = mode
+    elif block_type == "ProductSpecCard":
+        props["mode"] = mode
+    elif block_type == "RadarChartBlock":
+        props["mode"] = mode
+    next_block["props"] = props
+    return next_block
 
 
 def _normalize_document_assets(
@@ -412,6 +630,32 @@ def _apply_retrieval_grounding_to_document(note_document: dict[str, Any] | None,
     return document
 
 
+def _apply_representation_safety_to_document(
+    note_document: dict[str, Any] | None,
+    *,
+    representation_preferences: dict[str, Any] | None = None,
+    user_provided_facts: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    document = deepcopy(note_document or {})
+    active_archetype = str(((document.get("document_meta") or {}).get("active_archetype")) or "general")
+    safe_preferences = deepcopy(representation_preferences or {})
+    safe_user_facts = normalize_user_provided_facts(user_provided_facts or {})
+    blocks = []
+    for block in document.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        blocks.append(
+            _apply_representation_safety_to_block(
+                block,
+                active_archetype=active_archetype,
+                representation_preferences=safe_preferences,
+                user_provided_facts=safe_user_facts,
+            )
+        )
+    document["blocks"] = blocks
+    return document
+
+
 def build_note_document(
     *,
     document_view: dict[str, Any] | None = None,
@@ -424,6 +668,8 @@ def build_note_document(
     active_archetype: str | None = None,
     retrieved_knowledge: dict[str, Any] | None = None,
     planner_output: dict[str, Any] | None = None,
+    representation_preferences: dict[str, Any] | None = None,
+    user_provided_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """从 document_view / style / assets 等运行态材料构造正式 NoteDocument。"""
     data = deepcopy(document_view or {})
@@ -535,10 +781,15 @@ def build_note_document(
             "active_panel": active_panel or "main",
             "patch_tracks": tracks,
             "cover_asset_url": cover_asset_url,
+            "representation_preferences": deepcopy(representation_preferences or {}),
         },
         "planner": deepcopy(planner_output or {}),
     }
-    return _apply_retrieval_grounding_to_document(document, knowledge)
+    return _apply_representation_safety_to_document(
+        _apply_retrieval_grounding_to_document(document, knowledge),
+        representation_preferences=representation_preferences,
+        user_provided_facts=user_provided_facts,
+    )
 
 
 def note_document_to_document_view(note_document: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
@@ -648,6 +899,8 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
             ui_state["active_panel"] = state.get("active_panel")
         if state.get("patch_tracks") is not None:
             ui_state["patch_tracks"] = deepcopy(state.get("patch_tracks") or {})
+        if state.get("representation_preferences") is not None:
+            ui_state["representation_preferences"] = deepcopy(state.get("representation_preferences") or {})
         if isinstance(state.get("retrieved_knowledge"), dict):
             knowledge = state.get("retrieved_knowledge") or {}
             provenance["fact_sources"] = deepcopy(knowledge.get("fact_sources") or provenance.get("fact_sources") or [])
@@ -663,7 +916,11 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
                 preferred_cover_url=str(ui_state.get("cover_asset_url") or "").strip() or None,
                 existing_assets=existing.get("assets") or [],
             )
-        return _apply_retrieval_grounding_to_document(existing, state.get("retrieved_knowledge") or {})
+        return _apply_representation_safety_to_document(
+            _apply_retrieval_grounding_to_document(existing, state.get("retrieved_knowledge") or {}),
+            representation_preferences=ui_state.get("representation_preferences") or state.get("representation_preferences") or {},
+            user_provided_facts=state.get("user_provided_facts") or {},
+        )
 
     document = {
         "document_meta": {
@@ -689,10 +946,15 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
             "active_panel": state.get("active_panel") or "main",
             "patch_tracks": deepcopy(state.get("patch_tracks") or {}),
             "cover_asset_url": None,
+            "representation_preferences": deepcopy(state.get("representation_preferences") or {}),
         },
         "planner": deepcopy(state.get("planner_output") or {}),
     }
-    return _apply_retrieval_grounding_to_document(document, state.get("retrieved_knowledge") or {})
+    return _apply_representation_safety_to_document(
+        _apply_retrieval_grounding_to_document(document, state.get("retrieved_knowledge") or {}),
+        representation_preferences=state.get("representation_preferences") or {},
+        user_provided_facts=state.get("user_provided_facts") or {},
+    )
 
 
 def build_note_document_layout_from_state(state: dict[str, Any] | None) -> dict[str, Any]:

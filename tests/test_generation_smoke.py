@@ -144,6 +144,87 @@ def test_build_note_document_from_state_strips_placeholder_cover_images_from_exi
     assert block["asset_refs"] == ["https://img.example/mate-1.jpg"]
 
 
+def test_build_note_document_from_state_downgrades_timeline_to_recommended_without_user_facts():
+    note_document = build_note_document_from_state({
+        "active_archetype": "travel",
+        "note_document": {
+            "document_meta": {"title": "测试页面", "active_archetype": "travel"},
+            "theme": {"page_theme": {}, "global_vars": {}},
+            "blocks": [
+                {
+                    "id": "timeline_1",
+                    "type": "TimelineBlock",
+                    "props": {
+                        "type": "TimelineBlock",
+                        "events": [
+                            {"timestamp": "2024-06-16T09:00:00", "title": "到达", "description": "海边散步"},
+                        ],
+                    },
+                    "fact_bindings": [],
+                }
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
+        },
+    })
+
+    block = note_document["blocks"][0]
+    assert block["props"]["mode"] == "recommended"
+    assert block["props"]["events"][0]["timestamp"] == "上午"
+
+
+def test_build_note_document_from_state_removes_unconfirmed_weather_snapshot_fields():
+    note_document = build_note_document_from_state({
+        "active_archetype": "travel",
+        "note_document": {
+            "document_meta": {"title": "测试页面", "active_archetype": "travel"},
+            "theme": {"page_theme": {}, "global_vars": {}},
+            "blocks": [
+                {
+                    "id": "weather_1",
+                    "type": "WeatherPolaroid",
+                    "props": {
+                        "type": "WeatherPolaroid",
+                        "weather": "晴",
+                        "temperature": "24C",
+                        "time": "今日",
+                        "desc": "海边风很舒服。",
+                    },
+                    "fact_bindings": [],
+                }
+            ],
+            "assets": [],
+            "fact_bindings": [],
+            "provenance": {},
+            "ui_state": {},
+            "planner": {},
+        },
+    })
+
+    block = note_document["blocks"][0]
+    assert block["props"]["mode"] == "ambience"
+    assert "weather" not in block["props"]
+    assert "temperature" not in block["props"]
+    assert "time" not in block["props"]
+
+
+def test_build_component_fallback_uses_travel_facts_mode_for_product_spec_card():
+    payload = build_component_fallback(
+        "ProductSpecCard",
+        "spec_1",
+        "旅行价格与套餐",
+        "写一篇阿那亚一日游",
+        {"entity_name": "阿那亚", "core_attributes": {"价格": "599元起"}},
+        [],
+        active_archetype="travel",
+    )
+
+    assert payload["mode"] == "travel_facts"
+
+
 @pytest.mark.asyncio
 async def test_cache_service_sanitizes_trend_result_placeholder_cover_images():
     cache = CacheService(use_redis=False)
@@ -332,7 +413,7 @@ async def test_generation_smoke_pipeline():
 @pytest.mark.asyncio
 async def test_outline_synthesizer_injects_title_and_story_guards():
     result = await outline_synthesizer({
-        "intent_result_v2": {"task_type": "edit"},
+        "intent_decision": {"task_type": "edit"},
         "main_messages": [type("Msg", (), {"content": "帮我针对华为 Mate 60 做一个深度种草笔记"})()],
         "retrieved_knowledge": {
             "entity_name": "华为 Mate 60",
@@ -409,7 +490,7 @@ async def test_outline_synthesizer_injects_title_and_story_guards():
 @pytest.mark.asyncio
 async def test_outline_synthesizer_rebuilds_from_planner_for_create_requests_on_existing_canvas():
     result = await outline_synthesizer({
-        "intent_result_v2": {"task_type": "create"},
+        "intent_decision": {"task_type": "create"},
         "main_messages": [type("Msg", (), {"content": "帮我生成一篇关于华为 Mate 60 的对比种草笔记"})()],
         "retrieved_knowledge": {
             "entity_name": "华为 Mate 60",
