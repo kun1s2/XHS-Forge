@@ -13,8 +13,11 @@ class CompatibleAgentRunner:
         self._runnable = runnable
         self.backend = backend
 
-    async def ainvoke(self, inputs: Any) -> dict[str, Any]:
-        result = await self._runnable.ainvoke(inputs)
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._runnable, item)
+
+    async def ainvoke(self, inputs: Any, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        result = await self._runnable.ainvoke(inputs, config=config)
         if isinstance(result, dict):
             return result
         if hasattr(result, "messages"):
@@ -23,6 +26,20 @@ class CompatibleAgentRunner:
             return {"messages": result}
         return {"messages": [result]}
 
+    async def astream_events(self, *args, **kwargs):
+        async for item in self._runnable.astream_events(*args, **kwargs):
+            yield item
+
+    async def aget_state(self, *args, **kwargs):
+        return await self._runnable.aget_state(*args, **kwargs)
+
+    async def aupdate_state(self, *args, **kwargs):
+        return await self._runnable.aupdate_state(*args, **kwargs)
+
+    async def aget_state_history(self, *args, **kwargs):
+        async for item in self._runnable.aget_state_history(*args, **kwargs):
+            yield item
+
 
 def create_controlled_agent(
     *,
@@ -30,6 +47,10 @@ def create_controlled_agent(
     tools: Any,
     prompt: Any = None,
     state_schema: Any = None,
+    context_schema: Any = None,
+    store: Any = None,
+    checkpointer: Any = None,
+    response_format: Any = None,
     name: str | None = None,
     prefer_create_agent: bool = True,
     middleware: list[Any] | None = None,
@@ -40,14 +61,24 @@ def create_controlled_agent(
     if _create_agent is None:  # pragma: no cover - env dependent
         raise RuntimeError("langchain.agents.create_agent is unavailable in the current environment")
 
-    if state_schema is not None or not isinstance(prompt, str):
-        raise ValueError("create_controlled_agent now only supports static string system prompts without state_schema")
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "tools": tools,
+        "name": name,
+        "middleware": middleware or [],
+    }
+    if prompt is not None:
+        kwargs["system_prompt"] = prompt
+    if state_schema is not None:
+        kwargs["state_schema"] = state_schema
+    if context_schema is not None:
+        kwargs["context_schema"] = context_schema
+    if store is not None:
+        kwargs["store"] = store
+    if checkpointer is not None:
+        kwargs["checkpointer"] = checkpointer
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
-    runnable = _create_agent(
-        model=model,
-        tools=tools,
-        system_prompt=prompt,
-        name=name,
-        middleware=middleware or [],
-    )
+    runnable = _create_agent(**kwargs)
     return CompatibleAgentRunner(runnable, backend="langchain_create_agent")

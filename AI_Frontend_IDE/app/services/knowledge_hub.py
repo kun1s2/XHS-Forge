@@ -28,11 +28,11 @@ from xml.etree import ElementTree as ET
 from langchain_core.documents import Document
 from langgraph.store.postgres import AsyncPostgresStore
 
-from app.agents.state import UIProjectState
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.config import settings
 from app.services.rag_knowledge import trust_level_for_url
 from app.services.retrieval_profiles import infer_retrieval_profile
+from app.services.skill_registry import recommend_skills_for_knowledge_plan
 
 UTC = timezone.utc
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +55,8 @@ REVIEW_STALE = "stale"
 SUPPORTED_UPLOAD_EXTENSIONS = {".txt", ".md", ".pdf", ".docx", ".json", ".csv", ".xlsx"}
 MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024
 
+RuntimeState = dict[str, Any]
+
 SEEDING_FIELD_LABELS = {
     "price": "价格与版本",
     "chipset": "CPU / SoC",
@@ -66,11 +68,6 @@ SEEDING_FIELD_LABELS = {
 }
 
 TRAVEL_FIELD_LABELS = {
-    "location": "地点",
-    "route": "路线建议",
-    "hours": "开放时间",
-    "transport": "交通",
-    "ticket": "门票",
 }
 
 FIELD_ORDER = [
@@ -81,11 +78,6 @@ FIELD_ORDER = [
     "camera",
     "price",
     "storage",
-    "location",
-    "route",
-    "hours",
-    "transport",
-    "ticket",
 ]
 
 DEFAULT_STALE_WINDOWS = {
@@ -200,7 +192,7 @@ def _trust_level_for_source(source_type: str, locator: str | None = None) -> str
 
 
 def _field_label(field: str) -> str:
-    return SEEDING_FIELD_LABELS.get(field) or TRAVEL_FIELD_LABELS.get(field) or field.replace("_", " ")
+    return SEEDING_FIELD_LABELS.get(field) or field.replace("_", " ")
 
 
 def _field_stale_days(field: str) -> int:
@@ -221,6 +213,50 @@ def _support_level_for_source(source_type: str) -> str:
         "model_inference": "model_inference",
     }
     return mapping.get(source_type, "structured_search")
+
+
+def _build_document_index_markdown(parsed: "ParsedKnowledgeSource") -> str:
+    normalized_entity = normalize_entity_name(parsed.entity_hint or parsed.title)
+    field_rows = sorted({
+        str(item.get("field_or_topic") or "").strip()
+        for item in parsed.records
+        if isinstance(item, dict) and str(item.get("field_or_topic") or "").strip()
+    })
+    lines = [
+        f"# {parsed.title or parsed.file_name or parsed.document_id}",
+        "",
+        f"- document_id: `{parsed.document_id}`",
+        f"- scene_hint: `{parsed.scene_hint or 'seeding'}`",
+        f"- entity_hint: `{parsed.entity_hint or parsed.title}`",
+        f"- normalized_entity: `{normalized_entity}`",
+        f"- chunk_count: `{len(parsed.chunks)}`",
+        f"- record_count: `{len(parsed.records)}`",
+        f"- source_type: `{parsed.source_type}`",
+        "",
+        "## Fields",
+    ]
+    if field_rows:
+        lines.extend([f"- `{field}`" for field in field_rows])
+    else:
+        lines.append("- `topic::summary`")
+    lines.extend([
+        "",
+        "## Source File",
+        f"- raw_path: `{parsed.raw_path}`",
+    ])
+    return "\n".join(lines).strip() + "\n"
+
+
+def _write_document_index(parsed: "ParsedKnowledgeSource") -> str | None:
+    raw_path = Path(str(parsed.raw_path or "")).expanduser()
+    if not raw_path:
+        return None
+    try:
+        index_path = raw_path.with_name(f"{raw_path.stem}.product_index.md")
+        index_path.write_text(_build_document_index_markdown(parsed), encoding="utf-8")
+        return str(index_path)
+    except Exception:
+        return None
 
 
 def _chunk_page_ref(index: int, section_title: str | None = None) -> str:
@@ -690,7 +726,7 @@ def filter_records(
     return filtered
 
 
-def build_knowledge_plan(state: UIProjectState) -> dict[str, Any]:
+def build_knowledge_plan(state: RuntimeState) -> dict[str, Any]:
     query = ""
     main_messages = state.get("main_messages") or []
     if main_messages:
@@ -708,7 +744,7 @@ def build_knowledge_plan(state: UIProjectState) -> dict[str, Any]:
     high_risk_fields = []
     high_risk_fields.extend(["price", "chipset", "battery"])
     preferred_sources = ["user_provided_facts", "session_kb", "persistent_kb", "knowledge_snapshot/cache", "web_search"]
-    return {
+    plan = {
         "goal_summary": f"围绕「{entity_name or query or '当前主题'}」先补齐最影响成稿质量的事实，再决定如何表达。",
         "required_fields": required_fields,
         "preferred_sources": preferred_sources,
@@ -720,6 +756,11 @@ def build_knowledge_plan(state: UIProjectState) -> dict[str, Any]:
         "field_labels": profile.get("slot_labels") or {},
         "entity_name": entity_name or query,
     }
+    plan["recommended_skills"] = recommend_skills_for_knowledge_plan(
+        intent_decision=state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {},
+        knowledge_plan=plan,
+    )
+    return plan
 
 
 def records_from_user_provided_facts(
@@ -1166,6 +1207,7 @@ class KnowledgeHubService:
             }
 
     async def register_persistent_document(self, parsed: ParsedKnowledgeSource) -> None:
+        document_index_path = _write_document_index(parsed)
         document_payload = {
             "document_id": parsed.document_id,
             "title": parsed.title,
@@ -1178,6 +1220,18 @@ class KnowledgeHubService:
             "chunk_count": len(parsed.chunks),
             "created_at": _iso(),
             "normalized_entity": normalize_entity_name(parsed.entity_hint or parsed.title),
+            "document_index_path": document_index_path,
+            "document_index": {
+                "entity": normalize_entity_name(parsed.entity_hint or parsed.title),
+                "scene": parsed.scene_hint,
+                "chunk_count": len(parsed.chunks),
+                "record_count": len(parsed.records),
+                "fields": sorted({
+                    str(item.get("field_or_topic") or "")
+                    for item in parsed.records
+                    if isinstance(item, dict) and str(item.get("field_or_topic") or "")
+                }),
+            },
         }
         async with self._lock:
             self._persistent_docs[parsed.document_id] = document_payload

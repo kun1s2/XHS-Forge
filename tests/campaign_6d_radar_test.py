@@ -43,14 +43,14 @@ async def run_6d_radar_test():
     print("\n--- 🏁 测试结果审计报告 ---")
     
     # 1. 审计现代 gateway / planner 信号
-    intent_v2 = final_state.get("intent_decision") or {}
+    intent_decision = final_state.get("intent_decision") or {}
     planner_output = final_state.get("planner_output") or {}
     print(
         "🎭 [网关探测] "
-        f"Task:{intent_v2.get('task_type', 'N/A')} | "
-        f"Scope:{intent_v2.get('edit_scope', 'N/A')} | "
-        f"Assets:{intent_v2.get('needs_assets', 'N/A')} | "
-        f"场景:{intent_v2.get('scenario_scores', {})}"
+        f"Task:{intent_decision.get('task_type', 'N/A')} | "
+        f"Scope:{intent_decision.get('scope', 'N/A')} | "
+        f"Assets:{intent_decision.get('needs_assets', 'N/A')} | "
+        f"Confidence:{intent_decision.get('confidence', 'N/A')}"
     )
     print(f"🧠 [策略规划] block_intents: {[item.get('intent_type') for item in planner_output.get('block_intents', [])]}")
     

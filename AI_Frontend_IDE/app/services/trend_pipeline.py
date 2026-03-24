@@ -3,9 +3,10 @@ from typing import List, Dict, Any
 from app.services.cache_service import cache_service
 from app.services.rag_ingestion import ingest_retrieved_knowledge
 from app.services.trend_intelligence import infer_trend_profile, normalize_trend_keyword
-from app.agents.nodes.research_agent import research_agent
-from app.agents.state import UIProjectState
+from app.agents.services.research_service import research_service
 from langchain_core.messages import HumanMessage
+
+RuntimeState = dict[str, Any]
 
 # --- 🚀 面试亮点：多线程/异步后台热点预热流水线 ---
 
@@ -60,7 +61,7 @@ class TrendPipeline:
             prompt = f"请针对「{topic}」进行深度舆情分析，找出现在社交平台上大家争议最大的 3 个点，并提取高保真图片。"
 
         # 构造调研状态
-        mock_state: UIProjectState = {
+        mock_state: RuntimeState = {
             "main_messages": [HumanMessage(content=prompt)],
             "scenarios": [profile["scenario_hint"]] if profile["scenario_hint"] != "general" else ["seeding"],
             "active_archetype": "seeding",
@@ -79,7 +80,7 @@ class TrendPipeline:
         
         try:
             # ✨ 面试槽点：此处可引申为异步分布式 Worker 的一部分
-            result = await research_agent(mock_state)
+            result = await research_service(mock_state)
             knowledge = result.get("retrieved_knowledge")
             if knowledge:
                 # 调研成功，写入 Redis 供所有用户共享

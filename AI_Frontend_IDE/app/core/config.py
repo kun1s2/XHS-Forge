@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     HITL_ENABLED: bool = False
 
     ENABLE_COMPONENT_MANIFEST: bool = True
-    ENABLE_NOTE_DOCUMENT_V2: bool = True
+    ENABLE_NOTE_DOCUMENT_RUNTIME: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

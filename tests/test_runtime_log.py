@@ -22,7 +22,7 @@ def test_runtime_log_writes_latest_console_and_html(tmp_path, monkeypatch):
 
 
 def test_runtime_log_summarizers_are_human_readable():
-    render_summary = runtime_log.summarize_node_output('document_renderer', {
+    render_summary = runtime_log.summarize_node_output('composition_worker', {
         'final_html': '<html>' + 'x' * 20 + '</html>',
         'final_oss_url': 'data:text/html;base64,abc',
         'note_document': {'blocks': [{}, {}]},
@@ -33,7 +33,7 @@ def test_runtime_log_summarizers_are_human_readable():
     })
     turn_summary = runtime_log.summarize_turn_completion(
         {
-            'note_editor': {'action': 'update_block', 'block_id': 'story_1'},
+            'composition_worker': {'action': 'update_block', 'block_id': 'story_1'},
             'changed_blocks': [{'id': 'story_1'}],
             'warnings': ['noop'],
         },

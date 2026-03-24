@@ -1,5 +1,8 @@
 from app.services.knowledge_hub import (
+    KnowledgeHubService,
+    ParsedKnowledgeSource,
     KNOWLEDGE_SCOPE_CANDIDATE,
+    KNOWLEDGE_SCOPE_PERSISTENT,
     REVIEW_PENDING,
     apply_knowledge_review_decision,
     knowledge_hub_service,
@@ -120,3 +123,43 @@ def test_demo_eval_sets_cover_retrieval_and_generation_expectations():
     assert digital["questions"][0]["expected_facts"]["price"] == "5999"
     assert "编造具体跑分" in digital["questions"][0]["forbidden_hallucinations"]
     assert "提到价格门槛更低" in competitor["questions"][0]["expected_answer_points"]
+
+
+def test_register_persistent_document_writes_product_index(tmp_path):
+    service = KnowledgeHubService()
+    raw_path = tmp_path / "mate60.md"
+    raw_path.write_text("Mate 60 参数资料", encoding="utf-8")
+    parsed = ParsedKnowledgeSource(
+        document_id="doc-mate60",
+        title="华为 Mate 60 参数包",
+        file_name="mate60.md",
+        source_type="user_kb_curated",
+        kb_scope=KNOWLEDGE_SCOPE_PERSISTENT,
+        raw_path=str(raw_path),
+        text="Mate 60 参数资料",
+        chunks=[{"chunk_id": "chunk-1", "text": "价格 5999"}],
+        records=[
+            {
+                "field_or_topic": "price",
+                "normalized_entity": "华为 Mate 60",
+            },
+            {
+                "field_or_topic": "battery",
+                "normalized_entity": "华为 Mate 60",
+            },
+        ],
+        entity_hint="华为 Mate 60",
+        scene_hint="seeding",
+    )
+
+    import asyncio
+
+    asyncio.run(service.register_persistent_document(parsed))
+    stored = service._persistent_docs["doc-mate60"]
+    index_path = stored["document_index_path"]
+
+    assert index_path
+    content = raw_path.with_name("mate60.product_index.md").read_text(encoding="utf-8")
+    assert "华为 Mate 60 参数包" in content
+    assert "`price`" in content
+    assert stored["document_index"]["entity"] == "华为 Mate 60"

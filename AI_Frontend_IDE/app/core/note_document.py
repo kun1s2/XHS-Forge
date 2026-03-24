@@ -637,7 +637,7 @@ def _apply_representation_safety_to_document(
     user_provided_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     document = deepcopy(note_document or {})
-    active_archetype = str(((document.get("document_meta") or {}).get("active_archetype")) or "general")
+    active_archetype = str(((document.get("document_meta") or {}).get("active_archetype")) or "seeding")
     safe_preferences = deepcopy(representation_preferences or {})
     safe_user_facts = normalize_user_provided_facts(user_provided_facts or {})
     blocks = []
@@ -760,8 +760,8 @@ def build_note_document(
     document = {
         "document_meta": {
             "title": data.get("page_title") or "XHS-Forge Note",
-            "active_archetype": active_archetype or "general",
-            "scenarios": list(scenarios or [active_archetype or "general"]),
+            "active_archetype": active_archetype or "seeding",
+            "scenarios": list(scenarios or [active_archetype or "seeding"]),
         },
         "theme": {
             "page_theme": deepcopy(data.get("page_theme") or {}),
@@ -925,8 +925,8 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
     document = {
         "document_meta": {
             "title": "XHS-Forge Note",
-            "active_archetype": state.get("active_archetype") or "general",
-            "scenarios": list(state.get("scenarios") or [state.get("active_archetype") or "general"]),
+            "active_archetype": state.get("active_archetype") or "seeding",
+            "scenarios": list(state.get("scenarios") or [state.get("active_archetype") or "seeding"]),
         },
         "theme": {
             "page_theme": {},

@@ -3,7 +3,7 @@
 // Pure protocol pickers and derived-data helpers live in `chatStoreDerivations.ts`
 // so this file stays focused on orchestration rather than data-shaping details.
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import type {
   AgentBackends,
   AgentMeta,
@@ -39,6 +39,8 @@ import {
   buildCritiqueReceiptCard,
   buildLocalEditReceiptCard,
   dedupeImageAssets,
+  pickArtifact,
+  pickArtifactVersion,
   buildRecentlyChangedBlockDetails,
   getConfiguredApiBase,
   getDocumentBlockById,
@@ -63,6 +65,9 @@ import {
   pickOssUrl,
   pickPlannerOutput,
   pickPlannerPolicy,
+  pickRevisionPlan,
+  pickRevisionResult,
+  pickRevisionStatus,
   pickSourceCode,
   pickTurnTrace,
   resolveComparablePage,
@@ -70,6 +75,9 @@ import {
   getComponentLabel,
 } from './chatStoreDerivations'
 import { reportFrontendObservation } from '../utils/frontendReport'
+import { createSessionWorkspaceState } from './useSessionWorkspaceState'
+import { createGlobalHubState } from './useGlobalHubState'
+import { createTransientUiState } from './useTransientUiState'
 
 // 生成简单的 UUID
 const generateId = () => Math.random().toString(36).substring(2, 15)
@@ -82,12 +90,13 @@ type SnapshotPart = {
 }
 
 const nodeMap: Record<string, string> = {
-  'intent_agent': '意图解析',
-  'research_agent': '全网搜索',
-  'note_editor': '内容编辑',
-  'theme_compiler': '视觉渲染',
-  'structure_node': '结构布局',
-  'asset_processor': '素材调度'
+  'supervisor_agent': '总控协调',
+  'intent_worker': '意图解析',
+  'retrieval_worker': '证据检索',
+  'review_worker': '知识审查',
+  'asset_worker': '素材调度',
+  'composition_worker': '内容编辑',
+  'critique_worker': '结果复盘',
 }
 
 const showcaseEnabled = import.meta.env.VITE_ENABLE_SHOWCASE === 'true'
@@ -245,6 +254,11 @@ const hydrateSnapshotMessages = (
       imageAssets: existing.imageAssets,
       sourceCode: existing.sourceCode,
       noteDocument: existing.noteDocument,
+      artifact: existing.artifact,
+      artifactVersion: existing.artifactVersion,
+      revisionPlan: existing.revisionPlan,
+      revisionResult: existing.revisionResult,
+      revisionStatus: existing.revisionStatus,
       plannerOutput: existing.plannerOutput,
       plannerPolicy: existing.plannerPolicy,
       agentBackends: existing.agentBackends,
@@ -256,61 +270,59 @@ const hydrateSnapshotMessages = (
 
 export const useChatStore = defineStore('chat', () => {
   // === State (状态) ===
-  const threadId = ref<string>('') 
-  const sessions = ref<any[]>([])
-  const isSidebarOpen = ref(true)
-  const messages = ref<ChatMessage[]>([])
-  const previewUrl = ref<string | null>(null)
-  const wsStatus = ref<'disconnected' | 'connecting' | 'connected'>('disconnected')
-  const currentNode = ref<string>('')
-  const thoughtText = ref<string>('')
-  const nodeStreamOutput = ref<string>('')
-  const activePanel = ref<string>('main')
-  const workspaceMode = ref<WorkspaceViewMode>('session_preview')
-  const previewInteractionMode = ref<PreviewInteractionMode>('browse')
-  const selectedComponentId = ref<string | null>(null)
-  const selectedParagraphIndex = ref<number | null>(null)
-  const composerDraft = ref<string>('')
-  const imageAssets = ref<ImageAsset[]>([])
-  const sourceCode = ref<string>('')
-  const nodePrompts = ref<Record<string, unknown>>({})
-  const noteDocument = ref<NoteDocument>({})
-  const plannerOutput = ref<PlannerOutput>({})
-  const plannerPolicy = ref<PlannerPolicy>({})
-  const turnTrace = ref<TurnTrace>({})
-  const agentBackends = ref<AgentBackends>({})
-  const inspectorSummary = ref<InspectorSummary>({})
-  const benchmarkOverview = ref<BenchmarkOverview>({})
-  const evaluationOverview = ref<EvaluationOverview>({})
-  const blockGalleryOverview = ref<BlockGalleryOverview>({})
-  const pendingUploadUrls = ref<string[]>([])
-  const showcaseProfiles = ref<ShowcaseProfile[]>([])
-  const searchedAssets = ref<ImageAsset[]>([])
-  const assetSearchLoading = ref(false)
-  const factConfirmingField = ref<string | null>(null)
-  const hoveredComponentId = ref<string | null>(null)
-  const activeCheckpointId = ref<string | null>(null)
-  const lastAcceptedSessionSnapshotCheckpointId = ref<string | null>(null)
-  const lastAcceptedSessionSnapshotSource = ref<'workspace' | 'turn_end' | 'inspect' | 'recover' | 'init'>('init')
-  const pendingBlockingCheckpointAction = ref<ConversationCheckpointAction | null>(null)
-  const rollbackUndoTarget = ref<{ checkpointId: string } | null>(null)
-  const recentlyChangedBlockDetails = ref<Record<string, { fields: string[]; paragraph_indices?: number[]; item_indices?: number[] }>>({})
-  const creatorPersona = ref<string>("硬核数码博主")
-  const hotTrends = ref<TrendItem[]>([]) // 正式热点榜：带场景提示与新鲜度
-  
-  // ✨ 哨兵白盒化：Agent 决策元数据
-  const agentMeta = ref<AgentMeta>({
-    creator_persona: '',
-    active_archetype: '',
-    intent_route: '',
-    retrieved_knowledge: {},
-    scenarios: [],
-    has_controversy: false,
-    needs_disambiguation: false,
-    agent_backends: {},
-    turn_trace: {},
-    inspector_summary: {},
-  })
+  const {
+    threadId,
+    messages,
+    previewUrl,
+    activePanel,
+    imageAssets,
+    sourceCode,
+    nodePrompts,
+    noteDocument,
+    artifact,
+    artifactVersion,
+    revisionPlan,
+    revisionResult,
+    revisionStatus,
+    plannerOutput,
+    plannerPolicy,
+    turnTrace,
+    agentBackends,
+    inspectorSummary,
+    activeCheckpointId,
+    lastAcceptedSessionSnapshotCheckpointId,
+    lastAcceptedSessionSnapshotSource,
+    pendingBlockingCheckpointAction,
+    rollbackUndoTarget,
+    recentlyChangedBlockDetails,
+    hotTrends,
+    agentMeta,
+  } = createSessionWorkspaceState()
+  const {
+    sessions,
+    benchmarkOverview,
+    evaluationOverview,
+    blockGalleryOverview,
+    showcaseProfiles,
+    creatorPersona,
+  } = createGlobalHubState()
+  const {
+    isSidebarOpen,
+    wsStatus,
+    currentNode,
+    thoughtText,
+    nodeStreamOutput,
+    workspaceMode,
+    previewInteractionMode,
+    selectedComponentId,
+    selectedParagraphIndex,
+    composerDraft,
+    pendingUploadUrls,
+    searchedAssets,
+    assetSearchLoading,
+    factConfirmingField,
+    hoveredComponentId,
+  } = createTransientUiState()
   const pendingFactConflictCount = computed(() =>
     getPendingFactConflictCount(agentMeta.value.retrieved_knowledge || {})
   )
@@ -340,7 +352,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!selectedComponentId.value) return {}
     return getPreferredPayloadById(noteDocument.value, selectedComponentId.value)
   })
-  const recentlyChangedBlockIds = computed(() => getRecentlyChangedBlockIds(turnTrace.value))
+  const recentlyChangedBlockIds = computed(() => getRecentlyChangedBlockIds(turnTrace.value, artifactVersion.value))
   const hasRenderableDocument = computed(() => documentBlocks.value.length > 0)
   const interactionMode = computed<WorkbenchInteractionMode>(() => {
     if (workspaceMode.value === 'session_preview') {
@@ -533,6 +545,11 @@ export const useChatStore = defineStore('chat', () => {
     }
     const previousNoteDocument = noteDocument.value
     const nextNoteDocument = pickNoteDocument(data)
+    const nextArtifact = pickArtifact(data)
+    const nextArtifactVersion = pickArtifactVersion(data)
+    const nextRevisionPlan = pickRevisionPlan(data)
+    const nextRevisionResult = pickRevisionResult(data)
+    const nextRevisionStatus = pickRevisionStatus(data)
     const snapshotMessages = hydrateSnapshotMessages(
       normalizeSnapshotMessages(data.messages?.main || []) as ChatMessage[],
       preserveLocalAssistant ? messages.value : []
@@ -547,6 +564,11 @@ export const useChatStore = defineStore('chat', () => {
     imageAssets.value = dedupeImageAssets((data.image_assets || data.imageAssets || nextNoteDocument?.assets || []) as ImageAsset[])
     nodePrompts.value = data.node_prompts || data.nodePrompts || {}
     noteDocument.value = nextNoteDocument
+    artifact.value = nextArtifact
+    artifactVersion.value = nextArtifactVersion
+    revisionPlan.value = nextRevisionPlan
+    revisionResult.value = nextRevisionResult
+    revisionStatus.value = nextRevisionStatus
     plannerOutput.value = pickPlannerOutput(data)
     plannerPolicy.value = pickPlannerPolicy(data)
     turnTrace.value = pickTurnTrace(data)
@@ -563,6 +585,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!preserveLocalAssistant) {
       recentlyChangedBlockDetails.value = {}
     }
+    recentlyChangedBlockDetails.value = buildRecentlyChangedBlockDetails(previousNoteDocument, nextNoteDocument, pickTurnTrace(data), nextArtifactVersion)
     const comparableNextPage = resolveComparablePage(nextNoteDocument)
     const comparablePrevPage = resolveComparablePage(previousNoteDocument)
     if (!snapshotHasAssistant && (Object.keys(comparableNextPage || {}).length > 0 || sourceCode.value)) {
@@ -625,8 +648,8 @@ export const useChatStore = defineStore('chat', () => {
   const scheduleRenderRecovery = () => {
     clearRenderRecoveryTimer()
     renderRecoveryTimer = window.setTimeout(async () => {
-      if (currentNode.value !== 'document_renderer') return
-      console.warn('⚠️ document_renderer 收尾超时，尝试主动拉取 workspace 快照恢复前端')
+      if (!['composition_worker', 'supervisor_agent'].includes(currentNode.value)) return
+      console.warn('⚠️ 当前会话收尾超时，尝试主动拉取 workspace 快照恢复前端')
       await recoverFromWorkspaceSnapshot()
       clearRenderRecoveryTimer()
     }, 3500)
@@ -652,6 +675,11 @@ export const useChatStore = defineStore('chat', () => {
         const previousNoteDocument = noteDocument.value
         agentMeta.value = inspectPayload as AgentMeta
         noteDocument.value = pickNoteDocument(inspectPayload || {})
+        artifact.value = pickArtifact(inspectPayload || {})
+        artifactVersion.value = pickArtifactVersion(inspectPayload || {})
+        revisionPlan.value = pickRevisionPlan(inspectPayload || {})
+        revisionResult.value = pickRevisionResult(inspectPayload || {})
+        revisionStatus.value = pickRevisionStatus(inspectPayload || {})
         plannerOutput.value = pickPlannerOutput(inspectPayload || {})
         plannerPolicy.value = pickPlannerPolicy(inspectPayload || {})
         turnTrace.value = pickTurnTrace(inspectPayload || {})
@@ -1397,7 +1425,7 @@ export const useChatStore = defineStore('chat', () => {
           currentNode: currentNode.value,
           thoughtText: '',
         }).summary || '')
-        if (currentNode.value === 'document_renderer') {
+        if (['composition_worker', 'supervisor_agent'].includes(currentNode.value)) {
           scheduleRenderRecovery()
         }
         break
@@ -1406,7 +1434,7 @@ export const useChatStore = defineStore('chat', () => {
         thoughtText.value = data
         nodeStreamOutput.value = ''
         upsertAgentStatusMessage(String(data || ''))
-        if (currentNode.value === 'document_renderer' || thoughtText.value.includes('云端打包渲染')) {
+        if (['composition_worker', 'supervisor_agent'].includes(currentNode.value) || thoughtText.value.includes('准备收口当前成品')) {
           scheduleRenderRecovery()
         }
         break
@@ -1429,7 +1457,7 @@ export const useChatStore = defineStore('chat', () => {
         const content = typeof data === 'string' ? data : (wsData.content || '')
         const sourceNode = wsData.node || currentNode.value
         
-        if (sourceNode && !['note_editor', 'direct_chat_node', 'rag_node'].includes(sourceNode)) {
+        if (sourceNode && !['composition_worker', 'supervisor_agent', 'retrieval_worker'].includes(sourceNode)) {
           nodeStreamOutput.value += content
           const buffer = nodeStreamOutput.value
           const marker = '"thought_process":'
@@ -1459,10 +1487,10 @@ export const useChatStore = defineStore('chat', () => {
               }
             }
           }
-        } else if (isAssistant && content && ['direct_chat_node', 'rag_node'].includes(sourceNode)) {
+        } else if (isAssistant && content && ['supervisor_agent', 'retrieval_worker'].includes(sourceNode)) {
           responseMsg!.content += content
-        } else if (isAssistant && content && sourceNode === 'note_editor') {
-          // note_editor 的流式输出经常是结构化计划/JSON，不应直接暴露给用户聊天气泡。
+        } else if (isAssistant && content && sourceNode === 'composition_worker') {
+          // composition_worker 的流式输出经常是结构化计划/JSON，不应直接暴露给用户聊天气泡。
           // 最终用户可见文案统一在 turn_end 时用结果摘要收口。
           nodeStreamOutput.value += content
         }
@@ -1482,6 +1510,11 @@ export const useChatStore = defineStore('chat', () => {
         const nextImageAssets = pickImageAssets(data)
         const nextSourceCode = pickSourceCode(data)
         const nextNoteDocument = pickNoteDocument(data)
+        const nextArtifact = pickArtifact(data)
+        const nextArtifactVersion = pickArtifactVersion(data)
+        const nextRevisionPlan = pickRevisionPlan(data)
+        const nextRevisionResult = pickRevisionResult(data)
+        const nextRevisionStatus = pickRevisionStatus(data)
         const nextPlannerOutput = pickPlannerOutput(data)
         const nextPlannerPolicy = pickPlannerPolicy(data)
         const nextTurnTrace = pickTurnTrace(data)
@@ -1494,6 +1527,11 @@ export const useChatStore = defineStore('chat', () => {
           responseMsg!.imageAssets = nextImageAssets
           responseMsg!.sourceCode = nextSourceCode
           responseMsg!.noteDocument = nextNoteDocument
+          responseMsg!.artifact = nextArtifact || undefined
+          responseMsg!.artifactVersion = nextArtifactVersion || undefined
+          responseMsg!.revisionPlan = nextRevisionPlan || undefined
+          responseMsg!.revisionResult = nextRevisionResult || undefined
+          responseMsg!.revisionStatus = nextRevisionStatus || undefined
           responseMsg!.plannerOutput = nextPlannerOutput
           responseMsg!.plannerPolicy = nextPlannerPolicy
           responseMsg!.turnTrace = nextTurnTrace
@@ -1510,11 +1548,16 @@ export const useChatStore = defineStore('chat', () => {
         imageAssets.value = dedupeImageAssets(nextImageAssets)
         sourceCode.value = nextSourceCode
         noteDocument.value = nextNoteDocument
+        artifact.value = nextArtifact
+        artifactVersion.value = nextArtifactVersion
+        revisionPlan.value = nextRevisionPlan
+        revisionResult.value = nextRevisionResult
+        revisionStatus.value = nextRevisionStatus
         plannerOutput.value = nextPlannerOutput
         plannerPolicy.value = nextPlannerPolicy
         turnTrace.value = nextTurnTrace
         agentBackends.value = nextAgentBackends
-        recentlyChangedBlockDetails.value = buildRecentlyChangedBlockDetails(previousNoteDocument, nextNoteDocument, nextTurnTrace)
+        recentlyChangedBlockDetails.value = buildRecentlyChangedBlockDetails(previousNoteDocument, nextNoteDocument, nextTurnTrace, nextArtifactVersion)
         const comparableNextPage = resolveComparablePage(nextNoteDocument)
         const comparablePrevPage = resolveComparablePage(previousNoteDocument)
         if ((Object.keys(comparableNextPage || {}).length > 0 || nextSourceCode) && isAssistant && !(responseMsg!.content || '').trim()) {
@@ -1874,6 +1917,19 @@ export const useChatStore = defineStore('chat', () => {
     return true
   }
 
+  const acceptPrimaryRevision = () => {
+    const recipe = revisionStatus.value?.primary_recipe || revisionPlan.value?.primary_recipe
+    if (!recipe || !String(recipe.label || '').trim()) return false
+    return runCritiqueAction({
+      label: String(recipe.label || '听取意见'),
+      prompt: String(recipe.prompt || ''),
+      scope: String(recipe.scope || ''),
+      why_now: String(recipe.why_now || ''),
+      expected_effect: String(recipe.expected_effect || ''),
+      expected_blocks: Array.isArray(recipe.expected_blocks) ? recipe.expected_blocks.map(String) : [],
+    })
+  }
+
   return {
     threadId,
     messages,
@@ -1891,6 +1947,11 @@ export const useChatStore = defineStore('chat', () => {
     imageAssets,
     nodePrompts,
     noteDocument,
+    artifact,
+    artifactVersion,
+    revisionPlan,
+    revisionResult,
+    revisionStatus,
     plannerOutput,
     plannerPolicy,
     turnTrace,
@@ -1957,6 +2018,7 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     submitComposerMessage,
     runCritiqueAction,
+    acceptPrimaryRevision,
     submitCheckpointDecision,
     fetchSessions,
     fetchShowcaseProfiles,

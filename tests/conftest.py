@@ -16,7 +16,7 @@ from app.core import note_document as _note_document_module
 _runtime_build_note_document_from_state = _note_document_module.build_note_document_from_state
 
 
-def _build_note_document_from_legacy_test_state(state: dict | None) -> dict:
+def _build_note_document_from_test_state(state: dict | None) -> dict:
     state = state or {}
     note_document = state.get("note_document")
     if isinstance(note_document, dict) and note_document.get("blocks") is not None:
@@ -39,4 +39,4 @@ def _build_note_document_from_legacy_test_state(state: dict | None) -> dict:
     return _runtime_build_note_document_from_state(state)
 
 
-_note_document_module.build_note_document_from_state = _build_note_document_from_legacy_test_state
+_note_document_module.build_note_document_from_state = _build_note_document_from_test_state

@@ -252,78 +252,6 @@
                   <span v-if="!msg.content && msg.streaming" class="italic text-gray-500">正在思考文案...</span>
                   <Typewriter :text="msg.content" :active="msg.streaming" :speed="10" />
                 </div>
-                <div
-                  v-if="resolveCritique(msg)"
-                  class="mt-3 rounded-2xl border border-emerald-900/30 bg-emerald-950/10 p-3"
-                >
-                  <div class="flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="rounded-full border border-emerald-800/40 bg-emerald-950/20 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Agent 复盘</span>
-                      <span class="text-[11px] text-emerald-100">{{ critiqueHeadline(resolveCritique(msg)!) }}</span>
-                    </div>
-                    <span
-                      class="rounded-full border px-2 py-0.5 text-[10px]"
-                      :class="resolveCritique(msg)?.needs_revision ? 'border-amber-700/40 bg-amber-950/20 text-amber-200' : 'border-emerald-700/40 bg-emerald-950/20 text-emerald-200'"
-                    >
-                      {{ resolveCritique(msg)?.needs_revision ? '建议继续润色' : '质量通过' }}
-                    </span>
-                  </div>
-
-                  <div v-if="resolveCritique(msg)?.suggestions?.length" class="mt-3 space-y-2">
-                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">优先建议</div>
-                    <div class="flex flex-wrap gap-2">
-                      <span
-                        v-for="suggestion in resolveCritique(msg)?.suggestions || []"
-                        :key="suggestion"
-                        class="rounded-full border border-[#334155] bg-[#152033] px-2.5 py-1 text-[10px] text-emerald-100"
-                      >
-                        {{ suggestion }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div v-if="(resolveCritique(msg)?.action_recipes?.length || 0) > 0" class="mt-3 space-y-2">
-                    <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">下一步怎么做</div>
-                    <div class="grid gap-2 sm:grid-cols-2">
-                      <button
-                        v-for="recipe in resolveCritique(msg)?.action_recipes || []"
-                        :key="`${recipe.scope || 'critique'}-${recipe.label}`"
-                        @click="handleCritiqueAction(recipe)"
-                        class="rounded-2xl border border-[#2f3b52] bg-[#111827]/85 px-3 py-3 text-left transition-all hover:border-emerald-500/40 hover:bg-[#13231e]"
-                      >
-                        <div class="text-[11px] font-semibold text-emerald-100">{{ recipe.label }}</div>
-                        <div v-if="recipe.prompt" class="mt-1 text-[10px] leading-relaxed text-gray-400">{{ recipe.prompt }}</div>
-                        <div v-if="recipe.why_now" class="mt-2 text-[10px] leading-relaxed text-gray-300">
-                          现在优先处理：{{ recipe.why_now }}
-                        </div>
-                        <div v-if="recipe.expected_effect" class="mt-1 text-[10px] leading-relaxed text-emerald-200/90">
-                          预计效果：{{ recipe.expected_effect }}
-                        </div>
-                        <div v-if="recipe.expected_blocks?.length" class="mt-1 text-[10px] leading-relaxed text-gray-300">
-                          预计影响：{{ recipe.expected_blocks.join(' / ') }}
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="(resolveCritique(msg)?.factual_issues?.length || 0) + (resolveCritique(msg)?.completeness_issues?.length || 0) > 0"
-                    class="mt-3 grid gap-2 sm:grid-cols-2"
-                  >
-                    <div v-if="resolveCritique(msg)?.factual_issues?.length" class="rounded-2xl border border-[#334155] bg-[#111827]/70 p-3">
-                      <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">事实风险</div>
-                      <div class="mt-2 space-y-1 text-[11px] leading-relaxed text-gray-300">
-                        <div v-for="item in resolveCritique(msg)?.factual_issues || []" :key="item">- {{ item }}</div>
-                      </div>
-                    </div>
-                    <div v-if="resolveCritique(msg)?.completeness_issues?.length" class="rounded-2xl border border-[#334155] bg-[#111827]/70 p-3">
-                      <div class="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">信息缺口</div>
-                      <div class="mt-2 space-y-1 text-[11px] leading-relaxed text-gray-300">
-                        <div v-for="item in resolveCritique(msg)?.completeness_issues || []" :key="item">- {{ item }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
                 <ConversationCheckpointCard
                   v-if="msg.actionRequired"
                   :action="msg.actionRequired"
@@ -359,6 +287,16 @@
             {{ checkpointComposerHint.summary }}
           </div>
         </div>
+
+        <RevisionAssistPanel
+          v-if="!pendingBlockingCheckpointAction"
+          :artifact-version="artifactVersion"
+          :revision-plan="revisionPlan"
+          :revision-result="revisionResult"
+          :revision-status="revisionStatus"
+          :disabled="isUploading || currentNode !== ''"
+          @accept="acceptPrimaryRevision"
+        />
 
         <div class="rounded-[24px] border border-[#2f3440] bg-[#1b1d22] p-3 shadow-[0_14px_30px_rgba(0,0,0,0.16)]">
           <div class="flex items-stretch gap-3">
@@ -401,7 +339,8 @@ import { useChatStore } from '../../stores/useChatStore'
 import { uploadImage } from '../../api/upload'
 import Typewriter from '../common/Typewriter.vue'
 import ConversationCheckpointCard from './ConversationCheckpointCard.vue'
-import type { ChatMessage, ConversationCheckpointAction, ConversationCheckpointOption, TurnTrace } from '../../types/chat'
+import RevisionAssistPanel from './RevisionAssistPanel.vue'
+import type { ConversationCheckpointAction, ConversationCheckpointOption } from '../../types/chat'
 import { buildEditingGuidance } from './chatEditingGuidance'
 
 const chatStore = useChatStore()
@@ -425,8 +364,12 @@ const {
   rollbackUndoTarget,
   pendingBlockingCheckpointAction,
   checkpointComposerCanResolve,
+  artifactVersion,
+  revisionPlan,
+  revisionResult,
+  revisionStatus,
 } = storeToRefs(chatStore)
-const { setSelectedComponent, addPendingUploadAsset } = chatStore
+const { setSelectedComponent, addPendingUploadAsset, acceptPrimaryRevision } = chatStore
 const msgListRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -436,10 +379,6 @@ const handleCheckpointOptionSelect = (
   overrides?: { userProvidedFacts?: Record<string, string | string[]>; customNote?: string },
 ) => {
   chatStore.submitCheckpointDecision(action, option, overrides)
-}
-
-const handleCritiqueAction = (recipe: { label: string; prompt: string; scope?: string; why_now?: string; expected_effect?: string; expected_blocks?: string[] }) => {
-  chatStore.runCritiqueAction(recipe)
 }
 
 const handleHistoryRollback = async (checkpointId: string) => {
@@ -452,22 +391,6 @@ const handleHistoryBranch = async (checkpointId: string) => {
 
 const handleUndoRollback = async () => {
   await chatStore.undoLastRollback()
-}
-
-const resolveCritique = (msg: ChatMessage) => {
-  const critique = (msg.turnTrace as TurnTrace | undefined)?.critique
-  if (!critique || typeof critique !== 'object') return null
-  const hasSignal =
-    typeof critique.score === 'number' ||
-    (critique.suggestions?.length || 0) > 0 ||
-    (critique.factual_issues?.length || 0) > 0 ||
-    (critique.completeness_issues?.length || 0) > 0
-  return hasSignal ? critique : null
-}
-
-const critiqueHeadline = (critique: NonNullable<ReturnType<typeof resolveCritique>>) => {
-  const score = typeof critique.score === 'number' ? `${critique.score} 分` : '已完成'
-  return critique.needs_revision ? `本轮质量复盘：${score}，建议继续收口` : `本轮质量复盘：${score}，可以继续展示`
 }
 
 const selectedEditingGuidance = computed(() =>
@@ -543,12 +466,13 @@ const stagedUploadUrls = ref<string[]>([])
 const isUploading = computed(() => pendingImages.value.some(img => img.status === 'uploading'))
 
 const nodeMap: Record<string, string> = {
-  asset_processor: '理解上传图片',
-  intent_agent: '意图分析大脑',
-  note_editor: '内容编辑大脑',
-  structure_node: '解析页面骨架',
-  theme_compiler: '生成 CSS 样式',
-  document_renderer: '云端打包渲染',
+  supervisor_agent: '总控协调',
+  intent_worker: '意图分析',
+  retrieval_worker: '证据检索',
+  review_worker: '知识审查',
+  asset_worker: '素材处理',
+  composition_worker: '内容编辑',
+  critique_worker: '结果复盘',
 }
 
 const triggerFileInput = () => {

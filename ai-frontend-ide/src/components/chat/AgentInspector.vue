@@ -113,7 +113,7 @@ const {
   traceTimeline,
   traceWarnings,
   traceChangedBlocks,
-  noteEditorTrace,
+  compositionTrace,
   inspectorFocus,
   inspectorDocument,
   inspectorExecution,
@@ -121,10 +121,12 @@ const {
   inspectorSuggestions,
   inspectorHeadline,
   inspectorStatus,
+  inspectorAgentic,
   builderPromptModeLabel,
   getInspectorStatusClasses,
   getInspectorStatusLabel,
   overviewCards,
+  agenticCards,
   getOverviewCardClasses,
   getAssetSupportBadgeClasses,
   humanizeAssetSupport,
@@ -173,6 +175,12 @@ const {
   copyStructuredTraceExport,
   downloadStructuredTraceExport,
   noteFactBindings,
+  currentAgentName,
+  currentStageName,
+  selectedSkills,
+  recommendedSkills,
+  currentFailurePoint,
+  agentSkillRows,
   formatFactFieldLabels,
   confirmFact,
 } = useAgentInspectorDiagnostics({
@@ -328,6 +336,39 @@ const {
           </div>
         </div>
 
+        <div class="mt-4 space-y-2">
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest">Agent 白盒</div>
+          <div class="grid gap-2 md:grid-cols-3">
+            <div
+              v-for="card in agenticCards"
+              :key="card.title"
+              class="rounded-2xl border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+              :class="getOverviewCardClasses(card.tone)"
+            >
+              <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ card.title }}</div>
+              <div class="mt-1 text-[12px] font-bold text-gray-100 break-words">{{ card.value }}</div>
+              <div class="mt-1 text-[9px] leading-relaxed text-gray-500">{{ card.helper }}</div>
+            </div>
+          </div>
+          <div v-if="agentSkillRows.length" class="grid gap-2">
+            <div
+              v-for="row in agentSkillRows"
+              :key="row.name"
+              class="rounded-2xl border border-[#333] bg-[#252526] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-[10px] font-bold text-gray-100">{{ row.name }}</div>
+                <span class="rounded-full border border-cyan-700/25 bg-cyan-950/10 px-2 py-0.5 text-[8px] font-bold text-cyan-300">
+                  {{ row.executionResult || 'unknown' }}
+                </span>
+              </div>
+              <div class="mt-2 text-[9px] text-gray-400">
+                skills：{{ row.selectedSkills.length ? row.selectedSkills.join(' / ') : '暂无' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div v-if="chatStore.wsStatus === 'connecting'" class="mt-4 flex items-center gap-2 bg-yellow-900/10 text-yellow-500 p-2 rounded-lg border border-yellow-900/20 text-[10px]">
           <span class="animate-spin text-lg">⚡</span>
           <span>大脑引擎正在深度初始化...</span>
@@ -339,10 +380,10 @@ const {
         <div class="text-[10px] text-gray-500 mb-3 border-b border-[#333] pb-1 uppercase tracking-wider">NoteDocument</div>
         <JsonTree :data="noteDocument" label="NOTE_DOCUMENT" />
 
-        <div class="mt-6 text-[10px] text-gray-500 mb-3 border-b border-[#333] pb-1 uppercase tracking-wider">Legacy Page Data (Compat)</div>
+        <div class="mt-6 text-[10px] text-gray-500 mb-3 border-b border-[#333] pb-1 uppercase tracking-wider">Render Page Snapshot</div>
         <JsonTree :data="renderPageData" label="UI_PROJECT_STATE" />
         
-        <div class="mt-6 text-[10px] text-gray-500 mb-3 border-b border-[#333] pb-1 uppercase tracking-wider">Legacy Style Library (Compat)</div>
+        <div class="mt-6 text-[10px] text-gray-500 mb-3 border-b border-[#333] pb-1 uppercase tracking-wider">Render Style Snapshot</div>
         <JsonTree :data="renderStyleData" label="CSS_VARS" />
       </div>
 
@@ -1220,9 +1261,27 @@ const {
                     <span>{{ traceExportPending ? '准备中...' : '下载 trace JSON' }}</span>
                   </button>
                 </div>
-                <div class="text-[12px] font-bold text-gray-100">{{ humanizeTraceAction(String(noteEditorTrace.action || '')) }}</div>
+                <div class="text-[12px] font-bold text-gray-100">{{ humanizeTraceAction(String(compositionTrace.action || '')) }}</div>
                 <div class="text-[10px] leading-relaxed text-gray-300">{{ turnTraceState.query || '本轮没有记录到用户输入。' }}</div>
                 <div class="text-[10px] leading-relaxed text-gray-500">{{ tracePrimarySignal.description }}</div>
+                <div class="flex flex-wrap items-center gap-2 text-[9px]">
+                  <span class="inline-flex items-center rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-1 font-bold text-violet-300">
+                    当前 agent · {{ currentAgentName }}
+                  </span>
+                  <span class="inline-flex items-center rounded-full border border-cyan-700/30 bg-cyan-950/10 px-2 py-1 font-bold text-cyan-300">
+                    当前阶段 · {{ currentStageName }}
+                  </span>
+                  <span
+                    v-for="skill in selectedSkills"
+                    :key="skill"
+                    class="inline-flex items-center rounded-full border border-emerald-700/30 bg-emerald-950/10 px-2 py-1 font-bold text-emerald-300"
+                  >
+                    {{ skill }}
+                  </span>
+                </div>
+                <div v-if="currentFailurePoint" class="text-[10px] leading-relaxed text-amber-300">
+                  当前失败点：{{ currentFailurePoint }}
+                </div>
               </div>
               <div class="grid min-w-[180px] grid-cols-2 gap-2">
                 <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
@@ -1239,7 +1298,7 @@ const {
                 </div>
                 <div class="rounded-xl border border-[#3a3a3a] bg-black/10 px-3 py-2">
                   <div class="text-[9px] uppercase tracking-wider text-gray-500">计划摘要</div>
-                  <div class="mt-1 text-[13px] font-bold text-emerald-300 truncate">{{ noteEditorTrace.target_block_id || 'global' }}</div>
+                  <div class="mt-1 text-[13px] font-bold text-emerald-300 truncate">{{ compositionTrace.target_block_id || 'global' }}</div>
                 </div>
               </div>
             </div>
@@ -1255,6 +1314,51 @@ const {
               <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ card.title }}</div>
               <div class="mt-2 text-[12px] font-bold text-gray-100">{{ card.description }}</div>
               <div class="mt-1 text-[10px] leading-relaxed text-gray-500">{{ card.helper }}</div>
+            </div>
+          </div>
+
+          <div v-if="agentSkillRows.length || recommendedSkills.length" class="space-y-2">
+            <div class="text-[10px] text-gray-500 uppercase tracking-widest">Skill Trace</div>
+            <div class="grid gap-2 md:grid-cols-2">
+              <div v-if="recommendedSkills.length" class="rounded-2xl border border-[#333] bg-[#252526] p-3">
+                <div class="text-[10px] font-bold text-gray-100">knowledge plan 推荐 skills</div>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <span
+                    v-for="skill in recommendedSkills"
+                    :key="`recommended-${skill}`"
+                    class="rounded-full border border-violet-700/30 bg-violet-950/10 px-2 py-0.5 text-[8px] font-bold text-violet-300"
+                  >
+                    {{ skill }}
+                  </span>
+                </div>
+              </div>
+              <div
+                v-for="row in agentSkillRows"
+                :key="`trace-${row.name}`"
+                class="rounded-2xl border border-[#333] bg-[#252526] p-3"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-[10px] font-bold text-gray-100">{{ row.name }}</div>
+                  <span class="rounded-full border border-cyan-700/25 bg-cyan-950/10 px-2 py-0.5 text-[8px] font-bold text-cyan-300">
+                    {{ row.executionResult || 'unknown' }}
+                  </span>
+                </div>
+                <div class="mt-2 text-[9px] text-gray-400">
+                  {{ row.selectedSkills.length ? row.selectedSkills.join(' / ') : '暂无 skill' }}
+                </div>
+                <div v-if="row.toolPlan.length" class="mt-2 space-y-1">
+                  <div
+                    v-for="(toolRow, idx) in row.toolPlan"
+                    :key="`${row.name}-${idx}`"
+                    class="rounded-xl border border-[#3a3a3a] bg-black/10 px-2 py-1.5 text-[9px] text-gray-400"
+                  >
+                    <span class="font-bold text-gray-200">{{ toolRow.skill || row.name }}</span>
+                    <span v-if="Array.isArray(toolRow.tool_hints) && toolRow.tool_hints.length">
+                      · {{ toolRow.tool_hints.join(' / ') }}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1307,10 +1411,10 @@ const {
             </div>
           </div>
 
-          <div v-if="Object.keys(noteEditorTrace).length" class="space-y-2">
+          <div v-if="Object.keys(compositionTrace).length" class="space-y-2">
             <div class="text-[10px] text-gray-500 uppercase tracking-widest">结构化计划</div>
             <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <JsonTree :data="noteEditorTrace" label="NOTE_EDITOR_TRACE" />
+              <JsonTree :data="compositionTrace" label="COMPOSITION_TRACE" />
             </div>
           </div>
 
@@ -1418,7 +1522,7 @@ const {
 
     <!-- 底部栏 -->
     <div class="px-4 py-2 border-t border-[#333] bg-[#252526] text-[9px] text-gray-600 flex justify-between font-mono italic shrink-0">
-      <span>OBS_V2.1.0</span>
+      <span>OBS_DIGITAL_1.0</span>
       <span class="flex items-center gap-1">
         <span class="w-1 h-1 bg-green-500 rounded-full animate-ping"></span>
         STREAM_SYNCED

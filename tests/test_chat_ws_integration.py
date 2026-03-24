@@ -35,9 +35,9 @@ class FakeAgent:
 
     async def aupdate_state(self, config, values):
         self.updated.append({"config": config, "values": values})
-        if isinstance(values, dict) and values.get("turn_trace"):
+        if isinstance(values, dict):
             latest_values = dict(self.latest_snapshot.values)
-            latest_values["turn_trace"] = values["turn_trace"]
+            latest_values.update(values)
             self.latest_snapshot = FakeSnapshot(
                 latest_values,
                 checkpoint_id=self.latest_snapshot.config["configurable"]["checkpoint_id"],
@@ -83,7 +83,7 @@ async def test_send_capability_reply_streams_direct_chat_response_without_render
 
     assert websocket.messages[0]["event"] == "thought"
     assert websocket.messages[1]["event"] == "token"
-    assert websocket.messages[1]["node"] == "direct_chat_node"
+    assert websocket.messages[1]["node"] == "supervisor_agent"
     assert "我现在主要可以这样和你配合" in websocket.messages[1]["data"]
     assert websocket.messages[-1]["event"] == "turn_end"
 
@@ -98,7 +98,7 @@ async def test_run_graph_loop_returns_modern_turn_end_payload():
                 block_style_map={"global_vars": {"--bg-color": "#fff"}},
             ),
             "final_html": "<html><body>ok</body></html>",
-            "node_prompts": {"intent_agent": "prompt"},
+            "node_prompts": {"intent_worker": "prompt"},
         }
     )
     agent = FakeAgent(snapshot)
@@ -129,19 +129,65 @@ async def test_run_graph_loop_returns_modern_turn_end_payload():
     assert data["note_document"]["document_meta"]["title"] == "Mate 60 页面"
     assert data["source_code"] == "<html><body>ok</body></html>"
     assert data["htmlPreview"] == "<html><body>ok</body></html>"
-    assert data["node_prompts"]["intent_agent"] == "prompt"
-    assert data["nodePrompts"]["intent_agent"] == "prompt"
+    assert data["node_prompts"]["intent_worker"] == "prompt"
+    assert data["nodePrompts"]["intent_worker"] == "prompt"
     assert data["turn_trace"]["query"] == "帮我生成一篇华为 Mate 60 笔记"
     assert "changed_blocks" in data["turn_trace"]
+    assert data["artifact"]["artifact_type"] == "purchase_decision_note"
+    assert data["artifact_version"]["version_id"].startswith("version_")
+    assert data["artifact_version"]["parent_version_id"] in ("", None)
+    assert data["revision_status"]["status"] in {"idle", "ready", "applied", "failed"}
 
 
-def test_turn_end_payload_drops_legacy_page_aliases():
+@pytest.mark.asyncio
+async def test_run_graph_loop_emits_action_required_from_pending_checkpoint_state():
+    snapshot = FakeSnapshot(
+        {
+            "image_assets": [],
+            "note_document": {"document_meta": {"title": "Mate 60 页面"}, "blocks": [], "assets": []},
+            "pending_checkpoint": {
+                "checkpoint_type": "knowledge_review_checkpoint",
+                "checkpoint_id": "knowledge-review::seeding",
+                "title": "需要确认候选知识",
+                "summary": "请先确认这轮候选知识怎么采用",
+                "options": [{"label": "采用推荐项", "value": "approve_recommended", "recommended": True}],
+                "resume_token": "thread:ckpt:resume",
+            },
+        },
+        checkpoint_id="ckpt_action_required",
+    )
+    agent = FakeAgent(snapshot)
+    websocket = FakeWebSocket()
+
+    await _run_graph_loop(
+        agent,
+        {"messages": [], "main_messages": []},
+        {"configurable": {"thread_id": "thread-ws-action"}},
+        websocket,
+        turn_context={
+            "user_query": "继续",
+            "selected_element_id": "无 (全局修改)",
+            "panel": "main",
+            "before_values": {},
+        },
+    )
+
+    assert websocket.messages[-1]["event"] == "action_required"
+    payload = websocket.messages[-1]["data"]
+    assert payload["checkpoint_type"] == "knowledge_review_checkpoint"
+    assert payload["resume_token"] == "thread:ckpt:resume"
+
+
+def test_turn_end_payload_uses_note_document_only_fields():
     payload = _build_turn_end_payload(
         "ckpt_alias_trimmed",
         oss_url="https://example.com/render.html",
         image_assets=[],
         source_code="<html></html>",
         note_document={"document_meta": {"title": "Mate 60 页面"}, "blocks": [], "assets": []},
+        artifact={"artifact_id": "artifact_demo", "artifact_type": "purchase_decision_note"},
+        artifact_version={"version_id": "version_demo"},
+        revision_status={"status": "ready"},
     )
 
     assert "page_data" not in payload
@@ -149,6 +195,9 @@ def test_turn_end_payload_drops_legacy_page_aliases():
     assert "style_data" not in payload
     assert "styleData" not in payload
     assert "noteData" not in payload
+    assert payload["artifact"]["artifact_id"] == "artifact_demo"
+    assert payload["artifactVersion"]["version_id"] == "version_demo"
+    assert payload["revisionStatus"]["status"] == "ready"
 
 
 @pytest.mark.asyncio
@@ -267,3 +316,5 @@ async def test_run_graph_loop_turn_trace_is_written_back_to_latest_snapshot():
 
     assert agent.updated
     assert "turn_trace" in agent.updated[-1]["values"]
+    assert "artifact" in agent.updated[-1]["values"]
+    assert "artifact_version" in agent.updated[-1]["values"]

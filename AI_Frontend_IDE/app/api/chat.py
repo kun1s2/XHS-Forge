@@ -1,12 +1,15 @@
 import json
 import asyncio
 from typing import Any
+from uuid import uuid4
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks
 from starlette.websockets import WebSocketState
 from pydantic import ValidationError
-from langgraph.types import Command
 from app.schemas.requests import ChatWSPayload
 from langchain_core.messages import AIMessage, HumanMessage
+from app.agents.runtime import apply_supervisor_checkpoint_decision
+from app.agents.services.artifact_service import build_artifact_patch
+from app.agents.services.revision_service import build_revision_plan, build_revision_result, build_revision_status
 from app.services.cache_service import get_trend_cache, set_trend_cache, RiskControlCache
 from app.services.trend_pipeline import process_new_trend_background
 from app.services.trend_intelligence import infer_trend_profile
@@ -29,21 +32,20 @@ router = APIRouter()
 
 # 定义思考状态映射表 (全局，供所有路由逻辑共用)
 NODE_THOUGHT_MAP = {
-    "intent_agent": "🔍 正在深度解析您的创作意图...",
-    "research_agent": "🧠 正在为您搜寻最硬核的专业背景资料...",
+    "supervisor_agent": "🧭 正在为你安排这一轮最合理的推进顺序...",
+    "intent_worker": "🔍 正在判断你这轮真正要改什么...",
+    "retrieval_worker": "🧠 正在补齐这轮最关键的事实和证据...",
+    "review_worker": "🧾 正在整理待审知识并准备确认卡...",
+    "asset_worker": "🖼️ 正在判断缺图并补搜素材...",
+    "composition_worker": "✍️ 正在把这轮判断和证据落成成品...",
+    "critique_worker": "🔍 正在复盘当前成品还差什么...",
     "tools": "🔧 正在调用专业工具执行任务...",
-    "controversy_sniffer": "🛡️ 正在进行内容合规与舆情审计...",
-    "note_editor": "✍️ 正在为您整理页面内容与编辑策略...",
     "truth_mode_checkpoint": "🧾 正在和您确认是否需要按真实经历或已确认事实来写...",
     "structure_checkpoint": "🧩 正在和您确认页面骨架方向...",
     "knowledge_review_checkpoint": "🧠 正在和您确认这轮候选知识怎么采用...",
     "fact_gap_checkpoint": "📌 正在和您确认缺失的关键信息...",
     "asset_checkpoint": "🖼️ 正在和您确认素材使用方案...",
     "fact_conflict_checkpoint": "⚖️ 正在和您确认冲突事实采用哪种说法...",
-    "outline_resolver": "🧭 正在根据策略稳定解析页面骨架...",
-    "component_builder": "👷 工兵正在全力搭建组件...",
-    "theme_compiler": "🎨 正在为您生成高定版页面样式...",
-    "document_renderer": "📺 正在进行云端打包渲染..."
 }
 
 TOOL_THOUGHT_MAP = {
@@ -52,10 +54,15 @@ TOOL_THOUGHT_MAP = {
     "analyze_uploaded_images": "👁️ 正在利用视觉模型深度解析图片...",
     "enrich_product_tool": "📊 正在核实商品参数与最新定价...",
     "enrich_location_tool": "📍 正在通过高德地图精准定位坐标...",
-    "generate_images_tool": "🎨 正在调用 CogView 绘制视觉素材..."
+    "generate_images_tool": "🎨 正在调用 CogView 绘制视觉素材...",
+    "retrieval_worker": "🧠 正在补齐这轮最关键的事实和证据...",
+    "review_worker": "🧾 正在整理待审知识并准备确认卡...",
+    "asset_worker": "🖼️ 正在判断缺图并补搜素材...",
+    "composition_worker": "✍️ 正在把这轮判断和证据落成成品...",
+    "critique_worker": "🔍 正在复盘当前成品还差什么...",
 }
 
-TRACE_STATE_NODE = "document_renderer"
+TRACE_STATE_NODE = "supervisor_agent"
 
 
 def _safe_json_signature(value):
@@ -228,13 +235,13 @@ def _build_agent_summary(turn_context: dict[str, Any] | None, after_values: dict
 def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
     changed_blocks = _build_block_change_set(before_values or {}, after_values or {})
     existing_trace = (after_values or {}).get("turn_trace") or {}
-    note_editor_trace = existing_trace.get("note_editor") or {}
+    composition_trace = existing_trace.get("composition_worker") or {}
     content_like_fields = {"props", "type", "order", "added", "removed"}
     style_only = bool(changed_blocks) and any("style" in item.get("changed_fields", []) for item in changed_blocks) and not any(content_like_fields & set(item.get("changed_fields", [])) for item in changed_blocks)
     warnings = []
-    if note_editor_trace.get("action") == "noop":
+    if composition_trace.get("action") == "noop":
         warnings.append("noop")
-    if note_editor_trace.get("fallback_used"):
+    if composition_trace.get("fallback_used"):
         warnings.append("fallback_used")
     if style_only:
         warnings.append("style_changed_without_content")
@@ -264,6 +271,9 @@ def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
             if isinstance(item, dict) and str(item.get("label") or "").strip()
         ][:4],
     } if critique_feedback else {}
+    revision_plan = (after_values or {}).get("revision_plan") if isinstance((after_values or {}).get("revision_plan"), dict) else {}
+    revision_result = (after_values or {}).get("revision_result") if isinstance((after_values or {}).get("revision_result"), dict) else {}
+    revision_status = (after_values or {}).get("revision_status") if isinstance((after_values or {}).get("revision_status"), dict) else {}
     status_timeline = _build_status_timeline(timeline)
     return {
         "query": turn_context.get("user_query", ""),
@@ -277,13 +287,21 @@ def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
             "active_archetype": (after_values or {}).get("active_archetype", ""),
         },
         "planner": existing_trace.get("planner") or {},
-        "note_editor": note_editor_trace,
+        "composition_worker": composition_trace,
         "before_summary": _summarize_document(before_values or {}),
         "after_summary": _summarize_document(after_values or {}),
         "changed_blocks": changed_blocks,
         "warnings": warnings,
         "conversation_checkpoints": existing_trace.get("conversation_checkpoints") or {},
         "critique": critique_summary,
+        "revision": {
+            "status": str(revision_status.get("status") or ""),
+            "reason": str(((after_values or {}).get("artifact_version") or {}).get("revision_reason") or revision_plan.get("reason") or ""),
+            "scope": str(revision_plan.get("scope") or ""),
+            "target_block_id": revision_plan.get("target_block_id"),
+            "changed_blocks": revision_result.get("changed_blocks") or [],
+            "failure_reason": str(revision_result.get("failure_reason") or ""),
+        },
         "agent_plan": _build_agent_plan(turn_context, after_values),
         "agent_summary": _build_agent_summary(turn_context, after_values, critique_summary),
     }
@@ -292,7 +310,7 @@ def _build_turn_trace(*, turn_context, before_values, after_values, timeline):
 async def _aupdate_state_compat(agent, config, values, *, as_node: str):
     try:
         return await agent.aupdate_state(config, values, as_node=as_node)
-    except TypeError:
+    except Exception:
         return await agent.aupdate_state(config, values)
 
 
@@ -314,10 +332,16 @@ def _build_turn_end_payload(
     planner_policy=None,
     turn_trace=None,
     agent_backends=None,
+    artifact=None,
+    artifact_version=None,
+    revision_plan=None,
+    revision_result=None,
+    revision_status=None,
+    revision_reason=None,
 ):
     """
     统一构造 turn_end 包。正式协议以 note_document / planner / trace 为主，
-    不再向前端公开旧页面协议字段，legacy 页面状态仅允许在 store/workspace 内部兼容层派生。
+    不再向前端公开旧页面协议字段，页面渲染快照只允许在 store/workspace 内部按当前协议派生。
     """
     payload = {
         "checkpoint_id": checkpoint_id,
@@ -351,6 +375,23 @@ def _build_turn_end_payload(
     if agent_backends is not None:
         payload["agent_backends"] = agent_backends
         payload["agentBackends"] = agent_backends
+    if artifact is not None:
+        payload["artifact"] = artifact
+    if artifact_version is not None:
+        payload["artifact_version"] = artifact_version
+        payload["artifactVersion"] = artifact_version
+    if revision_plan is not None:
+        payload["revision_plan"] = revision_plan
+        payload["revisionPlan"] = revision_plan
+    if revision_result is not None:
+        payload["revision_result"] = revision_result
+        payload["revisionResult"] = revision_result
+    if revision_status is not None:
+        payload["revision_status"] = revision_status
+        payload["revisionStatus"] = revision_status
+    if revision_reason is not None:
+        payload["revision_reason"] = revision_reason
+        payload["revisionReason"] = revision_reason
     return payload
 
 
@@ -449,14 +490,15 @@ async def _send_capability_reply(
         agent,
         latest_config,
         {
+            "messages": [human_msg, AIMessage(content=reply)],
             msg_key: [human_msg, AIMessage(content=reply)],
-            "intent_route": "direct_chat_node",
+            "intent_route": "supervisor_agent",
             "agent_backends": {
-                "intent_agent": "deterministic_capability_fast_path",
-                "direct_chat_node": "deterministic_capability_reply",
+                "intent_worker": "deterministic_capability_fast_path",
+                "supervisor_agent": "deterministic_capability_reply",
             },
         },
-        as_node="direct_chat_node",
+        as_node="supervisor_agent",
     )
     snapshot = await agent.aget_state(latest_config)
     checkpoint_id = snapshot.config["configurable"]["checkpoint_id"]
@@ -466,14 +508,14 @@ async def _send_capability_reply(
         "selected_element_id": payload.selected_element_id or "无 (全局修改)",
         "panel": payload.panel,
         "timeline": [
-            {"event": "node_start", "node": "intent_agent"},
-            {"event": "node_end", "node": "intent_agent"},
-            {"event": "node_start", "node": "direct_chat_node"},
-            {"event": "node_end", "node": "direct_chat_node"},
+            {"event": "node_start", "node": "intent_worker"},
+            {"event": "node_end", "node": "intent_worker"},
+            {"event": "node_start", "node": "supervisor_agent"},
+            {"event": "node_end", "node": "supervisor_agent"},
         ],
         "status_timeline": ["我先直接告诉你我现在能怎么配合。"],
         "route": {
-            "intent_route": "direct_chat_node",
+            "intent_route": "supervisor_agent",
             "active_archetype": snapshot.values.get("active_archetype", "seeding"),
         },
         "changed_blocks": [],
@@ -492,7 +534,7 @@ async def _send_capability_reply(
 
     append_latest_console_log("🧭 [DIRECT CHAT] 命中能力问答，直接走聊天答复，不触发页面生成。")
     await websocket.send_json({"event": "thought", "data": "🧭 我先直接告诉你我现在能怎么配合。"})
-    await websocket.send_json({"event": "token", "node": "direct_chat_node", "data": reply})
+    await websocket.send_json({"event": "token", "node": "supervisor_agent", "data": reply})
     await websocket.send_json(
         {
             "event": "turn_end",
@@ -516,7 +558,12 @@ def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] |
     """把 LangGraph interrupt value 归一化成聊天区 action_required 载荷。"""
     if not isinstance(raw_interrupt, dict):
         return None
-    action_type = str(raw_interrupt.get("action_type") or raw_interrupt.get("action") or "").strip()
+    action_type = str(
+        raw_interrupt.get("checkpoint_type")
+        or raw_interrupt.get("action_type")
+        or raw_interrupt.get("action")
+        or ""
+    ).strip()
     if not action_type:
         return None
     options = []
@@ -536,9 +583,11 @@ def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] |
             }
         )
     return {
+        "checkpoint_type": action_type,
         "action_type": action_type,
         "action": action_type,
         "checkpoint_id": str(raw_interrupt.get("checkpoint_id") or action_type),
+        "resume_token": str(raw_interrupt.get("resume_token") or ""),
         "title": str(raw_interrupt.get("title") or raw_interrupt.get("message") or "需要你确认一个关键决策"),
         "summary": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
         "message": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
@@ -586,18 +635,25 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     config = {"configurable": {"thread_id": thread_id}}
 
                     if payload_dict.get("type") == "submit_checkpoint_decision":
-                        resume_payload = {
+                        decision_payload = {
                             "action_type": payload_dict.get("action_type"),
                             "checkpoint_id": payload_dict.get("checkpoint_id"),
+                            "resume_token": payload_dict.get("resume_token"),
                             "decision": payload_dict.get("decision"),
                             "selected_asset_ids": payload_dict.get("selected_asset_ids") or [],
                             "selected_fact_value": payload_dict.get("selected_fact_value"),
                             "user_provided_facts": payload_dict.get("user_provided_facts") or {},
                             "custom_note": payload_dict.get("custom_note"),
                         }
+                        latest_state = await agent.aget_state(config)
+                        patch = apply_supervisor_checkpoint_decision(latest_state.values or {}, decision_payload)
+                        if patch.get("user_provided_facts") and payload_dict.get("custom_note"):
+                            patch.setdefault("user_provided_facts", {})
+                            patch["user_provided_facts"]["custom_note"] = payload_dict.get("custom_note")
+                        await _aupdate_state_compat(agent, config, patch, as_node=TRACE_STATE_NODE)
                         await _run_graph_loop(
                             agent,
-                            Command(resume=resume_payload),
+                            {"messages": [], "main_messages": []},
                             config,
                             websocket,
                             turn_context={
@@ -605,7 +661,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                                 "selected_element_id": payload_dict.get("selected_element_id"),
                                 "panel": payload_dict.get("panel", "main"),
                                 "message_kind": payload_dict.get("message_kind") or "checkpoint_decision",
-                                "before_values": {},
+                                "before_values": latest_state.values or {},
                             },
                         )
                         continue
@@ -778,6 +834,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
 
                 msg_key = f"{payload.panel}_messages"
                 inputs = {
+                    "messages": [new_msg],
                     msg_key: [new_msg],
                     "active_panel": payload.panel,
                     "selected_element_id": payload.selected_element_id or "无 (全局修改)",
@@ -831,247 +888,153 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
         print(f"[WS] Client {thread_id} disconnected (code={getattr(e, 'code', '')}, reason={getattr(e, 'reason', '') or '(none)'}).")
 
 async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
-    """【核心循环】带全量日志、自动续火与 HITL 拦截"""
-    current_inputs = inputs
-    resume_count = 0
-    MAX_RESUME = 10
-    last_next_signature = None
-    repeated_next_count = 0
-    pending_interrupt_payload: dict[str, Any] | None = None
-    
-    # 🌟 哨兵监控：实时捕获最后一公里产生的物理资产
+    """Supervisor runtime 单轮执行器。"""
+    if websocket.client_state != WebSocketState.CONNECTED:
+        print("🛑 [自动熔断] 客户端已断开")
+        return
+
     final_oss_url = None
     final_html = ""
     trace_timeline = []
 
-    while resume_count < MAX_RESUME:
+    async for event in agent.astream_events(inputs or {}, config=config, version="v2"):
         if websocket.client_state != WebSocketState.CONNECTED:
-            print("🛑 [自动熔断] 客户端已断开")
             return
 
-        async for event in agent.astream_events(current_inputs, config=config, version="v2"):
-            if websocket.client_state != WebSocketState.CONNECTED: return
-            kind = event["event"]
-            
-            # 1. 物理资产捕获 (document_renderer 节点产出)
-            if kind == "on_chain_end" and event["name"] == "document_renderer":
-                output = event["data"].get("output", {})
-                final_oss_url = output.get("final_oss_url")
-                final_html = output.get("final_html", "")
-                if settings.XHS_FORGE_DEBUG:
-                    message = f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else None}..."
-                    print(message)
-                    append_latest_console_log(message)
+        kind = event["event"]
+        name = str(event.get("name") or "")
 
-            # --- DEBUG 日志输出 ---
+        if kind == "on_chain_end" and name in {"composition_worker", "supervisor_agent"}:
+            output = event.get("data", {}).get("output", {}) or {}
+            final_oss_url = output.get("final_oss_url")
+            final_html = output.get("final_html", "")
             if settings.XHS_FORGE_DEBUG:
-                if kind == "on_chain_start" and event["name"] != "LangGraph":
-                    message = f"▶️  [NODE START]: {event['name']}"
-                    print(f"\033[1;36m{message}\033[0m")
-                    append_latest_console_log(message)
-                    trace_timeline.append({"event": "node_start", "node": event["name"]})
-                elif kind == "on_chain_end" and event["name"] != "LangGraph":
-                    output = event["data"].get("output", {})
-                    out_str = summarize_node_output(event['name'], output)
-                    message = f"✅ [NODE END]: {event['name']} -> {out_str}"
-                    print(f"\033[1;32m{message}\033[0m")
-                    append_latest_console_log(message)
-                    trace_timeline.append({"event": "node_end", "node": event["name"]})
+                message = f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else None}..."
+                print(message)
+                append_latest_console_log(message)
 
-            # 1. 思维链下发
-            if kind == "on_chain_end":
-                node_name = event["name"]
-                output = event["data"].get("output")
-                thought = _extract_thought(output)
-                if thought:
-                    await websocket.send_json({"event": "thought_process", "data": {"node": node_name, "content": thought}})
-
-            # 2. Token 流式输出
-            if kind == "on_chat_model_stream":
-                metadata = event.get("metadata", {})
-                node_name = metadata.get("langgraph_node") or metadata.get("node") or ""
-                chunk = event["data"]["chunk"]
-                content = chunk.content or ""
-                if chunk.tool_call_chunks:
-                    for tc in chunk.tool_call_chunks: content += (tc.get("args") or "")
-                if content:
-                    await websocket.send_json({"event": "token", "data": content, "node": node_name})
-
-            if kind == "on_chain_stream" and event.get("name") == "LangGraph":
-                chunk = event.get("data", {}).get("chunk") or {}
-                interrupts = list(chunk.get("__interrupt__") or [])
-                if interrupts:
-                    first_interrupt = interrupts[0]
-                    pending_interrupt_payload = _normalize_checkpoint_action_payload(
-                        getattr(first_interrupt, "value", None)
-                    )
-
-            # 3. 状态文案提示
-            elif kind == "on_chain_start":
-                node_name = event["name"]
-                if node_name in NODE_THOUGHT_MAP:
-                    await websocket.send_json({"event": "thought", "data": NODE_THOUGHT_MAP[node_name]})
-            elif kind == "on_tool_start":
-                tool_name = event["name"]
-                thought = TOOL_THOUGHT_MAP.get(tool_name, f"🔧 正在执行工具: {tool_name}...")
-                trace_timeline.append({"event": "tool_start", "node": tool_name})
-                append_latest_console_log(f"🔧 [TOOL START]: {tool_name}")
-                await websocket.send_json({"event": "thought", "data": thought})
-
-        if pending_interrupt_payload:
-            await websocket.send_json({"event": "action_required", "data": pending_interrupt_payload})
-            return
-
-        # 检查快照。注意：如果这轮是从旧 checkpoint 分叉出来的，收尾必须回到“线程最新”状态，
-        # 不能继续拿带 checkpoint_id 的 config 读旧快照，否则前端会收到父版本页面。
-        snapshot = await agent.aget_state(config)
-        latest_config = _latest_thread_config(config)
-        if not snapshot.next:
-            latest_snapshot = await agent.aget_state(latest_config)
-            turn_trace = _build_turn_trace(
-                turn_context=turn_context or {},
-                before_values=(turn_context or {}).get("before_values") or {},
-                after_values=latest_snapshot.values or {},
-                timeline=trace_timeline,
-            )
-            try:
-                trace_patch = {"turn_trace": turn_trace}
-                trace_patch.update(
-                    _build_turn_anchor_patch(
-                        latest_snapshot.values or {},
-                        panel=(turn_context or {}).get("panel") or "main",
-                        checkpoint_id=latest_snapshot.config["configurable"]["checkpoint_id"],
-                    )
-                )
-                await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
-                latest_snapshot = await agent.aget_state(latest_config)
-            except Exception:
-                pass
-            append_log_divider('TURN END')
-            append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, latest_snapshot.values or {})}")
-            await websocket.send_json({
-                "event": "turn_end",
-                "data": _build_turn_end_payload(
-                    latest_snapshot.config["configurable"]["checkpoint_id"],
-                    oss_url=final_oss_url or latest_snapshot.values.get("final_oss_url"),
-                    image_assets=latest_snapshot.values.get("image_assets", []),
-                    source_code=final_html or latest_snapshot.values.get("final_html", ""),
-                    node_prompts=latest_snapshot.values.get("node_prompts"),
-                    note_document=latest_snapshot.values.get("note_document"),
-                    planner_output=latest_snapshot.values.get("planner_output"),
-                    planner_policy=latest_snapshot.values.get("planner_policy"),
-                    turn_trace=turn_trace,
-                    agent_backends=latest_snapshot.values.get("agent_backends"),
-                ),
-            })
-            return
-
-        next_signature = tuple(snapshot.next)
-        if current_inputs is None and next_signature == last_next_signature:
-            repeated_next_count += 1
-        else:
-            repeated_next_count = 0
-        last_next_signature = next_signature
-
-        if repeated_next_count >= 2:
-            message = f"⚠️ [AUTO RESUME GUARD] 检测到重复续火 {next_signature}，提前下发当前快照避免前端卡死。"
-            print(message)
-            append_latest_console_log(message)
-            turn_trace = _build_turn_trace(
-                turn_context=turn_context or {},
-                before_values=(turn_context or {}).get("before_values") or {},
-                after_values=snapshot.values or {},
-                timeline=trace_timeline,
-            )
-            turn_trace["warnings"] = list((turn_trace.get("warnings") or [])) + ["auto_resume_guard"]
-            append_log_divider('TURN END')
-            append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, snapshot.values or {})}")
-            try:
-                trace_patch = {"turn_trace": turn_trace}
-                trace_patch.update(
-                    _build_turn_anchor_patch(
-                        snapshot.values or {},
-                        panel=(turn_context or {}).get("panel") or "main",
-                        checkpoint_id=snapshot.config["configurable"]["checkpoint_id"],
-                    )
-                )
-                await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
-                snapshot = await agent.aget_state(latest_config)
-            except Exception:
-                pass
-            await websocket.send_json({
-                "event": "turn_end",
-                "data": _build_turn_end_payload(
-                    snapshot.config["configurable"]["checkpoint_id"],
-                    oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
-                    image_assets=snapshot.values.get("image_assets", []),
-                    source_code=final_html or snapshot.values.get("final_html", ""),
-                    node_prompts=snapshot.values.get("node_prompts"),
-                    note_document=snapshot.values.get("note_document"),
-                    planner_output=snapshot.values.get("planner_output"),
-                    planner_policy=snapshot.values.get("planner_policy"),
-                    turn_trace=turn_trace,
-                    agent_backends=snapshot.values.get("agent_backends"),
-                ),
-            })
-            return
-
-        # HITL 检查
-        if "controversy_sniffer" in snapshot.next and snapshot.values.get("needs_disambiguation"):
-            await websocket.send_json({"event": "action_required", "data": {"action": "entity_disambiguation", "message": "发现消歧项", "options": snapshot.values.get("disambiguation_options", [])}})
-            return
-        if "note_editor" in snapshot.next and snapshot.values.get("has_controversy") and not snapshot.values.get("user_stance"):
-            await websocket.send_json({"event": "action_required", "data": {"action": "stance_decision", "message": "发现争议", "options": [{"label": "🔴 黑榜", "value": "negative_stance"}, {"label": "🟢 红榜", "value": "positive_stance"}]}})
-            return
-
-        # 自动续火
         if settings.XHS_FORGE_DEBUG:
-            message = f"🔥 [AUTO RESUME] 命中中断点 {snapshot.next}，正在自动唤醒..."
-            print(f"\033[90m{message}\033[0m")
-            append_latest_console_log(message)
-        current_inputs = None
-        resume_count += 1
+            if kind == "on_chain_start" and name not in {"LangGraph", "supervisor_agent"}:
+                message = f"▶️  [NODE START]: {name}"
+                print(f"\033[1;36m{message}\033[0m")
+                append_latest_console_log(message)
+                trace_timeline.append({"event": "node_start", "node": name})
+            elif kind == "on_chain_end" and name not in {"LangGraph", "supervisor_agent"}:
+                output = event.get("data", {}).get("output", {}) or {}
+                out_str = summarize_node_output(name, output)
+                message = f"✅ [NODE END]: {name} -> {out_str}"
+                print(f"\033[1;32m{message}\033[0m")
+                append_latest_console_log(message)
+                trace_timeline.append({"event": "node_end", "node": name})
+
+        if kind == "on_chain_end":
+            output = event.get("data", {}).get("output")
+            thought = _extract_thought(output)
+            if thought:
+                await websocket.send_json({"event": "thought_process", "data": {"node": name, "content": thought}})
+
+        if kind == "on_chat_model_stream":
+            metadata = event.get("metadata", {}) or {}
+            node_name = metadata.get("langgraph_node") or metadata.get("node") or name or ""
+            chunk = event["data"]["chunk"]
+            content = chunk.content or ""
+            if getattr(chunk, "tool_call_chunks", None):
+                for tc in chunk.tool_call_chunks:
+                    content += (tc.get("args") or "")
+            if content:
+                await websocket.send_json({"event": "token", "data": content, "node": node_name})
+
+        elif kind == "on_chain_start":
+            if name in NODE_THOUGHT_MAP:
+                await websocket.send_json({"event": "thought", "data": NODE_THOUGHT_MAP[name]})
+        elif kind == "on_tool_start":
+            tool_name = name
+            thought = TOOL_THOUGHT_MAP.get(tool_name, f"🔧 正在执行工具: {tool_name}...")
+            trace_timeline.append({"event": "tool_start", "node": tool_name})
+            append_latest_console_log(f"🔧 [TOOL START]: {tool_name}")
+            await websocket.send_json({"event": "thought", "data": thought})
 
     latest_config = _latest_thread_config(config)
-    snapshot = await agent.aget_state(latest_config)
-    message = f"⚠️ [AUTO RESUME GUARD] 超过最大自动续火次数，强制回传当前快照: {snapshot.next}"
-    print(message)
-    append_latest_console_log(message)
+    latest_snapshot = await agent.aget_state(latest_config)
+    latest_values = latest_snapshot.values or {}
     turn_trace = _build_turn_trace(
         turn_context=turn_context or {},
         before_values=(turn_context or {}).get("before_values") or {},
-        after_values=snapshot.values or {},
+        after_values=latest_values,
         timeline=trace_timeline,
     )
-    turn_trace["warnings"] = list((turn_trace.get("warnings") or [])) + ["max_auto_resume_exceeded"]
-    append_log_divider('TURN END')
-    append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, snapshot.values or {})}")
+
+    revision_plan = build_revision_plan(latest_values)
+    revision_result = build_revision_result({**latest_values, "revision_plan": revision_plan})
+    revision_status = build_revision_status(
+        {
+            **latest_values,
+            "revision_plan": revision_plan,
+            "revision_result": revision_result,
+        }
+    )
+    session_snapshot_id = f"snapshot_{uuid4().hex[:16]}"
     try:
-        trace_patch = {"turn_trace": turn_trace}
+        trace_patch = {
+            "turn_trace": turn_trace,
+            "revision_plan": revision_plan,
+            "revision_result": revision_result,
+            "revision_status": revision_status,
+        }
+        trace_patch.update(
+            build_artifact_patch(
+                {
+                    **latest_values,
+                    "turn_trace": turn_trace,
+                    "revision_plan": revision_plan,
+                    "revision_result": revision_result,
+                    "revision_status": revision_status,
+                },
+                snapshot_id=session_snapshot_id,
+                checkpoint_id=str(((latest_snapshot.config or {}).get("configurable") or {}).get("checkpoint_id") or ""),
+            )
+        )
         trace_patch.update(
             _build_turn_anchor_patch(
-                snapshot.values or {},
+                latest_values,
                 panel=(turn_context or {}).get("panel") or "main",
-                checkpoint_id=snapshot.config["configurable"]["checkpoint_id"],
+                checkpoint_id=latest_snapshot.config["configurable"]["checkpoint_id"],
             )
         )
         await _aupdate_state_compat(agent, latest_config, trace_patch, as_node=TRACE_STATE_NODE)
-        snapshot = await agent.aget_state(latest_config)
+        latest_snapshot = await agent.aget_state(latest_config)
+        latest_values = latest_snapshot.values or {}
+        if isinstance(latest_values.get("turn_trace"), dict) and latest_values.get("turn_trace"):
+            turn_trace = latest_values.get("turn_trace")
     except Exception:
         pass
+
+    pending_checkpoint = _normalize_checkpoint_action_payload(latest_values.get("pending_checkpoint"))
+    if pending_checkpoint:
+        await websocket.send_json({"event": "action_required", "data": pending_checkpoint})
+        return
+
+    append_log_divider('TURN END')
+    append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, latest_values)}")
     await websocket.send_json({
         "event": "turn_end",
         "data": _build_turn_end_payload(
-            snapshot.config["configurable"]["checkpoint_id"],
-            oss_url=final_oss_url or snapshot.values.get("final_oss_url"),
-            image_assets=snapshot.values.get("image_assets", []),
-            source_code=final_html or snapshot.values.get("final_html", ""),
-            node_prompts=snapshot.values.get("node_prompts"),
-            note_document=snapshot.values.get("note_document"),
-            planner_output=snapshot.values.get("planner_output"),
-            planner_policy=snapshot.values.get("planner_policy"),
+            latest_snapshot.config["configurable"]["checkpoint_id"],
+            oss_url=final_oss_url or latest_values.get("final_oss_url"),
+            image_assets=latest_values.get("image_assets", []),
+            source_code=final_html or latest_values.get("final_html", ""),
+            node_prompts=latest_values.get("node_prompts"),
+            note_document=latest_values.get("note_document"),
+            planner_output=latest_values.get("planner_output"),
+            planner_policy=latest_values.get("planner_policy"),
             turn_trace=turn_trace,
-            agent_backends=snapshot.values.get("agent_backends"),
+            agent_backends=latest_values.get("agent_backends"),
+            artifact=latest_values.get("artifact"),
+            artifact_version=latest_values.get("artifact_version"),
+            revision_plan=latest_values.get("revision_plan"),
+            revision_result=latest_values.get("revision_result"),
+            revision_status=latest_values.get("revision_status"),
+            revision_reason=str((latest_values.get("artifact_version") or {}).get("revision_reason") or (latest_values.get("revision_plan") or {}).get("reason") or ""),
         ),
     })
     return

@@ -161,9 +161,113 @@ export interface InspectorSummary {
   builder?: BuilderSummary
   facts?: Record<string, unknown>
   retrieval?: Record<string, unknown>
+  artifact?: {
+    artifact_id?: string
+    artifact_type?: string
+    current_version_id?: string
+    current_snapshot_id?: string
+    status?: string
+    parent_version_id?: string
+    revision_reason?: string
+    [key: string]: unknown
+  }
+  agentic?: {
+    current_stage?: string
+    current_agent?: string
+    selected_skills?: string[]
+    recommended_skills?: string[]
+    skill_trace_count?: number
+    failure_point?: string
+    knowledge_version?: string
+    agents?: Array<{
+      name?: string
+      selected_skills?: string[]
+      execution_result?: string
+      tool_plan?: Array<Record<string, unknown>>
+      fallback?: Array<unknown>
+    }>
+    [key: string]: unknown
+  }
   assets?: Record<string, unknown>
+  revision?: {
+    status?: string
+    needs_revision?: boolean
+    revision_reason?: string
+    target_block_id?: string | null
+    changed_block_count?: number
+    failure_reason?: string
+    [key: string]: unknown
+  }
   suggestions?: string[]
   [key: string]: unknown
+}
+
+export interface ArtifactSummary {
+  artifact_id: string
+  artifact_type?: string
+  current_version_id?: string
+  current_snapshot_id?: string
+  title?: string
+  status?: string
+}
+
+export interface ArtifactVersion {
+  version_id: string
+  parent_version_id?: string | null
+  snapshot_id?: string
+  checkpoint_id?: string | null
+  revision_reason?: string
+  changed_blocks?: ChangedBlockTrace[]
+  assets_delta?: NoteDocumentAsset[]
+  knowledge_version?: string
+  created_at?: string
+  artifact_id?: string
+}
+
+export interface RevisionPlan {
+  recipe_id: string
+  label?: string
+  prompt?: string
+  reason?: string
+  scope?: 'selected_block' | 'global_canvas' | string
+  target_block_id?: string | null
+  target_block_type?: string | null
+  operation_type?: string
+  allowed_change_surface?: string[]
+  expected_effect?: string
+  expected_blocks?: string[]
+  primary_recipe?: {
+    label?: string
+    prompt?: string
+    scope?: string
+    why_now?: string
+    expected_effect?: string
+    expected_blocks?: string[]
+  }
+}
+
+export interface RevisionResult {
+  status?: string
+  changed_blocks?: ChangedBlockTrace[]
+  assets_delta?: NoteDocumentAsset[]
+  failure_reason?: string
+  worker_name?: string
+  revision_reason?: string
+}
+
+export interface RevisionStatus {
+  status?: string
+  needs_revision?: boolean
+  primary_recipe?: {
+    label?: string
+    prompt?: string
+    scope?: string
+    why_now?: string
+    expected_effect?: string
+    expected_blocks?: string[]
+  } | null
+  suggestion_count?: number
+  failure_reason?: string
 }
 
 export interface BenchmarkOverview {
@@ -337,7 +441,7 @@ export interface TurnTrace {
   timeline?: TurnTraceEvent[]
   status_timeline?: string[]
   changed_blocks?: ChangedBlockTrace[]
-  note_editor?: ExecutionTrace
+  composition_worker?: ExecutionTrace
   workspace_action?: ExecutionTrace
   component_builder?: Record<string, Record<string, unknown>>
   agent_plan?: {
@@ -369,6 +473,21 @@ export interface TurnTrace {
       expected_blocks?: string[]
     }>
   }
+  revision?: {
+    status?: string
+    reason?: string
+    scope?: string
+    target_block_id?: string | null
+    changed_blocks?: ChangedBlockTrace[]
+    failure_reason?: string
+  }
+  agentic_runtime?: {
+    current_stage?: string
+    current_agent?: string
+    selected_skills?: string[]
+    failure_point?: string
+    [key: string]: unknown
+  }
   [key: string]: unknown
 }
 
@@ -390,6 +509,11 @@ export interface TraceExportBundle {
   checkpoint_history?: Array<Record<string, unknown>>
   agent_backends?: AgentBackends
   inspector_summary?: InspectorSummary
+  artifact?: ArtifactSummary
+  artifact_version?: ArtifactVersion
+  revision_plan?: RevisionPlan
+  revision_result?: RevisionResult
+  revision_status?: RevisionStatus
   retrieval?: Record<string, unknown>
   document?: Record<string, unknown>
   [key: string]: unknown
@@ -406,6 +530,7 @@ export interface RetrievedKnowledge {
     missing_user_inputs?: string[]
     review_required?: boolean
     knowledge_budget?: number
+    recommended_skills?: string[]
     retrieval_profile?: string
     field_labels?: Record<string, string>
     entity_name?: string
@@ -518,6 +643,11 @@ export interface AgentMeta {
   scenarios?: string[]
   has_controversy?: boolean
   needs_disambiguation?: boolean
+  artifact?: ArtifactSummary
+  artifact_version?: ArtifactVersion
+  revision_plan?: RevisionPlan
+  revision_result?: RevisionResult
+  revision_status?: RevisionStatus
   agent_backends?: AgentBackends
   turn_trace?: TurnTrace
   inspector_summary?: InspectorSummary
@@ -688,6 +818,11 @@ export interface ChatMessage {
   /** 时间胶囊：该轮生成的 HTML 源码 */
   sourceCode?: string
   noteDocument?: NoteDocument
+  artifact?: ArtifactSummary
+  artifactVersion?: ArtifactVersion
+  revisionPlan?: RevisionPlan
+  revisionResult?: RevisionResult
+  revisionStatus?: RevisionStatus
   plannerOutput?: PlannerOutput
   plannerPolicy?: PlannerPolicy
   agentBackends?: AgentBackends
@@ -725,6 +860,17 @@ export interface WSEvent {
   htmlPreview?: string
   note_document?: NoteDocument
   noteDocument?: NoteDocument
+  artifact?: ArtifactSummary
+  artifact_version?: ArtifactVersion
+  artifactVersion?: ArtifactVersion
+  revision_plan?: RevisionPlan
+  revisionPlan?: RevisionPlan
+  revision_result?: RevisionResult
+  revisionResult?: RevisionResult
+  revision_status?: RevisionStatus
+  revisionStatus?: RevisionStatus
+  revision_reason?: string
+  revisionReason?: string
   planner_output?: PlannerOutput
   plannerOutput?: PlannerOutput
   planner_policy?: PlannerPolicy

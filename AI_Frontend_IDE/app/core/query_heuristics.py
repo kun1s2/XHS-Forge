@@ -148,12 +148,8 @@ def looks_like_existing_canvas_edit(user_text: str | None) -> bool:
 
 def infer_existing_canvas_edit_route(user_text: str | None) -> str:
     if wants_image_search(user_text):
-        return "retrieval_agent"
-    if contains_any_token(user_text, STYLE_ROUTE_TOKENS):
-        return "theme_compiler"
-    if contains_any_token(user_text, STRUCTURE_ROUTE_TOKENS):
-        return "structure_node"
-    return "composition_agent"
+        return "retrieval_worker"
+    return "composition_worker"
 
 
 def mentions_paragraph_reference(user_text: str | None) -> bool:

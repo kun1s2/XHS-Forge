@@ -55,8 +55,8 @@ def _build_theme(primary: str, accent: str, bg: str = "#fff8f7") -> dict[str, An
 
 MATE_HERO_A = "/demo-assets/mate-hero-a.jpg"
 MATE_HERO_B = "/demo-assets/mate-hero-b.jpg"
-PHONE_ALT_A = "/demo-assets/travel-hero-a.jpg"
-PHONE_ALT_B = "/demo-assets/travel-hero-b.jpg"
+PHONE_ALT_A = "/demo-assets/mate-hero-a.jpg"
+PHONE_ALT_B = "/demo-assets/mate-hero-b.jpg"
 LAPTOP_ALT = "/demo-assets/daily-hero.jpg"
 EARBUD_ALT = "/demo-assets/daily-coffee.jpg"
 

@@ -4,6 +4,8 @@
 import type {
   AgentNarrativeCard,
   AgentBackends,
+  ArtifactSummary,
+  ArtifactVersion,
   ChangedBlockTrace,
   ConversationCheckpointAction,
   ConversationCheckpointOption,
@@ -14,6 +16,9 @@ import type {
   NoteDocumentBlock,
   PlannerOutput,
   PlannerPolicy,
+  RevisionPlan,
+  RevisionResult,
+  RevisionStatus,
   RetrievedKnowledge,
   ShowcaseProfile,
   TurnTrace,
@@ -70,15 +75,16 @@ const componentLabelMap: Record<string, string> = {
 
 const archetypeLabels: Record<string, string> = {
   seeding: '数码购买决策档案',
-  general: '数码购买决策档案',
 }
 
 const statusFallbackByNode: Record<string, string> = {
-  intent_agent: '我正在理解你这轮到底想把页面往哪个方向推进。',
-  research_agent: '我正在补搜这轮最关键的外部信息。',
-  note_editor: '我正在按你的要求定向修改页面内容。',
-  theme_compiler: '我正在把结构和视觉细节收得更完整。',
-  document_renderer: '我正在把最新页面打包成可预览版本。',
+  supervisor_agent: '我正在判断这轮最该先推进哪一步。',
+  intent_worker: '我正在理解你这轮到底想把档案往哪个方向推进。',
+  retrieval_worker: '我正在补搜这轮最关键的参数、证据或图片。',
+  review_worker: '我正在整理待审知识和冲突事实。',
+  asset_worker: '我正在补齐这轮最缺的图片和素材。',
+  composition_worker: '我正在按你的要求定向修改购买决策档案。',
+  critique_worker: '我正在复盘当前成品还有哪些缺口。',
 }
 
 export const pickCheckpointId = (data: WsData) => (
@@ -99,18 +105,27 @@ export const pickPlannerPolicy = (data: WsData): PlannerPolicy => (data.planner_
 export const pickAgentBackends = (data: WsData): AgentBackends => (data.agent_backends ?? data.agentBackends ?? {}) as AgentBackends
 export const pickTurnTrace = (data: WsData): TurnTrace => (data.turn_trace ?? data.turnTrace ?? {}) as TurnTrace
 export const pickInspectorSummary = (data: WsData): InspectorSummary => (data.inspector_summary ?? data.inspectorSummary ?? {}) as InspectorSummary
+export const pickArtifact = (data: WsData): ArtifactSummary | null => ((data.artifact ?? null) as ArtifactSummary | null)
+export const pickArtifactVersion = (data: WsData): ArtifactVersion | null => ((data.artifact_version ?? data.artifactVersion ?? null) as ArtifactVersion | null)
+export const pickRevisionPlan = (data: WsData): RevisionPlan | null => ((data.revision_plan ?? data.revisionPlan ?? null) as RevisionPlan | null)
+export const pickRevisionResult = (data: WsData): RevisionResult | null => ((data.revision_result ?? data.revisionResult ?? null) as RevisionResult | null)
+export const pickRevisionStatus = (data: WsData): RevisionStatus | null => ((data.revision_status ?? data.revisionStatus ?? null) as RevisionStatus | null)
 
-export const getRecentlyChangedBlockIds = (trace: TurnTrace | null | undefined) => {
+export const getRecentlyChangedBlockIds = (trace: TurnTrace | null | undefined, artifactVersion?: ArtifactVersion | null) => {
   const ids = new Set<string>()
-  const changedBlocks = Array.isArray(trace?.changed_blocks) ? (trace.changed_blocks as ChangedBlockTrace[]) : []
+  const artifactChangedBlocks = Array.isArray(artifactVersion?.changed_blocks)
+    ? (artifactVersion?.changed_blocks as ChangedBlockTrace[])
+    : []
+  const traceChangedBlocks = Array.isArray(trace?.changed_blocks) ? (trace.changed_blocks as ChangedBlockTrace[]) : []
+  const changedBlocks = artifactChangedBlocks.length ? artifactChangedBlocks : traceChangedBlocks
 
   for (const item of changedBlocks) {
     const id = String(item?.id || '').trim()
     if (id && id !== 'global') ids.add(id)
   }
 
-  const noteEditorTarget = String(trace?.note_editor?.target_block_id || trace?.note_editor?.block_id || '').trim()
-  if (noteEditorTarget && noteEditorTarget !== 'global') ids.add(noteEditorTarget)
+  const compositionTarget = String(trace?.composition_worker?.target_block_id || trace?.composition_worker?.block_id || '').trim()
+  if (compositionTarget && compositionTarget !== 'global') ids.add(compositionTarget)
 
   const workspaceTarget = String(trace?.workspace_action?.target_block_id || trace?.workspace_action?.block_id || '').trim()
   if (workspaceTarget && workspaceTarget !== 'global') ids.add(workspaceTarget)
@@ -159,7 +174,7 @@ export const buildAgentPlanCard = (params: {
     }
   }
 
-  const active = String(trace.route?.active_archetype || 'general')
+  const active = String(trace.route?.active_archetype || 'seeding')
   const archetypeLabel = archetypeLabels[active] || '内容页'
   return {
     title: `我先按${archetypeLabel}的思路把这页搭起来`,
@@ -260,9 +275,10 @@ export const buildRecentlyChangedBlockDetails = (
   previousDoc: NoteDocument | null | undefined,
   nextDoc: NoteDocument | null | undefined,
   trace: TurnTrace | null | undefined,
+  artifactVersion?: ArtifactVersion | null,
 ) => {
   const result: Record<string, RecentBlockHighlight> = {}
-  const changedIds = getRecentlyChangedBlockIds(trace)
+  const changedIds = getRecentlyChangedBlockIds(trace, artifactVersion)
 
   for (const blockId of changedIds) {
     const previousBlock = getDocumentBlockById(previousDoc, blockId)
@@ -294,8 +310,8 @@ export const buildRecentlyChangedBlockDetails = (
         || valuesDiffer(previousProps.option_cards, nextProps.option_cards)
       ) meta.fields.push('options')
     } else if (componentType === 'StoryText') {
-      const paragraphIndex = Number(trace?.note_editor?.paragraph_index)
-      if (Number.isInteger(paragraphIndex) && paragraphIndex >= 0 && String(trace?.note_editor?.target_block_id || '') === blockId) {
+      const paragraphIndex = Number(trace?.composition_worker?.paragraph_index)
+      if (Number.isInteger(paragraphIndex) && paragraphIndex >= 0 && String(trace?.composition_worker?.target_block_id || '') === blockId) {
         meta.fields.push('paragraphs')
         meta.paragraph_indices = [paragraphIndex]
       } else {
@@ -411,7 +427,7 @@ export const getPreferredScenarioTags = (
       .map(([name]) => String(name))
     if (inferred.length) return inferred
   }
-  return ['general']
+  return ['seeding']
 }
 
 export const getPreferredPatchTracks = (
@@ -483,7 +499,7 @@ export const resolveComparablePage = (doc: NoteDocument | null | undefined) => {
   return {} as Record<string, any>
 }
 
-export const buildLegacyStyleDataFromDocument = (doc?: NoteDocument | null) => {
+export const buildRenderStyleDataFromDocument = (doc?: NoteDocument | null) => {
   const blocks = getDocumentBlocks(doc)
   if (!blocks.length) return {} as Record<string, any>
   const blockStyles = Object.fromEntries(blocks.map((block: Record<string, any>) => [block.id, block.style || {}]))
@@ -500,7 +516,7 @@ export const getPreferredRenderPageData = (doc: NoteDocument | null | undefined)
 }
 
 export const getPreferredRenderStyleData = (doc: NoteDocument | null | undefined) => {
-  const fromDoc = buildLegacyStyleDataFromDocument(doc)
+  const fromDoc = buildRenderStyleDataFromDocument(doc)
   if (Object.keys(fromDoc).length > 0) return fromDoc
   return {} as Record<string, any>
 }

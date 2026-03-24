@@ -194,7 +194,7 @@
                 <span class="text-[10px] uppercase tracking-[0.18em] text-gray-500">系统提示词追踪</span>
               </div>
               <div class="text-[14px] font-bold text-gray-100">查看本轮真正参与决策的提示词快照</div>
-              <p class="max-w-3xl text-[11px] leading-relaxed text-gray-500">面板现在优先展示 `planner / note_editor / intent` 的 prompt snapshot。如果某个关键节点没有覆盖，你会在下面直接看到缺口。</p>
+              <p class="max-w-3xl text-[11px] leading-relaxed text-gray-500">面板现在优先展示 `supervisor / intent_worker / retrieval_worker / composition_worker` 的 prompt snapshot。如果某个关键环节没有覆盖，你会在下面直接看到缺口。</p>
             </div>
             <div class="grid min-w-[240px] grid-cols-2 gap-2 sm:min-w-[320px]">
               <div class="rounded-2xl border border-cyan-800/20 bg-cyan-950/10 px-3 py-2.5">
@@ -292,7 +292,7 @@
           <div v-else class="mt-8 flex h-[calc(100vh-260px)] w-full flex-col items-center justify-center gap-4 text-center text-gray-600">
             <span class="text-4xl opacity-20">🧪</span>
             <div class="text-[13px] font-bold text-gray-300">当前还没有可展示的提示词快照</div>
-            <p class="max-w-lg text-[11px] leading-relaxed text-gray-500">如果你刚完成了一轮生成或编辑，但这里仍然是空的，优先检查这轮是否真的命中了 `planner` 或 `note_editor`，或者你开启了筛选后把所有消息都过滤掉了。</p>
+            <p class="max-w-lg text-[11px] leading-relaxed text-gray-500">如果你刚完成了一轮生成或编辑，但这里仍然是空的，优先检查这轮是否真的命中了 `supervisor` 或 `composition_worker`，或者你开启了筛选后把所有消息都过滤掉了。</p>
           </div>
         </div>
       </div>
@@ -450,7 +450,7 @@ const promptEntries = computed(() =>
     messages: normalizePromptMessages(messages),
   }))
 )
-const promptExpectedNodes = ['planner_agent', 'note_editor', 'intent_agent', 'structure_node', 'component_builder', 'patch_doctor']
+const promptExpectedNodes = ['supervisor_agent', 'intent_worker', 'retrieval_worker', 'composition_worker', 'critique_worker']
 const promptCoverage = computed(() => {
   const present = new Set(promptEntries.value.map(entry => entry.node))
   return promptExpectedNodes.map((node) => ({
@@ -481,10 +481,11 @@ const promptBundleText = computed(() =>
     .join('\n\n====\n\n')
 )
 const humanizePromptNode = (node: string) => ({
-  planner_agent: '策略规划',
-  note_editor: '编辑主脑',
-  intent_agent: '意图网关',
-  structure_node: '结构布局',
+  supervisor_agent: '总控协调',
+  intent_worker: '意图解析',
+  retrieval_worker: '证据检索',
+  composition_worker: '内容编辑',
+  critique_worker: '结果复盘',
 }[node] || node)
 
 // 监听 iframe 传来的 hover/select 事件 (现在不通过 iframe，但保留以便兼容)

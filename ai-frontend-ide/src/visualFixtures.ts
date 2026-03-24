@@ -56,8 +56,8 @@ const buildTheme = (primary: string, accent: string, bg = '#fff8f7') => ({
 
 const mateHeroA = '/demo-assets/mate-hero-a.jpg'
 const mateHeroB = '/demo-assets/mate-hero-b.jpg'
-const digitalAltA = '/demo-assets/travel-hero-a.jpg'
-const digitalAltB = '/demo-assets/travel-hero-b.jpg'
+const digitalAltA = '/demo-assets/mate-hero-a.jpg'
+const digitalAltB = '/demo-assets/mate-hero-b.jpg'
 const digitalLifestyle = '/demo-assets/daily-hero.jpg'
 const digitalDesk = '/demo-assets/daily-coffee.jpg'
 

@@ -29,7 +29,7 @@ class ScenarioManager:
                     config = json.load(f)
                 
                 # 加载专用 Prompt
-                prompt_path = scenario_dir / "prompts.xml"
+                prompt_path = scenario_dir / "prompt.md"
                 prompt_content = ""
                 if prompt_path.exists():
                     with open(prompt_path, "r", encoding="utf-8") as f:
@@ -51,7 +51,7 @@ class ScenarioManager:
         return self.scenarios.get(scenario_id, self.scenarios.get(fallback, {})).get("config", {})
 
     def get_prompt(self, scenario_id: str) -> str:
-        """【专属提示词网关】：获取场景插件的 prompts.xml 内容"""
+        """【专属提示词网关】：获取场景插件的 prompt.md 内容"""
         fallback = self._fallback_scenario()
         return self.scenarios.get(scenario_id, self.scenarios.get(fallback, {})).get("prompt", "")
 

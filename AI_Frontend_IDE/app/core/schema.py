@@ -29,7 +29,7 @@ class OutlineOutput(BaseModel):
     blocks: List[UIBlock] = Field(..., description="自上而下、一维线性排布的 UI 积木区块列表")
     
     # ✅ 已重构：ArchetypeEnum -> str
-    detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
+    detected_archetype: str = Field(default="seeding", description="本次排版最终确定的业务原型 ID")
 
 class ComponentData(BaseModel):
     """组件参数规范 (ComponentPayload)"""
@@ -157,7 +157,7 @@ class StructurePatchOutput(BaseModel):
     components: Dict[str, ComponentData] = Field(..., description="组件的具体数据负载")
     
     # ✅ 已重构：ArchetypeEnum -> str
-    detected_archetype: str = Field(default="general", description="本次排版最终确定的业务原型 ID")
+    detected_archetype: str = Field(default="seeding", description="本次排版最终确定的业务原型 ID")
 
 class SurgicalPatchOutput(BaseModel):
     """【手术刀模式】专用输出模型：仅修改单个组件内容"""
@@ -229,7 +229,7 @@ class ScenarioPolicy(BaseModel):
     weight: float = 0.0
     tone_bias: str = "balanced"
     asset_policy: str = "reuse_first"
-    theme_preset: str = "general_editorial"
+    theme_preset: str = "digital_purchase_editorial"
     interaction_bias: str = "medium"
     preferred_block_intents: List[str] = Field(default_factory=list)
 

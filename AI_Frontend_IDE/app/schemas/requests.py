@@ -24,7 +24,7 @@ class ChatWSPayload(BaseModel):
     panel: str = Field("main", description="当前所在的对话面板")
     # 【核心游标】：如果不传，顺延最新节点；如果传了，从该历史节点开启软分叉覆盖！
     parent_checkpoint_id: Optional[str] = Field(None, description="要回滚到的父级历史节点 ID")
-    # 接收前端传来的锁定组件 ID，供 structure_node / theme_compiler 做局部修改
+    # 接收前端传来的锁定组件 ID，供 composition_worker 做局部修改
     selected_element_id: Optional[str] = Field(None, description="当前在画布中锁定的组件ID")
     # 当前线程资产池：这是本轮图片上下文的唯一真相源，每次发信覆盖 state.image_assets
     current_assets: Optional[List[Dict[str, Any]]] = Field(

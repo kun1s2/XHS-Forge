@@ -52,7 +52,7 @@ def summarize_node_output(node_name: str, output: Any) -> str:
 
     summary_parts: list[str] = []
 
-    if node_name == 'document_renderer':
+    if node_name in {'supervisor_agent', 'composition_worker'}:
         html = output.get('final_html') or ''
         oss_url = output.get('final_oss_url') or ''
         note_document = output.get('note_document') or {}
@@ -86,16 +86,16 @@ def summarize_node_output(node_name: str, output: Any) -> str:
 
 def summarize_turn_completion(turn_trace: dict[str, Any] | None, after_values: dict[str, Any] | None) -> str:
     trace = turn_trace or {}
-    note_editor = (trace.get('note_editor') or {}) if isinstance(trace, dict) else {}
+    composition_trace = (trace.get('composition_worker') or {}) if isinstance(trace, dict) else {}
     workspace_action = (trace.get('workspace_action') or {}) if isinstance(trace, dict) else {}
-    execution = note_editor or workspace_action
+    execution = composition_trace or workspace_action
     after = after_values or {}
     note_document = (after.get('note_document') or {}) if isinstance(after.get('note_document'), dict) else {}
     blocks = note_document.get('blocks') or []
     warnings = trace.get('warnings') or []
     changed_blocks = trace.get('changed_blocks') or []
     action = execution.get('action') or 'unknown'
-    target = execution.get('target_block_id') or note_editor.get('block_id') or trace.get('selected_element_id') or 'global'
+    target = execution.get('target_block_id') or composition_trace.get('block_id') or trace.get('selected_element_id') or 'global'
     return (
         f'action={action} | target={target} | '
         f'blocks={len(blocks)} | changed={len(changed_blocks)} | warnings={len(warnings)}'

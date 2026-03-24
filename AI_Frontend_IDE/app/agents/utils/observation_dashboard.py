@@ -1,8 +1,7 @@
 from typing import Dict, Any, List
-from app.agents.state import UIProjectState
 from app.core.note_document import build_note_document_layout_from_state
 
-def generate_observation_dashboard(state: UIProjectState) -> str:
+def generate_observation_dashboard(state: dict[str, Any]) -> str:
     """
     【面试亮点】：ReAct 核心组件 —— 动态环境观测仪表盘。
     将复杂的状态机数据脱水为 Agent 易于理解的战术概览。

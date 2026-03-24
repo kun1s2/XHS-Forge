@@ -21,8 +21,8 @@ const UPDATE_BASELINE = process.argv.includes('--update')
 
 const fixtures = [
   { id: 'seeding_compare', label: '数码对比种草' },
-  { id: 'travel_story', label: '旅行生活方式页' },
-  { id: 'daily_share', label: '日常分享页' },
+  { id: 'seeding_camera_focus', label: '数码影像焦点页' },
+  { id: 'seeding_budget_pick', label: '数码预算决策页' },
   { id: 'knowledge_digest', label: '知识摘要与时间线页' },
   { id: 'all_blocks_gallery', label: '全积木总览页' },
 ]

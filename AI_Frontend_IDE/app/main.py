@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.persistence import generate_checkpointer, generate_store,generate_vector_store
-from app.agents.graph import compile_my_graph
+from app.agents.runtime import build_supervisor_runtime
 from app.services.cache_service import sync_risk_words_from_cloud, scheduled_risk_sync_task
 
 # 导入拆分好的路由
@@ -39,8 +39,8 @@ async def lifespan(app: FastAPI):
                generate_store() as store, \
                generate_vector_store() as vector_store: # <--- 你的自定义上下文
         
-        # 挂载图引擎
-        app.state.agent = compile_my_graph(checkpointer, store)
+        # 挂载正式 supervisor runtime
+        app.state.agent = build_supervisor_runtime(checkpointer, store)
         app.state.store = store
         knowledge_hub_service.bind_store(store)
         # 挂载全局唯一的向量数据库实例

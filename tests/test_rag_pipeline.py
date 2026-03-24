@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from app.core.schema import FocusedKnowledge
 from app.services.mock_rag_service import retrieve_from_mock_db
 from app.services.cache_service import CacheService
-from app.agents.nodes.research_agent import research_agent
+from app.agents.services.research_service import research_service
 from app.agents.state import UIProjectState
 from app.api.workspace import inspect_agent_state
 
@@ -51,7 +51,7 @@ def test_focused_knowledge_schema():
 
 @pytest.mark.asyncio
 @patch.dict(
-    "app.agents.nodes.research_agent.TOOL_POOL",
+    "app.agents.services.research_service.TOOL_POOL",
     {
         "network_search": MagicMock(
             ainvoke=AsyncMock(side_effect=[
@@ -61,8 +61,8 @@ def test_focused_knowledge_schema():
         )
     },
 )
-@patch("app.agents.nodes.research_agent.search_network_structured_async", new_callable=AsyncMock)
-@patch("app.agents.nodes.research_agent.search_google_images", new_callable=AsyncMock)
+@patch("app.agents.services.research_service.search_network_structured_async", new_callable=AsyncMock)
+@patch("app.agents.services.research_service.search_google_images", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.get_hot_knowledge", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.match_trends_in_text", new_callable=AsyncMock)
 async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowledge, mock_search_google_images, mock_structured_search):
@@ -86,7 +86,7 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
     }
     
     # 3. 触发节点（执行必须是阻塞的）
-    result = await research_agent(state)
+    result = await research_service(state)
     
     # 4. 生死断言：检查状态机是否被同步更新
     assert result["retrieved_knowledge"] is not None
@@ -109,13 +109,13 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
     assert "missing_fields_before_followup" in result["retrieved_knowledge"]["retrieval_summary"]
     assert "followup_search_used" in result["retrieved_knowledge"]["retrieval_summary"]
     assert result["image_assets"] == []
-    assert result["agent_backends"]["research_agent"] == "deterministic_tool_orchestrator"
+    assert result["agent_backends"]["retrieval_service"] == "deterministic_tool_orchestrator"
     print("\n✅ [时序校验通过]: research_node 已阻塞完成并成功回填 State。")
 
 
 @pytest.mark.asyncio
 @patch.dict(
-    "app.agents.nodes.research_agent.TOOL_POOL",
+    "app.agents.services.research_service.TOOL_POOL",
     {
         "network_search": MagicMock(
             ainvoke=AsyncMock(side_effect=[
@@ -125,11 +125,11 @@ async def test_research_node_blocking_flow(mock_match_trends, mock_get_hot_knowl
         )
     },
 )
-@patch("app.agents.nodes.research_agent.search_network_structured_async", new_callable=AsyncMock)
-@patch("app.agents.nodes.research_agent.search_google_images", new_callable=AsyncMock)
+@patch("app.agents.services.research_service.search_network_structured_async", new_callable=AsyncMock)
+@patch("app.agents.services.research_service.search_google_images", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.get_hot_knowledge", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.match_trends_in_text", new_callable=AsyncMock)
-async def test_research_node_can_infer_asset_search_from_query_without_legacy_intent(mock_match_trends, mock_get_hot_knowledge, mock_search_google_images, mock_structured_search):
+async def test_research_node_can_infer_asset_search_from_query(mock_match_trends, mock_get_hot_knowledge, mock_search_google_images, mock_structured_search):
     mock_match_trends.return_value = []
     mock_get_hot_knowledge.return_value = None
     mock_search_google_images.return_value = ["https://img.example/mate60.jpg"]
@@ -139,7 +139,7 @@ async def test_research_node_can_infer_asset_search_from_query_without_legacy_in
     ]
 
     from langchain_core.messages import HumanMessage
-    result = await research_agent({
+    result = await research_service({
         "main_messages": [HumanMessage(content="帮我搜几张 Mate 60 实拍图")],
         "active_panel": "main",
         "retrieved_knowledge": None,
@@ -148,12 +148,12 @@ async def test_research_node_can_infer_asset_search_from_query_without_legacy_in
     assert result["image_assets"] == [{"url": "https://img.example/mate60.jpg", "desc": "Mate 60 实拍图"}]
     assert result["retrieved_knowledge"]["retrieval_summary"]["image_count"] == 1
     assert result["retrieved_knowledge"]["retrieval_summary"]["asset_mode"] == "search"
-    assert result["agent_backends"]["research_agent"] == "deterministic_tool_orchestrator"
+    assert result["agent_backends"]["retrieval_service"] == "deterministic_tool_orchestrator"
 
 
 @pytest.mark.asyncio
 @patch.dict(
-    "app.agents.nodes.research_agent.TOOL_POOL",
+    "app.agents.services.research_service.TOOL_POOL",
     {
         "network_search": MagicMock(
             ainvoke=AsyncMock(side_effect=[
@@ -163,8 +163,8 @@ async def test_research_node_can_infer_asset_search_from_query_without_legacy_in
         )
     },
 )
-@patch("app.agents.nodes.research_agent.search_network_structured_async", new_callable=AsyncMock)
-@patch("app.agents.nodes.research_agent.search_google_images", new_callable=AsyncMock)
+@patch("app.agents.services.research_service.search_network_structured_async", new_callable=AsyncMock)
+@patch("app.agents.services.research_service.search_google_images", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.get_hot_knowledge", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.match_trends_in_text", new_callable=AsyncMock)
 async def test_research_node_uses_digital_retrieval_profile_for_seeding(
@@ -188,7 +188,7 @@ async def test_research_node_uses_digital_retrieval_profile_for_seeding(
     ]
 
     from langchain_core.messages import HumanMessage
-    result = await research_agent({
+    result = await research_service({
         "main_messages": [HumanMessage(content="帮我做一篇华为 Mate 60 的数码测评")],
         "active_panel": "main",
         "active_archetype": "seeding",
@@ -210,13 +210,13 @@ async def test_research_node_uses_digital_retrieval_profile_for_seeding(
 
 
 @pytest.mark.asyncio
-@patch("app.services.trend_pipeline.research_agent", new_callable=AsyncMock)
+@patch("app.services.trend_pipeline.research_service", new_callable=AsyncMock)
 @patch("app.services.cache_service.cache_service.set_hot_knowledge", new_callable=AsyncMock)
-async def test_trend_pipeline_preload_persists_retrieval_eval_and_records(mock_set_hot_knowledge, mock_research_agent):
+async def test_trend_pipeline_preload_persists_retrieval_eval_and_records(mock_set_hot_knowledge, mock_research_service):
     from app.services.trend_pipeline import TrendPipeline
 
     pipeline = TrendPipeline()
-    mock_research_agent.return_value = {
+    mock_research_service.return_value = {
         "retrieved_knowledge": {
             "entity_name": "Mate 60",
             "fact_sources": [
@@ -266,7 +266,7 @@ def test_glassbox_inspect_api():
     """验证前端能否顺利偷窥 Agent 脑电图"""
     test_thread_id = "test_case_001"
     mock_values = {
-        "intent_route": "research_agent",
+            "intent_route": "retrieval_worker",
         "creator_persona": "硬核数码博主",
         "retrieved_knowledge": {"entity_name": "小米 17 Ultra", "summary": "热缓存命中"}
     }
@@ -282,7 +282,7 @@ def test_glassbox_inspect_api():
 
     assert data["status"] == "success"
     assert data["data"]["checkpoint_id"] == "ckpt_test"
-    assert data["data"]["intent_route"] == "research_agent"
+    assert data["data"]["intent_route"] == "retrieval_worker"
     assert data["data"]["creator_persona"] == "硬核数码博主"
     assert data["data"]["retrieved_knowledge"]["entity_name"] == "小米 17 Ultra"
     print("\n✅ [白盒探针通过]: FastAPI 成功透传 Agent 决策元数据。")

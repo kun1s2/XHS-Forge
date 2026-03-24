@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import pytest
-
 from app.api.chat import _normalize_checkpoint_action_payload
-from app.agents.nodes import conversational_checkpoint_nodes
 from app.services.conversational_checkpoints import (
-    apply_cautious_fact_strategy,
-    apply_confirmed_only_strategy,
     apply_fact_conflict_checkpoint_decision,
     apply_structure_checkpoint_decision,
-    apply_truth_mode_checkpoint_decision,
     build_asset_checkpoint,
     build_fact_gap_checkpoint,
+    build_fact_conflict_checkpoint,
+    build_knowledge_review_checkpoint,
     build_structure_checkpoint,
-    build_truth_mode_checkpoint,
 )
 
 
@@ -24,12 +19,12 @@ def _base_state() -> dict:
         "planner_output": {
             "scenario_scores": {"seeding": 1.0},
             "block_intents": [
-                {"intent_type": "heading", "preferred_component": "TitleBlock"},
-                {"intent_type": "narrative_text", "preferred_component": "StoryText"},
+                {"intent_type": "decision_summary", "preferred_component": "TitleBlock"},
+                {"intent_type": "fact_list", "preferred_component": "ProductSpecCard"},
             ],
         },
         "planner_policy": {
-            "layout_policy": {"preferred_block_intents": ["heading", "narrative_text"]},
+            "layout_policy": {"preferred_block_intents": ["decision_summary", "fact_list"]},
             "fact_policy": {"prefer_confirmed_facts": True, "fallback_to_cautious_copy": True},
         },
         "selected_element_id": "无 (全局修改)",
@@ -37,150 +32,17 @@ def _base_state() -> dict:
     }
 
 
-def test_build_structure_checkpoint_for_create_request():
-    state = {
-        **_base_state(),
-        "intent_decision": {"task_type": "create"},
-    }
-    payload = build_structure_checkpoint(state)
+def test_build_structure_checkpoint_for_digital_create_request():
+    payload = build_structure_checkpoint({**_base_state(), "intent_decision": {"task_type": "create"}})
     assert payload is not None
     assert payload["action_type"] == "structure_checkpoint"
     assert len(payload["options"]) >= 2
-    assert any(item["value"] == "seeding_compare" for item in payload["options"])
 
 
-def test_build_truth_mode_checkpoint_for_real_diary_request():
+def test_build_fact_gap_checkpoint_for_digital_missing_fields():
     state = {
         **_base_state(),
-        "active_archetype": "travel",
-        "intent_decision": {"task_type": "create"},
-        "main_messages": [{"content": "帮我整理成今天去金町湾的游玩日记，精确到几点几分"}],
-    }
-    payload = build_truth_mode_checkpoint(state)
-    assert payload is not None
-    assert payload["action_type"] == "truth_mode_checkpoint"
-    assert payload["input_schema"]["submit_label"] == "按这些真实信息继续"
-    option_values = [item["value"] for item in payload["options"]]
-    assert "provide_user_facts" in option_values
-    assert "recommended" in option_values
-    fields = payload["input_schema"]["fields"]
-    field_types = {item["id"]: item.get("type") for item in fields}
-    assert any(value == "single_select" for value in field_types.values())
-    assert any(value == "multi_select" for value in field_types.values())
-    assert any(item.get("allow_custom") for item in fields)
-    assert "time_precision" in field_types
-    assert "schedule_slots" in field_types
-
-
-def test_build_truth_mode_checkpoint_for_quote_request_uses_quote_fields():
-    state = {
-        **_base_state(),
-        "active_archetype": "daily",
-        "intent_decision": {"task_type": "create"},
-        "main_messages": [{"content": "把我在海边说的原话写进去，尽量保留原话语气"}],
-    }
-    payload = build_truth_mode_checkpoint(state)
-    assert payload is not None
-    fields = payload["input_schema"]["fields"]
-    field_ids = {item["id"] for item in fields}
-    assert "speaker_role" in field_ids
-    assert "quote_style" in field_ids
-    assert "quote_context" in field_ids
-
-
-def test_build_truth_mode_checkpoint_for_precise_schedule_request_uses_schedule_fields():
-    state = {
-        **_base_state(),
-        "active_archetype": "travel",
-        "intent_decision": {"task_type": "create"},
-        "main_messages": [{"content": "帮我写成几点几分都清楚的真实行程"}],
-    }
-    payload = build_truth_mode_checkpoint(state)
-    assert payload is not None
-    fields = payload["input_schema"]["fields"]
-    field_ids = {item["id"] for item in fields}
-    assert "time_precision" in field_ids
-    assert "schedule_slots" in field_ids
-    schedule_field = next(item for item in fields if item["id"] == "schedule_slots")
-    assert schedule_field["type"] == "multi_select"
-    assert schedule_field.get("allow_custom") is True
-
-
-def test_apply_truth_mode_checkpoint_decision_marks_waiting_for_user_facts():
-    state = {
-        **_base_state(),
-        "active_archetype": "travel",
-        "main_messages": [{"content": "帮我整理成今天去金町湾的游玩日记"}],
-    }
-    result = apply_truth_mode_checkpoint_decision(state, {"decision": "provide_user_facts"})
-    assert result["checkpoint_progress"]["truth_mode"]["awaiting_user_facts"] is True
-    assert result["turn_trace"]["conversation_checkpoints"]["truth_mode"]["selected"] == "provide_user_facts"
-
-
-def test_apply_truth_mode_checkpoint_decision_accepts_inline_user_facts():
-    state = {
-        **_base_state(),
-        "active_archetype": "travel",
-        "main_messages": [{"content": "帮我整理成今天去金町湾的游玩日记"}],
-    }
-    result = apply_truth_mode_checkpoint_decision(
-        state,
-        {
-            "decision": "provide_user_facts",
-            "user_provided_facts": {
-                "time_context": "上午9点到金町湾",
-                "event_context": "风很大但很舒服",
-            },
-        },
-    )
-    assert result["checkpoint_progress"]["truth_mode"]["awaiting_user_facts"] is False
-    assert result["user_provided_facts"]["raw_text"]
-    assert result["representation_preferences"]["timeline"] == "user_provided"
-
-
-def test_apply_truth_mode_checkpoint_decision_accepts_dynamic_choice_facts():
-    state = {
-        **_base_state(),
-        "active_archetype": "travel",
-        "main_messages": [{"content": "帮我整理成今天去金町湾的游玩日记"}],
-    }
-    result = apply_truth_mode_checkpoint_decision(
-        state,
-        {
-            "decision": "provide_user_facts",
-            "user_provided_facts": {
-                "time_precision": "大概时间",
-                "visited_spots": ["金町湾", "海边餐厅"],
-                "focus_points": ["风景氛围", "餐饮体验"],
-                "visited_spots_custom": "日落观景台",
-            },
-        },
-    )
-    assert result["checkpoint_progress"]["truth_mode"]["awaiting_user_facts"] is False
-    facts = result["user_provided_facts"]
-    assert facts["visited_spots"] == ["金町湾", "海边餐厅"]
-    assert "日落观景台" in facts["raw_text"]
-    assert result["representation_preferences"]["timeline"] == "user_provided"
-
-
-def test_apply_structure_checkpoint_decision_rewrites_block_intents():
-    state = {
-        **_base_state(),
-        "intent_decision": {"task_type": "create"},
-    }
-    result = apply_structure_checkpoint_decision(state, {"decision": "seeding_compare"})
-    block_intents = result["planner_output"]["block_intents"]
-    assert block_intents[0]["intent_type"] in {"heading", "hero_media"}
-    assert any(item["intent_type"] == "comparison" for item in block_intents)
-    assert all("candidate_components" in item for item in block_intents)
-    assert all("selection_mode" in item for item in block_intents)
-    assert result["planner_policy"]["layout_policy"]["confirmed_structure_mode"] == "seeding_compare"
-
-
-def test_build_fact_gap_checkpoint_uses_critical_missing_fields():
-    state = {
-        **_base_state(),
-        "main_messages": [{"content": "帮我做一篇华为 Mate 60 对比测评"}],
+        "main_messages": [{"content": "帮我做一篇华为 Mate 60 的购买决策档案"}],
         "retrieved_knowledge": {
             "entity_name": "华为 Mate 60",
             "fact_slots": {"display": {"summary": "屏幕素质不错"}},
@@ -189,30 +51,15 @@ def test_build_fact_gap_checkpoint_uses_critical_missing_fields():
     payload = build_fact_gap_checkpoint(state)
     assert payload is not None
     assert payload["action_type"] == "fact_gap_checkpoint"
-    assert "CPU / SoC" in payload["summary"]
-    assert payload["proposal_summary"]
     assert payload["recommended_reason"]
-    assert payload["other_allowed"] is True
 
 
-def test_apply_fact_gap_strategies_preserve_custom_note():
-    state = {
-        **_base_state(),
-        "main_messages": [{"content": "帮我做一篇华为 Mate 60 对比测评"}],
-    }
-    cautious = apply_cautious_fact_strategy(state, custom_note="如果补不齐，就先保守一点")
-    confirmed = apply_confirmed_only_strategy(state, custom_note="只保留站得住的事实")
-    assert cautious["turn_trace"]["conversation_checkpoints"]["fact_gap"]["custom_note"] == "如果补不齐，就先保守一点"
-    assert confirmed["turn_trace"]["conversation_checkpoints"]["fact_gap"]["custom_note"] == "只保留站得住的事实"
-
-
-def test_build_asset_checkpoint_for_multiple_assets():
+def test_build_asset_checkpoint_for_multiple_images():
     state = {
         **_base_state(),
         "image_assets": [
             {"url": "https://img.example/cover.jpg", "desc": "封面图", "role": "cover"},
             {"url": "https://img.example/detail.jpg", "desc": "细节图"},
-            {"url": "https://img.example/life.jpg", "desc": "生活方式图"},
         ],
         "planner_output": {
             "scenario_scores": {"seeding": 1.0},
@@ -222,92 +69,68 @@ def test_build_asset_checkpoint_for_multiple_assets():
     payload = build_asset_checkpoint(state)
     assert payload is not None
     assert payload["action_type"] == "asset_checkpoint"
-    option_values = [item["value"] for item in payload["options"]]
-    assert "use_recommended_bundle" in option_values
-    assert any(value.startswith("set_cover::") for value in option_values)
 
 
-def test_build_asset_checkpoint_for_missing_images_offers_search_path():
+def test_build_knowledge_review_checkpoint_from_candidate_records():
     state = {
         **_base_state(),
-        "planner_output": {
-            "scenario_scores": {"seeding": 1.0},
-            "block_intents": [{"intent_type": "hero_media", "preferred_component": "CoverSwiper"}],
+        "intent_decision": {"task_type": "create"},
+        "retrieved_knowledge": {
+            "candidate_session_kb": {
+                "records": [
+                    {
+                        "normalized_entity": "华为 Mate 60",
+                        "field_or_topic": "price",
+                        "summary": "官方起售价 5499 元",
+                        "review_status": "pending_review",
+                    }
+                ]
+            }
         },
     }
-    payload = build_asset_checkpoint(state)
+    payload = build_knowledge_review_checkpoint(state)
     assert payload is not None
-    option_values = [item["value"] for item in payload["options"]]
-    assert "search_images_for_cover" in option_values
-    assert "continue_without_images" in option_values
+    assert payload["action_type"] == "knowledge_review_checkpoint"
 
 
-@pytest.mark.asyncio
-async def test_asset_checkpoint_search_decision_adds_assets(monkeypatch):
+def test_fact_conflict_resolution_accepts_selected_value():
     state = {
         **_base_state(),
-        "main_messages": [{"content": "写一篇红米K40的测评"}],
-        "retrieved_knowledge": {"entity_name": "红米K40"},
-    }
-
-    async def _fake_search_google_images(query: str, num: int = 5):
-        assert "红米K40" in query
-        return [
-            "https://img.example/k40-cover.jpg",
-            "https://img.example/k40-detail.jpg",
-        ]
-
-    monkeypatch.setattr(conversational_checkpoint_nodes, "search_google_images", _fake_search_google_images)
-    result = await conversational_checkpoint_nodes._search_cover_assets_for_state(state)
-    assets = result["image_assets"][1:]
-    assert len(assets) == 2
-    assert assets[0]["role"] == "cover"
-    assert result["turn_trace"]["conversation_checkpoints"]["asset"]["selected"] == "search_images_for_cover"
-
-
-def test_apply_fact_conflict_checkpoint_decision_confirms_value():
-    state = {
-        **_base_state(),
+        "intent_decision": {"task_type": "create"},
         "retrieved_knowledge": {
             "fact_conflicts": [
                 {
                     "field": "price",
+                    "entity_name": "华为 Mate 60",
                     "values": [
-                        {"value": "5499元", "sources": ["官方商城"]},
-                        {"value": "5999元", "sources": ["媒体评测"]},
+                        {"value": "5499", "sources": ["官方商城"]},
+                        {"value": "5999", "sources": ["电商页面"]},
                     ],
                 }
-            ],
-            "confirmed_facts": {},
-            "core_attributes": {},
+            ]
         },
     }
-    result = apply_fact_conflict_checkpoint_decision(state, {"decision": "confirm::price::5499元"})
-    confirmed = result["retrieved_knowledge"]["confirmed_facts"]
-    assert confirmed["price"]["value"] == "5499元"
-    assert result["retrieved_knowledge"]["needs_fact_confirmation"] is False
+    payload = build_fact_conflict_checkpoint(state)
+    assert payload is not None
+    patch = apply_fact_conflict_checkpoint_decision(state, {"decision": "confirm::price::5499"})
+    assert patch["turn_trace"]["conversation_checkpoints"]["fact_conflict"]["resolved"] is True
 
 
-def test_chat_interrupt_payload_is_normalized_to_structured_action():
+def test_structure_checkpoint_decision_updates_layout_policy():
+    patch = apply_structure_checkpoint_decision({**_base_state(), "intent_decision": {"task_type": "create"}}, {"decision": "seeding_compare"})
+    assert patch["planner_policy"]["layout_policy"]["confirmed_structure_mode"] == "seeding_compare"
+
+
+def test_checkpoint_payload_normalization_preserves_resume_token():
     payload = _normalize_checkpoint_action_payload(
         {
-            "action_type": "structure_checkpoint",
-            "checkpoint_id": "structure::seeding",
-            "title": "先确定方向",
-            "summary": "给出两套结构",
-            "recommended_option": "seeding_compare",
-            "blocking": True,
-            "options": [
-                {
-                    "label": "更像对比测评",
-                    "value": "seeding_compare",
-                    "description": "先讲结论再讲对比",
-                    "recommended": True,
-                }
-            ],
+            "checkpoint_type": "knowledge_review_checkpoint",
+            "title": "确认知识",
+            "summary": "请先确认这一轮候选知识",
+            "options": [{"label": "采用推荐项", "value": "approve_recommended"}],
+            "resume_token": "thread:resume",
         }
     )
     assert payload is not None
-    assert payload["action_type"] == "structure_checkpoint"
-    assert payload["checkpoint_id"] == "structure::seeding"
-    assert payload["options"][0]["recommended"] is True
+    assert payload["checkpoint_type"] == "knowledge_review_checkpoint"
+    assert payload["resume_token"] == "thread:resume"

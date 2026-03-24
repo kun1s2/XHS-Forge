@@ -127,6 +127,22 @@ def merge_turn_anchors(
             merged.append(dict(candidate))
     return merged
 
+
+def merge_unique_strings(
+    left: list[str] | None,
+    right: list[str] | None,
+) -> list[str]:
+    """合并字符串列表并去重，保持先后顺序稳定。"""
+    output: list[str] = []
+    seen: set[str] = set()
+    for candidate in [*(left or []), *(right or [])]:
+        value = str(candidate or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output
+
 def restore_component_version(state: Any, element_id: str, version_index: int) -> dict:
     """
     【局部回溯逻辑】：从 patch_tracks 提取快照，并构造绝对覆盖的补丁，消除幽灵数据。
@@ -190,6 +206,8 @@ class UIProjectState(TypedDict):
     note_document: Annotated[dict, merge_state_patch]
     turn_trace: Annotated[dict, merge_state_patch]
     agent_backends: Annotated[dict, merge_state_patch]
+    selected_skills: Annotated[List[str], merge_unique_strings]
+    skill_trace: Annotated[dict, merge_state_patch]
     
     # ====== ✨ 现代化进化：加入 operator.add ======
     # 全局图库资产池 [{"url": "...", "desc": "..."}]

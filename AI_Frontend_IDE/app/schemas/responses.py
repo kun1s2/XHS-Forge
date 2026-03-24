@@ -25,6 +25,11 @@ class WorkspaceDataResponse(BaseResponse):
     image_assets: List[Dict[str, Any]] = []
     node_prompts: Dict[str, Any] = {}
     note_document: Dict[str, Any] = {}
+    artifact: Dict[str, Any] = {}
+    artifact_version: Dict[str, Any] = {}
+    revision_plan: Dict[str, Any] = {}
+    revision_result: Dict[str, Any] = {}
+    revision_status: Dict[str, Any] = {}
     planner_output: Dict[str, Any] = {}
     planner_policy: Dict[str, Any] = {}
     turn_trace: Dict[str, Any] = {}
@@ -50,8 +55,8 @@ class TraceExportResponse(BaseResponse):
 class TrendItemResponse(BaseModel):
     keyword: str
     score: float = 0.0
-    scenario_hint: str = "general"
-    entity_type: str = "general_topic"
+    scenario_hint: str = "seeding"
+    entity_type: str = "product/model"
     source: str = "organic"
     freshness: str = "unknown"
     cache_freshness: str = "miss"

@@ -42,11 +42,19 @@ def build_inspector_summary(values: dict) -> dict:
     candidate_bucket = retrieved_knowledge.get("candidate_session_kb") if isinstance(retrieved_knowledge.get("candidate_session_kb"), dict) else {}
     session_bucket = retrieved_knowledge.get("session_kb") if isinstance(retrieved_knowledge.get("session_kb"), dict) else {}
     persistent_bucket = retrieved_knowledge.get("persistent_kb") if isinstance(retrieved_knowledge.get("persistent_kb"), dict) else {}
+    knowledge_plan = retrieved_knowledge.get("knowledge_plan") if isinstance(retrieved_knowledge.get("knowledge_plan"), dict) else {}
     turn_trace = values.get("turn_trace") if isinstance(values.get("turn_trace"), dict) else {}
-    note_editor_trace = turn_trace.get("note_editor") if isinstance(turn_trace.get("note_editor"), dict) else {}
+    skill_trace = values.get("skill_trace") if isinstance(values.get("skill_trace"), dict) else {}
+    artifact = values.get("artifact") if isinstance(values.get("artifact"), dict) else {}
+    artifact_version = values.get("artifact_version") if isinstance(values.get("artifact_version"), dict) else {}
+    revision_plan = values.get("revision_plan") if isinstance(values.get("revision_plan"), dict) else {}
+    revision_result = values.get("revision_result") if isinstance(values.get("revision_result"), dict) else {}
+    revision_status = values.get("revision_status") if isinstance(values.get("revision_status"), dict) else {}
+    composition_trace = turn_trace.get("composition_worker") if isinstance(turn_trace.get("composition_worker"), dict) else {}
     workspace_action_trace = turn_trace.get("workspace_action") if isinstance(turn_trace.get("workspace_action"), dict) else {}
     component_builder_trace = turn_trace.get("component_builder") if isinstance(turn_trace.get("component_builder"), dict) else {}
-    execution_trace = note_editor_trace or workspace_action_trace
+    agentic_runtime = turn_trace.get("agentic_runtime") if isinstance(turn_trace.get("agentic_runtime"), dict) else {}
+    execution_trace = composition_trace or workspace_action_trace
     warnings = [str(item) for item in (turn_trace.get("warnings") or []) if item]
     fact_bindings = list((note_document or {}).get("fact_bindings") or [])
     conflict_count = len(retrieved_knowledge.get("fact_conflicts") or [])
@@ -75,6 +83,28 @@ def build_inspector_summary(values: dict) -> dict:
     entity_name = str(retrieved_knowledge.get("entity_name") or "").strip() or "未识别主体"
     last_action = str(execution_trace.get("action") or "")
     status = "attention" if warnings or conflict_count else ("active" if blocks else "idle")
+    selected_skills: list[str] = []
+    for candidate in list(values.get("selected_skills") or []) + list(agentic_runtime.get("selected_skills") or []):
+        text = str(candidate or "").strip()
+        if text and text not in selected_skills:
+            selected_skills.append(text)
+    for payload in skill_trace.values():
+        if not isinstance(payload, dict):
+            continue
+        for candidate in payload.get("selected_skills") or []:
+            text = str(candidate or "").strip()
+            if text and text not in selected_skills:
+                selected_skills.append(text)
+    current_agent = str(agentic_runtime.get("current_agent") or "").strip()
+    if not current_agent:
+        for key in ("critique_worker", "composition_worker", "retrieval_worker"):
+            if isinstance(turn_trace.get(key), dict):
+                current_agent = key
+                break
+    current_stage = str(agentic_runtime.get("current_stage") or current_agent or "intent_decision")
+    failure_point = str(agentic_runtime.get("failure_point") or "").strip()
+    if not failure_point and warnings:
+        failure_point = str(warnings[0])
 
     suggestions = []
     if not blocks:
@@ -126,6 +156,15 @@ def build_inspector_summary(values: dict) -> dict:
             "asset_count": len(assets),
             "fact_binding_count": len(fact_bindings),
             "theme_preset": (note_document.get("theme") or {}).get("preset") or "default",
+        },
+        "artifact": {
+            "artifact_id": str(artifact.get("artifact_id") or ""),
+            "artifact_type": str(artifact.get("artifact_type") or ""),
+            "current_version_id": str(artifact.get("current_version_id") or ""),
+            "current_snapshot_id": str(artifact.get("current_snapshot_id") or ""),
+            "status": str(artifact.get("status") or ""),
+            "parent_version_id": str(artifact_version.get("parent_version_id") or ""),
+            "revision_reason": str(artifact_version.get("revision_reason") or ""),
         },
         "execution": {
             "last_action": last_action or "暂无动作",
@@ -199,9 +238,38 @@ def build_inspector_summary(values: dict) -> dict:
             "persistent_conflict_count": len(review_queue),
             "session_knowledge_version": str(session_bucket.get("knowledge_version") or ""),
         },
+        "agentic": {
+            "current_stage": current_stage,
+            "current_agent": current_agent or "orchestrator",
+            "selected_skills": selected_skills,
+            "recommended_skills": [str(item) for item in (knowledge_plan.get("recommended_skills") or []) if str(item)],
+            "skill_trace_count": len([item for item in skill_trace.values() if isinstance(item, dict)]),
+            "failure_point": failure_point,
+            "knowledge_version": str(session_bucket.get("knowledge_version") or ""),
+            "artifact_version": str(artifact.get("current_version_id") or ""),
+            "agents": [
+                {
+                    "name": str(name),
+                    "selected_skills": [str(item) for item in (payload.get("selected_skills") or []) if str(item)],
+                    "execution_result": str(payload.get("skill_execution_result") or ""),
+                    "tool_plan": list(payload.get("skill_tool_plan") or []),
+                    "fallback": list(payload.get("skill_fallback") or []),
+                }
+                for name, payload in skill_trace.items()
+                if isinstance(payload, dict)
+            ],
+        },
         "assets": {
             "cover_count": len([asset for asset in assets if str(asset.get("role") or "") == "cover"]),
             "bound_asset_count": len([asset for asset in assets if asset.get("used_by_blocks")]),
+        },
+        "revision": {
+            "status": str(revision_status.get("status") or ""),
+            "needs_revision": bool(revision_status.get("needs_revision")),
+            "revision_reason": str(artifact_version.get("revision_reason") or revision_plan.get("reason") or ""),
+            "target_block_id": revision_plan.get("target_block_id"),
+            "changed_block_count": len(revision_result.get("changed_blocks") or []),
+            "failure_reason": str(revision_result.get("failure_reason") or revision_status.get("failure_reason") or ""),
         },
         "suggestions": suggestions,
     }
@@ -218,6 +286,13 @@ def build_trace_export_bundle(values: dict, *, thread_id: str, checkpoint_id: st
     retrieval_eval = retrieved_knowledge.get("retrieval_eval") if isinstance(retrieved_knowledge.get("retrieval_eval"), dict) else {}
     fact_sources = [item for item in (retrieved_knowledge.get("fact_sources") or []) if isinstance(item, dict)]
     turn_trace = values.get("turn_trace") if isinstance(values.get("turn_trace"), dict) else {}
+    skill_trace = values.get("skill_trace") if isinstance(values.get("skill_trace"), dict) else {}
+    selected_skills = [str(item) for item in (values.get("selected_skills") or []) if str(item)]
+    artifact = values.get("artifact") if isinstance(values.get("artifact"), dict) else {}
+    artifact_version = values.get("artifact_version") if isinstance(values.get("artifact_version"), dict) else {}
+    revision_plan = values.get("revision_plan") if isinstance(values.get("revision_plan"), dict) else {}
+    revision_result = values.get("revision_result") if isinstance(values.get("revision_result"), dict) else {}
+    revision_status = values.get("revision_status") if isinstance(values.get("revision_status"), dict) else {}
 
     block_outline = [
         {
@@ -252,6 +327,13 @@ def build_trace_export_bundle(values: dict, *, thread_id: str, checkpoint_id: st
             for name, payload in checkpoint_history
         ],
         "agent_backends": values.get("agent_backends") or {},
+        "selected_skills": selected_skills,
+        "skill_trace": skill_trace,
+        "artifact": artifact,
+        "artifact_version": artifact_version,
+        "revision_plan": revision_plan,
+        "revision_result": revision_result,
+        "revision_status": revision_status,
         "inspector_summary": build_inspector_summary(values),
         "retrieval": {
             "entity_name": str(retrieved_knowledge.get("entity_name") or ""),
@@ -377,6 +459,8 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
     review_rejected_total = 0
     review_deferred_total = 0
     persistent_conflict_total = 0
+    skill_counter: Counter = Counter()
+    agent_counter: Counter = Counter()
     cache_fresh_count = 0
     cache_stale_count = 0
     cache_age_total = 0
@@ -399,6 +483,7 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
         document = summary.get("document") if isinstance(summary.get("document"), dict) else {}
         retrieval = summary.get("retrieval") if isinstance(summary.get("retrieval"), dict) else {}
         knowledge = summary.get("knowledge") if isinstance(summary.get("knowledge"), dict) else {}
+        agentic = summary.get("agentic") if isinstance(summary.get("agentic"), dict) else {}
         execution = summary.get("execution") if isinstance(summary.get("execution"), dict) else {}
         builder = summary.get("builder") if isinstance(summary.get("builder"), dict) else {}
         focus = summary.get("focus") if isinstance(summary.get("focus"), dict) else {}
@@ -418,6 +503,13 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
         review_rejected_total += _safe_int(knowledge.get("review_rejected_count"))
         review_deferred_total += _safe_int(knowledge.get("review_deferred_count"))
         persistent_conflict_total += _safe_int(knowledge.get("persistent_conflict_count"))
+        current_agent = str(agentic.get("current_agent") or "").strip()
+        if current_agent:
+            agent_counter[current_agent] += 1
+        for skill in agentic.get("selected_skills") or []:
+            skill_name = str(skill or "").strip()
+            if skill_name:
+                skill_counter[skill_name] += 1
 
         if block_count:
             generated_session_count += 1
@@ -545,6 +637,10 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
             "review_rejected_rate": round(_ratio(review_rejected_total, max(review_approved_total + review_rejected_total + review_deferred_total, 1)), 3),
             "review_deferred_rate": round(_ratio(review_deferred_total, max(review_approved_total + review_rejected_total + review_deferred_total, 1)), 3),
             "persistent_conflict_total": persistent_conflict_total,
+        },
+        "agentic": {
+            "agents": _top_counter_rows(agent_counter, key_name="agent_name"),
+            "skills": _top_counter_rows(skill_counter, key_name="skill_name"),
         },
         "cache": {
             "cache_hit_rate": round(cache_hit_rate, 3),
@@ -700,7 +796,7 @@ def build_evaluation_overview(session_snapshots: list[dict], title_resolver) -> 
             route_decision_count += 1
             if block_count > 0 or changed_block_count > 0 or bool(retrieval.get("live_search_used")) or bool(retrieval.get("cache_hit")):
                 route_followthrough_count += 1
-        if str((values.get("agent_backends") or {}).get("intent_agent") or "") == "deterministic_fast_path":
+        if str((values.get("agent_backends") or {}).get("intent_worker") or "") == "deterministic_fast_path":
             fast_path_count += 1
 
         if block_intents:
@@ -844,7 +940,7 @@ def build_evaluation_overview(session_snapshots: list[dict], title_resolver) -> 
                 "targeted_change_rate": round(execution_targeted_rate, 3),
                 "builder_component_sessions": execution_success_count,
             },
-            summary="看 note_editor、builder、verifier 是否把改动准确落到目标区块与字段。",
+            summary="看 composition_worker、builder 和 workspace_action 是否把改动准确落到目标区块与字段。",
             recommendation=(
                 "优先降低 warning rate 与 builder fallback。"
                 if execution_score < 80 else

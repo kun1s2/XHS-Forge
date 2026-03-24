@@ -115,7 +115,8 @@ def normalize_human_content(content):
 
 
 def _extract_session_title(values: dict, thread_id: str) -> str:
-    for msg in values.get("main_messages", []) or []:
+    message_pool = (values.get("main_messages") or values.get("messages") or [])
+    for msg in message_pool:
         if not isinstance(msg, HumanMessage):
             continue
         text, _ = normalize_human_content(msg.content)
@@ -146,13 +147,12 @@ async def _aupdate_state_compat(agent, config, values, *, as_node: str):
     """
     try:
         return await agent.aupdate_state(config, values, as_node=as_node)
-    except TypeError:
+    except Exception:
         return await agent.aupdate_state(config, values)
 
 
-# 这类接口属于“工作台直接改状态”，不应该给图留下待执行尾巴。
-# 统一记在终态节点 document_renderer 上，避免后续 WebSocket 误从 verify/theme compiler/document renderer 继续自动续火。
-WORKSPACE_STATE_NODE = "document_renderer"
+# 工作台直接改状态时，统一记在 supervisor 终态上，避免遗留 worker 继续串行续跑。
+WORKSPACE_STATE_NODE = "supervisor_agent"
 
 
 def _extract_document_blocks(note_document: dict | None) -> list[dict]:
@@ -217,7 +217,7 @@ async def _record_workspace_operation(agent, config: dict, *, action: str, reaso
             "active_archetype": str(after_values.get("active_archetype") or ""),
         },
         "planner": {},
-        "note_editor": {},
+        "composition_worker": {},
         "workspace_action": {
             "action": action,
             "reason": reason,
@@ -843,6 +843,11 @@ async def get_workspace_data(thread_id: str, request: Request):
             image_assets=[],
             node_prompts={},
             note_document={},
+            artifact={},
+            artifact_version={},
+            revision_plan={},
+            revision_result={},
+            revision_status={},
             planner_output={},
             planner_policy={},
             turn_trace={},
@@ -876,7 +881,7 @@ async def get_workspace_data(thread_id: str, request: Request):
         
         checkpoints.append({
             "checkpoint_id": snapshot.config["configurable"]["checkpoint_id"],
-            "node": source_node,                     # 产生该快照的节点 (如 document_renderer)
+            "node": source_node,                     # 产生该快照的节点 (如 supervisor_agent / composition_worker)
             "intent": values.get("intent_route", ""),# 当时的路由意图
             "timestamp": timestamp_str               # 绝对精准的本轮结束时间！
         })
@@ -897,6 +902,11 @@ async def get_workspace_data(thread_id: str, request: Request):
         image_assets=dedupe_assets(values.get("image_assets", [])),
         node_prompts=values.get("node_prompts", {}),
         note_document=note_document,
+        artifact=values.get("artifact", {}),
+        artifact_version=values.get("artifact_version", {}),
+        revision_plan=values.get("revision_plan", {}),
+        revision_result=values.get("revision_result", {}),
+        revision_status=values.get("revision_status", {}),
         planner_output=values.get("planner_output", {}),
         planner_policy=values.get("planner_policy", {}),
         turn_trace=values.get("turn_trace", {}),
@@ -998,6 +1008,11 @@ async def inspect_agent_state(thread_id: str, request: Request):
         "planner_output": values.get("planner_output", {}),
         "planner_policy": values.get("planner_policy", {}),
         "note_document": values.get("note_document") or build_note_document_from_state(values),
+        "artifact": values.get("artifact", {}),
+        "artifact_version": values.get("artifact_version", {}),
+        "revision_plan": values.get("revision_plan", {}),
+        "revision_result": values.get("revision_result", {}),
+        "revision_status": values.get("revision_status", {}),
         "turn_trace": values.get("turn_trace", {}),
         "agent_backends": values.get("agent_backends", {}),
         "inspector_summary": _build_inspector_summary(values),

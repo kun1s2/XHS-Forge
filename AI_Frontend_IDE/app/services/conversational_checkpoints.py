@@ -1,13 +1,13 @@
 """聊天流内的高频协作 checkpoint 辅助模块。
 
-这里集中管理 agent 主动向用户发起的结构化协作卡：
+这里集中管理 supervisor 主动向用户发起的结构化协作卡：
 - 结构协商
 - 事实缺口
 - 素材决策
 - 事实冲突
 
 这些卡片只负责“该问什么”和“用户选了以后怎么落状态”，
-真正的图中断/恢复由节点里的 `interrupt()` 负责。
+真正的暂停/恢复由 supervisor runtime 的会话状态协议负责。
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from app.agents.state import UIProjectState
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.agents.utils.fact_utils import (
     apply_confirmed_facts_to_knowledge,
@@ -41,12 +40,14 @@ from app.services.retrieval_profiles import (
     infer_retrieval_profile,
 )
 
+RuntimeState = dict[str, Any]
 
-def _user_query(state: UIProjectState) -> str:
+
+def _user_query(state: RuntimeState) -> str:
     return latest_user_text_from_messages(state.get("main_messages", []) or [])
 
 
-def _entity_name(state: UIProjectState) -> str:
+def _entity_name(state: RuntimeState) -> str:
     knowledge = state.get("retrieved_knowledge") or {}
     return normalize_entity_name((knowledge or {}).get("entity_name") or _user_query(state))
 
@@ -85,18 +86,18 @@ def _append_custom_note(trace_payload: dict[str, Any], *, note: str | None) -> d
     return next_payload
 
 
-def _truth_mode_query_signature(state: UIProjectState) -> str:
+def _truth_mode_query_signature(state: RuntimeState) -> str:
     return _user_query(state).strip()
 
 
-def _truth_mode_progress(state: UIProjectState) -> dict[str, Any]:
+def _truth_mode_progress(state: RuntimeState) -> dict[str, Any]:
     progress = state.get("checkpoint_progress") or {}
     if not isinstance(progress, dict):
         return {}
     return dict(progress.get("truth_mode") or {})
 
 
-def _truth_mode_kind(state: UIProjectState) -> str:
+def _truth_mode_kind(state: RuntimeState) -> str:
     query = _user_query(state)
     if any(token in query for token in ["原话", "我的原话", "引用"]):
         return "quote_capture"
@@ -139,7 +140,7 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
     return ordered
 
 
-def _truth_location_candidates(state: UIProjectState) -> list[dict[str, Any]]:
+def _truth_location_candidates(state: RuntimeState) -> list[dict[str, Any]]:
     query = _user_query(state)
     entity = _entity_name(state)
     candidates = [entity]
@@ -162,7 +163,7 @@ def _truth_focus_options(kind: str, active: str) -> list[dict[str, Any]]:
     return [{"label": label, "value": label} for label in labels]
 
 
-def _truth_form_fields(state: UIProjectState, kind: str) -> list[dict[str, Any]]:
+def _truth_form_fields(state: RuntimeState, kind: str) -> list[dict[str, Any]]:
     active = str(state.get("active_archetype") or "seeding")
     if kind == "quote_capture":
         return [
@@ -310,7 +311,7 @@ def _truth_form_fields(state: UIProjectState, kind: str) -> list[dict[str, Any]]
     ]
 
 
-def build_truth_mode_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
+def build_truth_mode_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     if not state_requests_create(state):
         return None
     query = _truth_mode_query_signature(state)
@@ -380,7 +381,7 @@ def build_truth_mode_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
     }
 
 
-def apply_truth_mode_checkpoint_decision(state: UIProjectState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
+def apply_truth_mode_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
     decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
     query = _truth_mode_query_signature(state)
     user_provided_payload = normalize_user_provided_facts((decision or {}).get("user_provided_facts")) if isinstance(decision, dict) else {}
@@ -470,7 +471,7 @@ def _make_block_intent(
     }
 
 
-def _has_visual_lead(state: UIProjectState) -> bool:
+def _has_visual_lead(state: RuntimeState) -> bool:
     planner_output = state.get("planner_output") or {}
     user_query = _user_query(state)
     block_intents = list(planner_output.get("block_intents") or [])
@@ -479,7 +480,7 @@ def _has_visual_lead(state: UIProjectState) -> bool:
     )
 
 
-def _recommended_structure_options(state: UIProjectState) -> list[dict[str, Any]]:
+def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
     """根据当前场景生成 2~3 个页面骨架候选。"""
     planner_output = state.get("planner_output") or {}
     scenario_scores = planner_output.get("scenario_scores") or {}
@@ -598,7 +599,7 @@ def _recommended_structure_options(state: UIProjectState) -> list[dict[str, Any]
     ]
 
 
-def build_structure_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
+def build_structure_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     if not state_requests_create(state):
         return None
     options = _recommended_structure_options(state)
@@ -621,7 +622,7 @@ def build_structure_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
     }
 
 
-def apply_structure_checkpoint_decision(state: UIProjectState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
+def apply_structure_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
     planner_output = deepcopy(state.get("planner_output") or {})
     planner_policy = deepcopy(state.get("planner_policy") or {})
     options = _recommended_structure_options(state)
@@ -655,7 +656,7 @@ def apply_structure_checkpoint_decision(state: UIProjectState, decision: dict[st
     }
 
 
-def _critical_missing_slot_keys(state: UIProjectState) -> tuple[list[str], dict[str, Any], dict[str, str]]:
+def _critical_missing_slot_keys(state: RuntimeState) -> tuple[list[str], dict[str, Any], dict[str, str]]:
     knowledge = state.get("retrieved_knowledge") or {}
     retrieval_profile = infer_retrieval_profile(
         user_query=_user_query(state),
@@ -676,7 +677,7 @@ def _critical_missing_slot_keys(state: UIProjectState) -> tuple[list[str], dict[
     return critical_keys, retrieval_profile, slot_labels
 
 
-def _pending_candidate_groups(state: UIProjectState) -> list[dict[str, Any]]:
+def _pending_candidate_groups(state: RuntimeState) -> list[dict[str, Any]]:
     knowledge = state.get("retrieved_knowledge") or {}
     candidate_payload = (knowledge.get("candidate_session_kb") or {}) if isinstance(knowledge, dict) else {}
     groups = []
@@ -691,7 +692,7 @@ def _pending_candidate_groups(state: UIProjectState) -> list[dict[str, Any]]:
     return groups
 
 
-def build_knowledge_review_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
+def build_knowledge_review_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     if not state_requests_create(state):
         return None
     groups = _pending_candidate_groups(state)
@@ -751,7 +752,7 @@ def build_knowledge_review_checkpoint(state: UIProjectState) -> dict[str, Any] |
     }
 
 
-def apply_knowledge_review_checkpoint_decision(state: UIProjectState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
+def apply_knowledge_review_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
     decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
     custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""
     if decision_value == "approve_recommended":
@@ -789,7 +790,7 @@ def apply_knowledge_review_checkpoint_decision(state: UIProjectState, decision: 
     }
 
 
-def build_fact_gap_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
+def build_fact_gap_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     critical_keys, retrieval_profile, slot_labels = _critical_missing_slot_keys(state)
     if not critical_keys:
         return None
@@ -829,7 +830,7 @@ def build_fact_gap_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
     }
 
 
-def apply_cautious_fact_strategy(state: UIProjectState, *, custom_note: str | None = None) -> dict[str, Any]:
+def apply_cautious_fact_strategy(state: RuntimeState, *, custom_note: str | None = None) -> dict[str, Any]:
     knowledge = deepcopy(state.get("retrieved_knowledge") or {})
     retrieval_summary = dict(knowledge.get("retrieval_summary") or {})
     retrieval_summary["weak_result_mode"] = "cautious_generate"
@@ -850,7 +851,7 @@ def apply_cautious_fact_strategy(state: UIProjectState, *, custom_note: str | No
     }
 
 
-def apply_confirmed_only_strategy(state: UIProjectState, *, custom_note: str | None = None) -> dict[str, Any]:
+def apply_confirmed_only_strategy(state: RuntimeState, *, custom_note: str | None = None) -> dict[str, Any]:
     knowledge = apply_confirmed_facts_to_knowledge(deepcopy(state.get("retrieved_knowledge") or {}))
     confirmed_facts = normalize_confirmed_facts(knowledge.get("confirmed_facts"))
     confirmed_attrs = {}
@@ -878,7 +879,7 @@ def apply_confirmed_only_strategy(state: UIProjectState, *, custom_note: str | N
     }
 
 
-def build_asset_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
+def build_asset_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     planner_output = state.get("planner_output") or {}
     wants_hero_media = any(
         str(item.get("intent_type") or "") == "hero_media"
@@ -997,7 +998,7 @@ def build_asset_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
     return None
 
 
-def apply_asset_checkpoint_decision(state: UIProjectState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
+def apply_asset_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
     decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
     selected_asset_ids = list(decision.get("selected_asset_ids") or []) if isinstance(decision, dict) else []
     custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""
@@ -1094,7 +1095,7 @@ def apply_asset_checkpoint_decision(state: UIProjectState, decision: dict[str, A
     return {}
 
 
-def build_fact_conflict_checkpoint(state: UIProjectState) -> dict[str, Any] | None:
+def build_fact_conflict_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     knowledge = state.get("retrieved_knowledge") or {}
     conflicts = [item for item in (knowledge.get("fact_conflicts") or []) if isinstance(item, dict)]
     if not conflicts:
@@ -1141,7 +1142,7 @@ def build_fact_conflict_checkpoint(state: UIProjectState) -> dict[str, Any] | No
     }
 
 
-def apply_fact_conflict_checkpoint_decision(state: UIProjectState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
+def apply_fact_conflict_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
     knowledge = deepcopy(state.get("retrieved_knowledge") or {})
     decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
     custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""

@@ -6,7 +6,7 @@ from langgraph.types import Command
 from langchain_core.messages import ToolMessage
 from app.core.note_document import build_note_document_from_state, update_note_document_block
 
-# --- 🔪 微创手术刀：用于 patch_node 的原子级修改工具 ---
+# --- 🔪 微创手术刀：用于 composition_worker 的原子级修改工具 ---
 
 @tool
 def apply_diff_update(

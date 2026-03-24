@@ -12,12 +12,12 @@ These images are bundled as stable visual fixtures for `visual_lab`, `积木大�
   - Original listing discovered via Openverse
   - Creator: pixellaphoto
   - License: CC0
-- `travel-hero-a.jpg`
+- `mate-hero-a.jpg`
   - Source: https://live.staticflickr.com/7865/46761207784_4ca6645a44_b.jpg
   - Original listing discovered via Openverse
   - Creator: Terry Kearney
   - License: CC0
-- `travel-hero-b.jpg`
+- `mate-hero-b.jpg`
   - Source: https://live.staticflickr.com/2466/3666459471_1f408f55f8_b.jpg
   - Original listing discovered via Openverse
   - Creator: gnuckx

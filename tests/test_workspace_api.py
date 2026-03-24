@@ -33,22 +33,28 @@ def test_workspace_data_response_accepts_structured_messages_and_prompts():
         active_panel="main",
         selected_element_id=None,
         image_assets=[{"url": "https://img.example/1.jpg", "desc": "封面图", "source_type": "search"}],
-        node_prompts={"intent_agent": [{"role": "system", "content": "prompt"}]},
+        node_prompts={"intent_worker": [{"role": "system", "content": "prompt"}]},
         note_document={"document_meta": {"title": "Mate 60 页面"}, "blocks": [], "assets": []},
-        turn_trace={"note_editor": {"action": "update_block"}},
-        agent_backends={"note_editor": "structured_function_calling"},
+        artifact={"artifact_id": "artifact_demo", "artifact_type": "purchase_decision_note"},
+        artifact_version={"version_id": "version_demo", "snapshot_id": "snapshot_demo"},
+        revision_status={"status": "ready"},
+        turn_trace={"composition_worker": {"action": "update_block"}},
+        agent_backends={"composition_worker": "structured_function_calling"},
         inspector_summary={"status": "active"},
         oss_url=None,
         source_code="<html></html>",
-        checkpoints=[{"checkpoint_id": "ckpt_1", "intent": "create", "node": "document_renderer", "timestamp": "2026-03-23T01:00:00"}],
+        checkpoints=[{"checkpoint_id": "ckpt_1", "intent": "create", "node": "supervisor_agent", "timestamp": "2026-03-23T01:00:00"}],
     )
 
     assert response.messages["main"][0]["role"] == "user"
     assert response.checkpoint_id == "ckpt_1"
-    assert response.node_prompts["intent_agent"][0]["role"] == "system"
+    assert response.node_prompts["intent_worker"][0]["role"] == "system"
     assert response.image_assets[0]["source_type"] == "search"
-    assert response.agent_backends["note_editor"] == "structured_function_calling"
-    assert response.checkpoints[0].node == "document_renderer"
+    assert response.agent_backends["composition_worker"] == "structured_function_calling"
+    assert response.checkpoints[0].node == "supervisor_agent"
+    assert response.artifact["artifact_id"] == "artifact_demo"
+    assert response.artifact_version["version_id"] == "version_demo"
+    assert response.revision_status["status"] == "ready"
 
 
 def test_format_messages_flattens_multimodal_human_message():
@@ -114,7 +120,7 @@ def test_extract_session_title_falls_back_to_thread_id_without_note_document_tit
 
     assert title == "项目 thread_1"
 
-def test_extract_session_title_ignores_legacy_page_title_when_note_document_exists():
+def test_extract_session_title_prefers_note_document_title_when_available():
     title = _extract_session_title(
         {
             "note_document": {
@@ -152,7 +158,7 @@ def test_workspace_data_response_accepts_turn_trace():
     assert response.turn_trace["warnings"] == ["noop"]
 
 
-def test_workspace_data_response_no_longer_requires_legacy_page_or_style_fields():
+def test_workspace_data_response_uses_note_document_contract_only():
     response = WorkspaceDataResponse(
         is_new=True,
         checkpoint_id=None,
@@ -174,15 +180,15 @@ def test_trace_export_response_accepts_structured_payload():
         data={
             "thread_id": "thread_demo",
             "checkpoint_id": "ckpt_demo",
-            "turn_trace": {"query": "阿那亚一日游"},
-            "planner_output": {"block_intents": [{"intent_type": "location_info"}]},
-            "retrieval": {"retrieval_profile": "travel_guide"},
+            "turn_trace": {"query": "Mate 60 值不值得买"},
+            "planner_output": {"block_intents": [{"intent_type": "comparison"}]},
+            "retrieval": {"retrieval_profile": "digital_purchase"},
             "document": {"block_count": 3},
         }
     )
 
     assert response.data["thread_id"] == "thread_demo"
-    assert response.data["retrieval"]["retrieval_profile"] == "travel_guide"
+    assert response.data["retrieval"]["retrieval_profile"] == "digital_purchase"
 
 
 def test_build_trace_export_bundle_contains_planner_retrieval_and_document_outline():
@@ -190,23 +196,27 @@ def test_build_trace_export_bundle_contains_planner_retrieval_and_document_outli
         {
             "active_panel": "main",
             "selected_element_id": None,
-            "intent_route": "research_agent",
-            "active_archetype": "travel",
-            "scenarios": ["travel", "general"],
-            "planner_output": {"block_intents": [{"intent_type": "location_info"}]},
-            "planner_policy": {"layout_policy": {"preferred_block_intents": ["location_info"]}},
-            "turn_trace": {"query": "帮我做阿那亚一日游", "changed_blocks": [{"id": "loc_1", "type": "LocationBlock"}]},
+            "intent_route": "retrieval_worker",
+            "active_archetype": "seeding",
+            "scenarios": ["seeding"],
+            "planner_output": {"block_intents": [{"intent_type": "comparison"}]},
+            "planner_policy": {"layout_policy": {"preferred_block_intents": ["comparison"]}},
+            "turn_trace": {"query": "帮我判断 Mate 60 值不值得买", "changed_blocks": [{"id": "vs_1", "type": "VersusCard"}]},
+            "artifact": {"artifact_id": "artifact_trace", "artifact_type": "purchase_decision_note", "current_version_id": "version_trace"},
+            "artifact_version": {"version_id": "version_trace", "revision_reason": "继续完善判断"},
+            "revision_plan": {"recipe_id": "priority", "reason": "补强结论"},
+            "revision_status": {"status": "ready"},
             "agent_backends": {"planner": "deterministic_policy_builder"},
             "retrieved_knowledge": {
-                "entity_name": "阿那亚",
-                "fact_slots": {"transport": {"summary": "打车前往"}},
-                "fact_sources": [{"title": "阿那亚官方", "link": "https://example.com/aranya"}],
-                "retrieval_summary": {"retrieval_profile": "travel_guide", "missing_fields": ["hours"]},
+                "entity_name": "华为 Mate 60",
+                "fact_slots": {"price": {"summary": "起售价 5499 元"}},
+                "fact_sources": [{"title": "华为官网 Mate 60", "link": "https://example.com/mate60"}],
+                "retrieval_summary": {"retrieval_profile": "digital_purchase", "missing_fields": ["charging"]},
                 "retrieval_eval": {"grounding_score": 0.86},
             },
             "note_document": {
-                "document_meta": {"title": "阿那亚一日游"},
-                "blocks": [{"id": "loc_1", "type": "LocationBlock", "semantic_role": "location_info", "content_brief": "地点信息"}],
+                "document_meta": {"title": "Mate 60 购买决策"},
+                "blocks": [{"id": "vs_1", "type": "VersusCard", "semantic_role": "comparison", "content_brief": "竞品对比"}],
                 "assets": [],
             },
         },
@@ -216,13 +226,16 @@ def test_build_trace_export_bundle_contains_planner_retrieval_and_document_outli
 
     assert bundle["thread_id"] == "thread_trace"
     assert bundle["checkpoint_id"] == "ckpt_trace"
-    assert bundle["retrieval"]["retrieval_profile"] == "travel_guide"
-    assert bundle["document"]["blocks"][0]["type"] == "LocationBlock"
-    assert bundle["turn_trace"]["changed_blocks"][0]["id"] == "loc_1"
+    assert bundle["artifact"]["artifact_id"] == "artifact_trace"
+    assert bundle["artifact_version"]["version_id"] == "version_trace"
+    assert bundle["revision_plan"]["recipe_id"] == "priority"
+    assert bundle["retrieval"]["retrieval_profile"] == "digital_purchase"
+    assert bundle["document"]["blocks"][0]["type"] == "VersusCard"
+    assert bundle["turn_trace"]["changed_blocks"][0]["id"] == "vs_1"
     assert "console_tail" in bundle
     assert "html_preview" in bundle
     assert "checkpoint_history" in bundle
-    assert bundle["document"]["final_blocks"][0]["id"] == "loc_1"
+    assert bundle["document"]["final_blocks"][0]["id"] == "vs_1"
 
 
 class _FakeSnapshot:
@@ -347,11 +360,11 @@ def test_build_inspector_summary_highlights_attention_signals():
         "turn_trace": {
             "warnings": ["style_changed_without_content"],
             "changed_blocks": [{"id": "poll_1", "type": "PollBlock", "changed_fields": ["style"]}],
-            "note_editor": {"action": "update_block", "target_block_id": "poll_1", "structured": True},
+            "composition_worker": {"action": "update_block", "target_block_id": "poll_1", "structured": True},
         },
-        "intent_route": "note_editor",
+        "intent_route": "composition_worker",
         "active_panel": "main",
-        "agent_backends": {"note_editor": "create_agent"},
+        "agent_backends": {"composition_worker": "create_agent"},
         "selected_element_id": "poll_1",
     })
 
@@ -363,7 +376,7 @@ def test_build_inspector_summary_highlights_attention_signals():
     assert summary["suggestions"]
 
 
-def test_build_inspector_summary_prefers_workspace_action_when_note_editor_absent():
+def test_build_inspector_summary_prefers_workspace_action_when_composition_trace_absent():
     summary = _build_inspector_summary({
         "note_document": {
             "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
@@ -495,6 +508,72 @@ def test_build_inspector_summary_includes_retrieval_overview():
     assert summary["retrieval"]["recommendation"] == "可直接作为 grounded evidence 展示"
 
 
+def test_build_inspector_summary_and_trace_export_include_agentic_skill_view():
+    values = {
+        "selected_skills": ["product-search", "product-images"],
+        "skill_trace": {
+            "retrieval_worker": {
+                "selected_skills": ["product-search"],
+                "skill_tool_plan": [{"skill": "product-search", "tool_hints": ["network_search"]}],
+                "skill_execution_result": "success",
+                "skill_fallback": [],
+            },
+            "composition_worker": {
+                "selected_skills": ["product-images", "decision-note-compose"],
+                "skill_tool_plan": [{"skill": "product-images", "tool_hints": ["google_images"]}],
+                "skill_execution_result": "success",
+                "skill_fallback": [],
+            },
+        },
+        "note_document": {
+            "document_meta": {"title": "Mate 60 决策档案", "scenarios": ["seeding"]},
+            "blocks": [{"id": "hero_1", "type": "CoverSwiper"}],
+            "assets": [{"url": "https://img.example/mate.jpg", "role": "cover"}],
+            "fact_bindings": [],
+        },
+        "retrieved_knowledge": {
+            "entity_name": "华为 Mate 60",
+            "knowledge_plan": {
+                "required_fields": ["price", "battery"],
+                "recommended_skills": ["product-search", "product-images"],
+            },
+            "session_kb": {
+                "knowledge_version": "session-v3",
+                "records": [],
+            },
+            "candidate_session_kb": {"records": []},
+            "persistent_kb": {"records": [], "review_queue": []},
+        },
+        "turn_trace": {
+            "query": "怎么没有图片，补几张图并把结论写得更吸睛",
+            "agentic_runtime": {
+                "current_stage": "composition",
+                "current_agent": "composition_worker",
+                "selected_skills": ["product-images", "decision-note-compose"],
+                "failure_point": "",
+            },
+            "composition_worker": {
+                "selected_skills": ["product-images", "decision-note-compose"],
+                "skill_tool_plan": [{"skill": "product-images", "tool_hints": ["google_images"]}],
+                "skill_execution_result": "success",
+                "skill_fallback": [],
+            },
+            "changed_blocks": [{"id": "hero_1", "type": "CoverSwiper", "changed_fields": ["asset_refs", "props"]}],
+            "composition_worker": {"action": "update_block", "target_block_id": "hero_1", "structured": True},
+        },
+    }
+
+    summary = _build_inspector_summary(values)
+    bundle = _build_trace_export_bundle(values, thread_id="thread_skill", checkpoint_id="ckpt_skill")
+
+    assert summary["agentic"]["current_stage"] == "composition"
+    assert summary["agentic"]["current_agent"] == "composition_worker"
+    assert "product-images" in summary["agentic"]["selected_skills"]
+    assert summary["agentic"]["knowledge_version"] == "session-v3"
+    assert bundle["selected_skills"] == ["product-search", "product-images"]
+    assert "composition_worker" in bundle["skill_trace"]
+
+
 def test_build_benchmark_overview_aggregates_sessions():
     overview = _build_benchmark_overview([
         {
@@ -541,27 +620,27 @@ def test_build_benchmark_overview_aggregates_sessions():
                     "component_builder": {
                         "spec_1": {"component_type": "ProductSpecCard", "fallback_used": False}
                     },
-                    "note_editor": {"action": "update_block", "target_block_id": "spec_1", "structured": True},
+                    "composition_worker": {"action": "update_block", "target_block_id": "spec_1", "structured": True},
                 },
-                "agent_backends": {"note_editor": "create_agent"},
+                "agent_backends": {"composition_worker": "create_agent"},
             },
         },
         {
             "thread_id": "thread_beta",
-            "title": "阿那亚攻略",
+            "title": "小米 14 决策页",
             "updated_at": "2026-03-21T09:00:00",
             "values": {
                 "note_document": {
-                    "document_meta": {"title": "阿那亚攻略", "scenarios": ["travel"]},
-                    "theme": {"preset": "travel_editorial"},
-                    "blocks": [{"id": "loc_1", "type": "LocationBlock"}],
+                    "document_meta": {"title": "小米 14 决策页", "scenarios": ["seeding"]},
+                    "theme": {"preset": "seeding_hot"},
+                    "blocks": [{"id": "vs_1", "type": "VersusCard"}],
                     "assets": [],
                     "fact_bindings": [],
                 },
                 "retrieved_knowledge": {
-                    "entity_name": "阿那亚",
-                    "fact_sources": [{"title": "景区信息"}],
-                    "retrieval_hits": [{"scope": "official", "query": "阿那亚 门票", "count": 1}],
+                    "entity_name": "小米 14",
+                    "fact_sources": [{"title": "小米官网参数页"}],
+                    "retrieval_hits": [{"scope": "official", "query": "小米 14 参数 官网", "count": 1}],
                     "retrieval_summary": {
                         "strategy": "live_search_with_citations",
                         "cache_hit": False,
@@ -582,13 +661,13 @@ def test_build_benchmark_overview_aggregates_sessions():
                 },
                 "turn_trace": {
                     "warnings": ["fallback_used"],
-                    "changed_blocks": [{"id": "loc_1", "type": "LocationBlock", "changed_fields": ["props"]}],
+                    "changed_blocks": [{"id": "vs_1", "type": "VersusCard", "changed_fields": ["props"]}],
                     "component_builder": {
-                        "loc_1": {"component_type": "LocationBlock", "fallback_used": True}
+                        "vs_1": {"component_type": "VersusCard", "fallback_used": True}
                     },
-                    "note_editor": {"action": "append_block", "target_block_id": "loc_1", "structured": True, "fallback_used": True},
+                    "composition_worker": {"action": "append_block", "target_block_id": "vs_1", "structured": True, "fallback_used": True},
                 },
-                "agent_backends": {"note_editor": "create_agent"},
+                "agent_backends": {"composition_worker": "create_agent"},
             },
         },
     ])
@@ -603,8 +682,8 @@ def test_build_benchmark_overview_aggregates_sessions():
     assert overview["cache"]["rerank_rate"] == 0.5
     assert overview["execution"]["builder_fallback_total"] == 1
     assert overview["execution"]["warning_session_count"] == 1
-    assert overview["distributions"]["scenarios"][0]["scenario"] in {"seeding", "travel"}
-    assert overview["distributions"]["components"][0]["component_type"] in {"ProductSpecCard", "PollBlock", "LocationBlock"}
+    assert overview["distributions"]["scenarios"][0]["scenario"] == "seeding"
+    assert overview["distributions"]["components"][0]["component_type"] in {"ProductSpecCard", "PollBlock", "VersusCard"}
     assert len(overview["sessions"]) == 2
     assert overview["recommendations"]
 
@@ -624,8 +703,8 @@ def test_build_evaluation_overview_aggregates_six_dimensions():
             "title": "Mate 60 页面",
             "updated_at": "2026-03-22T10:00:00",
             "values": {
-                "intent_route": "note_editor",
-                "agent_backends": {"intent_agent": "deterministic_fast_path"},
+                "intent_route": "composition_worker",
+                "agent_backends": {"intent_worker": "deterministic_fast_path"},
                 "planner_output": {
                     "block_intents": [
                         {"intent": "hero_media"},
@@ -650,7 +729,7 @@ def test_build_evaluation_overview_aggregates_six_dimensions():
                 "turn_trace": {
                     "warnings": [],
                     "changed_blocks": [{"id": "spec_1", "changed_fields": ["props"]}],
-                    "note_editor": {
+                    "composition_worker": {
                         "action": "update_block",
                         "target_block_id": "spec_1",
                         "structured": True,
@@ -682,5 +761,5 @@ def test_build_evaluation_overview_aggregates_six_dimensions():
     category_names = {item["name"] for item in overview["categories"]}
     assert category_names == {"路由评估", "规划评估", "执行评估", "RAG 评估", "缓存评估", "系统级评估"}
     assert overview["suite"]["case_count"] >= 6
-    assert overview["sessions"][0]["intent_route"] == "note_editor"
+    assert overview["sessions"][0]["intent_route"] == "composition_worker"
     assert overview["recommendations"]

@@ -69,5 +69,5 @@ TOOL_POOL = {
 RESEARCH_TOOLS = [network_search, google_images]
 OUTLINE_TOOLS = [search_block_manual, append_block, insert_block, remove_block, update_block_brief, finish_layout]
 PATCH_TOOLS = [inspect_component_state, apply_diff_update, google_images] # ✨ 手术刀专用工具箱
-NOTE_EDITOR_TOOLS = [search_block_manual, create_note_block, update_note_block, replace_note_block, move_note_block, remove_block, set_note_title, set_note_theme, finish_layout]
-LOCAL_NOTE_EDITOR_TOOLS = [update_note_block, replace_note_block, move_note_block, remove_block, finish_layout]
+COMPOSITION_TOOLS = [search_block_manual, create_note_block, update_note_block, replace_note_block, move_note_block, remove_block, set_note_title, set_note_theme, finish_layout]
+LOCAL_COMPOSITION_TOOLS = [update_note_block, replace_note_block, move_note_block, remove_block, finish_layout]

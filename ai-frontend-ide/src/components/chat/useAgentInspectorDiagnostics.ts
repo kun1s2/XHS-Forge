@@ -99,7 +99,10 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
   const inspectorBuilder = computed(() => inspectorSummaryState.value?.builder || {})
   const inspectorFacts = computed(() => (inspectorSummaryState.value?.facts || {}) as Record<string, unknown>)
   const inspectorRetrieval = computed(() => (inspectorSummaryState.value?.retrieval || {}) as Record<string, unknown>)
+  const inspectorArtifact = computed(() => (inspectorSummaryState.value?.artifact || {}) as Record<string, unknown>)
+  const inspectorAgentic = computed(() => (inspectorSummaryState.value?.agentic || {}) as Record<string, unknown>)
   const inspectorAssets = computed(() => (inspectorSummaryState.value?.assets || {}) as Record<string, unknown>)
+  const inspectorRevision = computed(() => (inspectorSummaryState.value?.revision || {}) as Record<string, unknown>)
   const inspectorSuggestions = computed(() => Array.isArray(inspectorSummaryState.value?.suggestions) ? inspectorSummaryState.value.suggestions : [])
   const inspectorHeadline = computed(() => String(inspectorSummaryState.value?.headline || '当前还没有可展示的诊断摘要'))
   const inspectorStatus = computed(() => String(inspectorSummaryState.value?.status || 'idle'))
@@ -140,6 +143,12 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
       tone: 'violet',
     },
     {
+      title: '产物版本',
+      value: inspectorArtifact.value.current_version_id || '未生成',
+      helper: `${inspectorArtifact.value.artifact_type || 'purchase_decision_note'} · ${inspectorArtifact.value.revision_reason || '本轮暂无修订原因'}`,
+      tone: 'slate',
+    },
+    {
       title: '积木构建',
       value: `${inspectorBuilder.value.component_count || 0} 个组件`,
       helper: inspectorBuilder.value.component_count
@@ -153,6 +162,12 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
       helper: `${inspectorFacts.value.confirmed_count || 0} 个已确认 · ${inspectorFacts.value.source_count || 0} 个来源`,
       tone: 'amber',
     },
+    {
+      title: '修订状态',
+      value: inspectorRevision.value.status || 'idle',
+      helper: `${inspectorRevision.value.changed_block_count || 0} 个改动 · ${inspectorRevision.value.failure_reason || inspectorRevision.value.revision_reason || '当前没有失败或待处理原因'}`,
+      tone: 'rose',
+    },
   ])
 
   const getOverviewCardClasses = (tone: string) => {
@@ -160,6 +175,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     if (tone === 'amber') return 'border-amber-800/25 bg-amber-950/10'
     if (tone === 'violet') return 'border-violet-800/25 bg-violet-950/10'
     if (tone === 'emerald') return 'border-emerald-800/25 bg-emerald-950/10'
+    if (tone === 'slate') return 'border-slate-800/25 bg-slate-950/10'
     return 'border-cyan-800/25 bg-cyan-950/10'
   }
 
@@ -426,15 +442,15 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
   const traceTimeline = computed(() => Array.isArray(turnTraceState.value?.timeline) ? turnTraceState.value.timeline : [])
   const traceWarnings = computed(() => Array.isArray(turnTraceState.value?.warnings) ? turnTraceState.value.warnings : [])
   const traceChangedBlocks = computed(() => Array.isArray(turnTraceState.value?.changed_blocks) ? turnTraceState.value.changed_blocks : [])
-  const noteEditorTrace = computed<ExecutionTrace>(() => (turnTraceState.value?.note_editor || {}) as ExecutionTrace)
+  const compositionTrace = computed<ExecutionTrace>(() => (turnTraceState.value?.composition_worker || {}) as ExecutionTrace)
   const workspaceActionTrace = computed<ExecutionTrace>(() => (turnTraceState.value?.workspace_action || {}) as ExecutionTrace)
-  const activeExecutionTrace = computed(() => Object.keys(noteEditorTrace.value).length ? noteEditorTrace.value : workspaceActionTrace.value)
+  const activeExecutionTrace = computed(() => Object.keys(compositionTrace.value).length ? compositionTrace.value : workspaceActionTrace.value)
 
   const humanizeTraceWarning = (warning: string) => TRACE_WARNING_LABELS[warning] || warning
   const humanizeTraceEvent = (event: string) => TRACE_EVENT_LABELS[event] || event
   const humanizeTraceAction = (action: string) => TRACE_ACTION_LABELS[action] || action || '未识别动作'
   const traceSummaryTone = computed(() => traceWarnings.value.length ? 'warn' : 'ok')
-  const tracePrimaryTarget = computed(() => activeExecutionTrace.value.target_block_id || noteEditorTrace.value.block_id || turnTraceState.value.selected_element_id || 'global')
+  const tracePrimaryTarget = computed(() => activeExecutionTrace.value.target_block_id || compositionTrace.value.block_id || turnTraceState.value.selected_element_id || 'global')
   const copiedDebugSummary = ref(false)
   const copiedTraceExport = ref(false)
   const traceExportPending = ref(false)
@@ -553,15 +569,15 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
   const traceDebugSummary = computed(() => {
     const lines = [
       `query: ${turnTraceState.value.query || 'N/A'}`,
-      `action: ${humanizeTraceAction(String(noteEditorTrace.value.action || ''))}`,
+      `action: ${humanizeTraceAction(String(compositionTrace.value.action || ''))}`,
       `target: ${tracePrimaryTarget.value}`,
       `status: ${structuredStatusLabel.value}`,
       `changed_blocks: ${traceChangedBlocks.value.map((item) => `${item.id}(${item.type})`).join(', ') || 'none'}`,
       `warnings: ${traceWarnings.value.map((item) => humanizeTraceWarning(String(item))).join('；') || 'none'}`,
       `timeline: ${traceTimeline.value.map((item) => `${item.node}:${item.event}`).join(' -> ') || 'none'}`,
     ]
-    if (noteEditorTrace.value.reason) {
-      lines.push(`reason: ${noteEditorTrace.value.reason}`)
+    if (compositionTrace.value.reason) {
+      lines.push(`reason: ${compositionTrace.value.reason}`)
     }
     return lines.join('\n')
   })
@@ -604,6 +620,47 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
   const noteFactBindings = computed<Array<{ block_id: string; bindings: FactBinding[] }>>(() =>
     Array.isArray(noteDocumentState.value?.fact_bindings) ? noteDocumentState.value.fact_bindings : [],
   )
+  const currentAgentName = computed(() => String(inspectorAgentic.value?.current_agent || turnTraceState.value?.agentic_runtime?.current_agent || 'orchestrator'))
+  const currentStageName = computed(() => String(inspectorAgentic.value?.current_stage || turnTraceState.value?.agentic_runtime?.current_stage || 'intent_decision'))
+  const selectedSkills = computed(() => {
+    const fromInspector = Array.isArray(inspectorAgentic.value?.selected_skills) ? inspectorAgentic.value.selected_skills : []
+    const fromTrace = Array.isArray(turnTraceState.value?.agentic_runtime?.selected_skills) ? turnTraceState.value.agentic_runtime.selected_skills : []
+    return [...new Set([...fromInspector, ...fromTrace].map((item) => String(item || '')).filter(Boolean))]
+  })
+  const recommendedSkills = computed(() => {
+    const raw = inspectorAgentic.value?.recommended_skills
+    return Array.isArray(raw) ? raw.map((item) => String(item || '')).filter(Boolean) : []
+  })
+  const currentFailurePoint = computed(() => String(inspectorAgentic.value?.failure_point || turnTraceState.value?.agentic_runtime?.failure_point || ''))
+  const agentSkillRows = computed(() => {
+    const rows = Array.isArray(inspectorAgentic.value?.agents) ? inspectorAgentic.value.agents : []
+    return rows.map((row) => ({
+      name: String(row?.name || ''),
+      executionResult: String(row?.execution_result || ''),
+      selectedSkills: Array.isArray(row?.selected_skills) ? row.selected_skills.map((item) => String(item || '')).filter(Boolean) : [],
+      toolPlan: Array.isArray(row?.tool_plan) ? row.tool_plan : [],
+    })).filter((row) => row.name)
+  })
+  const agenticCards = computed(() => [
+    {
+      title: '当前阶段',
+      value: currentStageName.value || 'intent_decision',
+      helper: `当前 agent：${currentAgentName.value || 'orchestrator'}`,
+      tone: 'cyan',
+    },
+    {
+      title: '激活 Skills',
+      value: selectedSkills.value.length ? selectedSkills.value.join(' / ') : '暂无',
+      helper: recommendedSkills.value.length ? `推荐：${recommendedSkills.value.join(' / ')}` : '当前轮没有额外推荐 skill',
+      tone: 'violet',
+    },
+    {
+      title: '知识版本',
+      value: String(inspectorAgentic.value?.knowledge_version || '未记录'),
+      helper: currentFailurePoint.value ? `失败点：${currentFailurePoint.value}` : '当前轮没有显式失败点',
+      tone: currentFailurePoint.value ? 'amber' : 'emerald',
+    },
+  ])
   const formatFactFieldLabels = (fields: unknown, labels?: unknown) => {
     if (Array.isArray(labels) && labels.length) {
       return labels.map((label) => String(label || '')).filter(Boolean)
@@ -630,6 +687,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     inspectorBuilder,
     inspectorFacts,
     inspectorRetrieval,
+    inspectorAgentic,
     inspectorAssets,
     inspectorSuggestions,
     inspectorHeadline,
@@ -731,7 +789,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     traceTimeline,
     traceWarnings,
     traceChangedBlocks,
-    noteEditorTrace,
+    compositionTrace,
     workspaceActionTrace,
     activeExecutionTrace,
     humanizeTraceWarning,
@@ -757,6 +815,13 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     copyStructuredTraceExport,
     downloadStructuredTraceExport,
     noteFactBindings,
+    currentAgentName,
+    currentStageName,
+    selectedSkills,
+    recommendedSkills,
+    currentFailurePoint,
+    agentSkillRows,
+    agenticCards,
     formatFactFieldLabels,
     confirmFact,
   }
