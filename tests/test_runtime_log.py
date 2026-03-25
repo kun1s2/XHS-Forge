@@ -22,14 +22,14 @@ def test_runtime_log_writes_latest_console_and_html(tmp_path, monkeypatch):
 
 
 def test_runtime_log_summarizers_are_human_readable():
-    render_summary = runtime_log.summarize_node_output('composition_worker', {
+    render_summary = runtime_log.summarize_worker_output('composition_worker', {
         'final_html': '<html>' + 'x' * 20 + '</html>',
         'final_oss_url': 'data:text/html;base64,abc',
         'note_document': {'blocks': [{}, {}]},
     })
-    generic_summary = runtime_log.summarize_node_output('planner', {
+    generic_summary = runtime_log.summarize_worker_output('planner', {
         'planner_output': {'block_intents': [1, 2]},
-        'node_prompts': {'planner_agent': []},
+        'worker_prompts': {'planner_agent': []},
     })
     turn_summary = runtime_log.summarize_turn_completion(
         {
@@ -41,7 +41,7 @@ def test_runtime_log_summarizers_are_human_readable():
     )
 
     assert 'html=' in render_summary and 'blocks=2' in render_summary
-    assert 'planner.block_intents=2' in generic_summary and 'node_prompts=1' in generic_summary
+    assert 'planner.block_intents=2' in generic_summary and 'worker_prompts=1' in generic_summary
     assert 'action=update_block' in turn_summary and 'warnings=1' in turn_summary
 
 

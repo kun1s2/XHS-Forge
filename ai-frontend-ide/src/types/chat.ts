@@ -118,7 +118,7 @@ export interface PlannerPolicy {
 
 export interface TurnTraceEvent {
   event?: string
-  node?: string
+  worker?: string
   tool?: string
   [key: string]: unknown
 }
@@ -216,6 +216,7 @@ export interface ArtifactVersion {
   parent_version_id?: string | null
   snapshot_id?: string
   checkpoint_id?: string | null
+  thread_id?: string | null
   revision_reason?: string
   changed_blocks?: ChangedBlockTrace[]
   assets_delta?: NoteDocumentAsset[]
@@ -793,6 +794,7 @@ export interface ConversationCheckpointAction {
   blocking?: boolean
   input_schema?: ConversationCheckpointInputSchema | null
   options: ConversationCheckpointOption[]
+  resolved?: boolean
 }
 
 export interface AgentNarrativeCard {
@@ -805,7 +807,7 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  messageKind?: 'user_prompt' | 'checkpoint_decision' | 'critique_action' | 'agent_plan' | 'agent_status' | 'agent_receipt' | 'agent_summary'
+  messageKind?: 'user_prompt' | 'checkpoint_decision' | 'revision_action' | 'agent_plan' | 'agent_status' | 'agent_receipt' | 'agent_summary'
   streaming?: boolean
   imageUrls?: string[]
   timestamp?: number
@@ -813,7 +815,7 @@ export interface ChatMessage {
   checkpointId?: string
   ossUrl?: string
   /** ✨ 调试用：记录该轮对话各节点的提示词输入 */
-  nodePrompts?: Record<string, unknown>
+  workerPrompts?: Record<string, unknown>
   imageAssets?: ImageAsset[]
   /** 时间胶囊：该轮生成的 HTML 源码 */
   sourceCode?: string
@@ -834,7 +836,7 @@ export interface ChatMessage {
   actionRequired?: ConversationCheckpointAction
   agentCard?: AgentNarrativeCard
   /** ✨ 思维链实时透传记录 */
-  thoughts?: { node: string; text: string; streaming?: boolean }[]
+  thoughts?: { worker: string; text: string; streaming?: boolean }[]
 }
 
 export interface WSEvent {
@@ -844,7 +846,7 @@ export interface WSEvent {
   
   /** WebSocket 兼容字段 */
   type?: 'middleware' | 'token' | 'tool_call' | 'turn_end' | 'error'
-  node?: string
+  worker?: string
   content?: string
   checkpoint_id?: string
   checkpointId?: string
@@ -853,8 +855,8 @@ export interface WSEvent {
   message?: string
   image_assets?: ImageAsset[]
   imageAssets?: ImageAsset[]
-  node_prompts?: Record<string, string>
-  nodePrompts?: Record<string, unknown>
+  worker_prompts?: Record<string, string>
+  workerPrompts?: Record<string, unknown>
   source_code?: string
   sourceCode?: string
   htmlPreview?: string

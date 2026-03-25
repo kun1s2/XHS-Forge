@@ -33,7 +33,7 @@ def test_workspace_data_response_accepts_structured_messages_and_prompts():
         active_panel="main",
         selected_element_id=None,
         image_assets=[{"url": "https://img.example/1.jpg", "desc": "封面图", "source_type": "search"}],
-        node_prompts={"intent_worker": [{"role": "system", "content": "prompt"}]},
+        worker_prompts={"intent_worker": [{"role": "system", "content": "prompt"}]},
         note_document={"document_meta": {"title": "Mate 60 页面"}, "blocks": [], "assets": []},
         artifact={"artifact_id": "artifact_demo", "artifact_type": "purchase_decision_note"},
         artifact_version={"version_id": "version_demo", "snapshot_id": "snapshot_demo"},
@@ -43,15 +43,15 @@ def test_workspace_data_response_accepts_structured_messages_and_prompts():
         inspector_summary={"status": "active"},
         oss_url=None,
         source_code="<html></html>",
-        checkpoints=[{"checkpoint_id": "ckpt_1", "intent": "create", "node": "supervisor_agent", "timestamp": "2026-03-23T01:00:00"}],
+        checkpoints=[{"checkpoint_id": "ckpt_1", "intent": "create", "worker": "supervisor_agent", "timestamp": "2026-03-23T01:00:00"}],
     )
 
     assert response.messages["main"][0]["role"] == "user"
     assert response.checkpoint_id == "ckpt_1"
-    assert response.node_prompts["intent_worker"][0]["role"] == "system"
+    assert response.worker_prompts["intent_worker"][0]["role"] == "system"
     assert response.image_assets[0]["source_type"] == "search"
     assert response.agent_backends["composition_worker"] == "structured_function_calling"
-    assert response.checkpoints[0].node == "supervisor_agent"
+    assert response.checkpoints[0].worker == "supervisor_agent"
     assert response.artifact["artifact_id"] == "artifact_demo"
     assert response.artifact_version["version_id"] == "version_demo"
     assert response.revision_status["status"] == "ready"

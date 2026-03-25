@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "e2e:browser": "playwright test",
     "visual:baseline": "npm run build && node scripts/visual-regression.mjs --update",
     "visual:test": "npm run build && node scripts/visual-regression.mjs"
   },

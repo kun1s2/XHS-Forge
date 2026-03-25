@@ -77,12 +77,10 @@ const archetypeLabels: Record<string, string> = {
   seeding: '数码购买决策档案',
 }
 
-const statusFallbackByNode: Record<string, string> = {
+const statusFallbackByWorker: Record<string, string> = {
   supervisor_agent: '我正在判断这轮最该先推进哪一步。',
   intent_worker: '我正在理解你这轮到底想把档案往哪个方向推进。',
-  retrieval_worker: '我正在补搜这轮最关键的参数、证据或图片。',
-  review_worker: '我正在整理待审知识和冲突事实。',
-  asset_worker: '我正在补齐这轮最缺的图片和素材。',
+  retrieval_worker: '我正在补搜这轮最关键的参数、证据、待审知识或图片线索。',
   composition_worker: '我正在按你的要求定向修改购买决策档案。',
   critique_worker: '我正在复盘当前成品还有哪些缺口。',
 }
@@ -95,7 +93,7 @@ export const pickCheckpointId = (data: WsData) => (
   ?? null
 )
 export const pickOssUrl = (data: WsData) => data.oss_url ?? data.ossUrl ?? null
-export const pickNodePrompts = (data: WsData) => data.node_prompts ?? data.nodePrompts ?? {}
+export const pickWorkerPrompts = (data: WsData) => data.worker_prompts ?? data.workerPrompts ?? {}
 export const pickImageAssets = (data: WsData) => data.image_assets ?? data.imageAssets ?? []
 export const pickSourceCode = (data: WsData) => data.source_code ?? data.sourceCode ?? data.htmlPreview ?? ''
 export const pickNoteDocument = (data: WsData): NoteDocument =>
@@ -158,7 +156,7 @@ export const buildAgentPlanCard = (params: {
     }
   }
 
-  if (params.messageKind === 'critique_action') {
+  if (params.messageKind === 'revision_action') {
     return {
       title: '我先按你刚才选中的复盘建议继续收口',
       summary: '这次我会沿着最影响完成度的问题继续优化，而不是整页重来。',
@@ -188,10 +186,10 @@ export const buildAgentPlanCard = (params: {
 }
 
 export const buildAgentStatusCard = (params: {
-  currentNode?: string | null
+  activeWorker?: string | null
   thoughtText?: string | null
 }) : AgentNarrativeCard => {
-  const summary = String(params.thoughtText || '').trim() || statusFallbackByNode[String(params.currentNode || '')] || '我正在继续推进这一轮。'
+  const summary = String(params.thoughtText || '').trim() || statusFallbackByWorker[String(params.activeWorker || '')] || '我正在继续推进这一轮。'
   return {
     title: '我正在继续推进这一轮',
     summary,
@@ -226,7 +224,7 @@ export const buildCheckpointReceiptCard = (
   }
 }
 
-export const buildCritiqueReceiptCard = (recipe: {
+export const buildRevisionReceiptCard = (recipe: {
   label: string
   prompt?: string
   scope?: string

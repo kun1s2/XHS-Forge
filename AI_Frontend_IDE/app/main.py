@@ -76,4 +76,5 @@ app.include_router(upload_router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host=settings.API_HOST, port=settings.API_PORT, reload=True)
+    reload_enabled = str(__import__("os").getenv("XHS_FORGE_RELOAD", "true")).strip().lower() not in {"0", "false", "no", "off"}
+    uvicorn.run("app.main:app", host=settings.API_HOST, port=settings.API_PORT, reload=reload_enabled)

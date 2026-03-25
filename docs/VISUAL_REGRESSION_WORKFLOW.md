@@ -40,8 +40,8 @@ npm run visual:test
 ## 当前固定样例
 
 - `seeding_compare`
-- `travel_story`
-- `daily_share`
+- `seeding_camera_focus`
+- `seeding_decision_file`
 
 ## 这套观测主要防什么
 

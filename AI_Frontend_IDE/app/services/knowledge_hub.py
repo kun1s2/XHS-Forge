@@ -30,6 +30,7 @@ from langgraph.store.postgres import AsyncPostgresStore
 
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.config import settings
+from app.core.request_semantics import latest_user_text_from_state
 from app.services.rag_knowledge import trust_level_for_url
 from app.services.retrieval_profiles import infer_retrieval_profile
 from app.services.skill_registry import recommend_skills_for_knowledge_plan
@@ -727,11 +728,7 @@ def filter_records(
 
 
 def build_knowledge_plan(state: RuntimeState) -> dict[str, Any]:
-    query = ""
-    main_messages = state.get("main_messages") or []
-    if main_messages:
-        latest = getattr(main_messages[-1], "content", "")
-        query = latest if isinstance(latest, str) else str(latest)
+    query = latest_user_text_from_state(state)
     active_archetype = str(state.get("active_archetype") or "seeding")
     existing_knowledge = state.get("retrieved_knowledge") or {}
     entity_name = normalize_entity_name((existing_knowledge or {}).get("entity_name") or query)

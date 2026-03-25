@@ -1,60 +1,59 @@
 # XHS-Forge
 
-XHS-Forge 是一个面向类小红书内容创作的 Agent 工作台。用户可以用自然语言生成并持续编辑一篇笔记，系统围绕统一的 `NoteDocument` 协议维护长期状态，支持结构化编辑、版本回滚/分叉、RAG 搜证、热点缓存、Benchmark 评估和前端可观察性。
+XHS-Forge 是一个 **数码购买决策 Agent 工作台**。用户只和一个 supervisor 对话，系统围绕一份持续演化的 `purchase_decision_note` artifact 工作，支持知识审查、补图、局部重做、版本回滚/分叉、RAG 搜证、热点缓存、评估与前端白盒观测。
 
 ## What It Is
 
 - 不是一次性吐文案的聊天机器人
-- 不是纯 AST 页面生成器
-- 是一个可持续编辑、可追踪、可回滚的内容创作系统
+- 不是纯页面生成器
+- 是一个围绕 **成品 artifact** 持续协作、持续修订的 Agent 系统
 
-当前正式架构已经统一到：
+当前正式架构统一到：
 
-- Agent 决策层：
-  - `intent_agent`
-  - `planner_agent`
-  - `note_editor_agent`
-- 确定性执行层：
-  - `outline_resolver`
-  - `component_builder`
-  - `theme_compiler`
-  - `document_verifier`
-  - `document_renderer`
+- 顶层主控：
+  - `create_agent` supervisor runtime
+- 固定 worker：
+  - `retrieval_worker`
+  - `composition_worker`
+  - `critique_worker`
 - 单一主协议：
-  - `NoteDocument`
+  - `artifact`
+  - `artifact_version`
+  - `SupervisorSessionState`
 
 ## Highlights
 
-- 统一内核：运行时、前后端、Inspector、Benchmark 都围绕 `NoteDocument`
-- Modern Agent：LangGraph 工作流 + 少量高价值 agent 节点 + 大量确定性执行层
-- Structured Editing：已有页面优先走结构化编辑，而不是整页重写
-- RAG：支持 `system_preload` 和 `task_triggered_ingest`，并具备 grounding、citation、policy、anti-decay
-- Cache：热点知识缓存具备 TTL、freshness、cache diagnostics
-- Observability：Prompt Lab、Agent 状态、事实与检索、Benchmark 全部前端可见
-- Interview-ready：项目主线、评估层和展示层都已封板
+- Artifact-centered：每次成功 turn 产出一个 `artifact_version`
+- Free-dialogue Supervisor：用户始终只和一个 supervisor 对话
+- Structured Revision：局部重做、高亮、revision loop 都围绕 artifact diff
+- Knowledge Governance：`candidate_session_kb -> session_kb -> persistent_kb`
+- RAG as Evidence Layer：结构化优先，混合检索补证据，向量库只做可重建召回缓存
+- Observability：worker、skill、tool、knowledge version、failure point 前端可见
+- Interview-ready：产品主线、运行时、评估与演示话术已统一到数码购买决策场景
 
 ## Core Capabilities
 
-### 1. Long-lived Note Editing
+### 1. Long-lived Decision Artifact
 
-- 生成首版页面
-- 继续说“保留标题，重写第二段”
-- 修改组件、移动顺序、替换积木、切换主题
-- 保持同一份 `NoteDocument` 状态持续演化
+- 新建一份购买决策档案
+- 继续说“保留结论，把对比块改得更直接”
+- 继续说“补几张真机图”
+- 继续说“预算改到 4500，重新判断”
+- 同一份 artifact 持续演化，并保留版本链
 
-### 2. RAG + Grounding
+### 2. Knowledge-Grounded Decision Making
 
-- 系统后台预热热点知识
-- 用户任务触发搜证后沉淀知识
-- 检索策略、引用来源、grounding 状态前端可见
-- citation coverage、grounding score、source quality 进入 Benchmark
+- 会话知识、正式知识、缓存和联网搜索协同工作
+- 所有外部命中先进入待审会话知识
+- 审过后才能进入正式生成与修订
+- grounding、citation、knowledge version 进入 trace 与评估
 
-### 3. Workspace Workflow
+### 3. Revision Workflow
 
-- checkpoint / rollback / fork
-- asset import / set cover
-- fact confirmation
-- trace / benchmark / inspector
+- critique 默认不打断聊天流
+- 输入框旁有轻量 revision panel
+- 用户点击 `听取意见` 才进入 revision loop
+- revision 成功后自动生成新 artifact version
 
 ## Quick Start
 
@@ -77,36 +76,24 @@ npm install
 npm run dev
 ```
 
-### Final Acceptance
-
-```bash
-cd /root/XHS-Forge
-bash scripts/final_acceptance.sh
-```
-
-当前封板状态的最终验收结果：
-
-- backend: `180 passed, 1 skipped`
-- guardrails: `21 passed`
-- frontend production build: passed
-
 ## Repo Map
 
-- Backend runtime:
-  - [`AI_Frontend_IDE/app/agents/graph.py`](AI_Frontend_IDE/app/agents/graph.py)
-- Core protocol:
-  - [`AI_Frontend_IDE/app/core/note_document.py`](AI_Frontend_IDE/app/core/note_document.py)
-  - [`AI_Frontend_IDE/app/core/component_manifest.py`](AI_Frontend_IDE/app/core/component_manifest.py)
-- Prompt / context engineering:
-  - [`AI_Frontend_IDE/app/core/prompt_engineering.py`](AI_Frontend_IDE/app/core/prompt_engineering.py)
-  - [`AI_Frontend_IDE/app/core/context_engineering.py`](AI_Frontend_IDE/app/core/context_engineering.py)
-- RAG backend:
+- Supervisor runtime:
+  - [`AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py`](AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py)
+  - [`AI_Frontend_IDE/app/agents/runtime/session_state.py`](AI_Frontend_IDE/app/agents/runtime/session_state.py)
+- Workers:
+  - [`AI_Frontend_IDE/app/agents/workers`](AI_Frontend_IDE/app/agents/workers)
+- Artifact / revision services:
+  - [`AI_Frontend_IDE/app/agents/services/artifact_service.py`](AI_Frontend_IDE/app/agents/services/artifact_service.py)
+  - [`AI_Frontend_IDE/app/agents/services/revision_service.py`](AI_Frontend_IDE/app/agents/services/revision_service.py)
+  - [`AI_Frontend_IDE/app/agents/services/session_state_service.py`](AI_Frontend_IDE/app/agents/services/session_state_service.py)
+- Knowledge / RAG backend:
+  - [`AI_Frontend_IDE/app/services/knowledge_hub.py`](AI_Frontend_IDE/app/services/knowledge_hub.py)
   - [`AI_Frontend_IDE/app/services/rag_service.py`](AI_Frontend_IDE/app/services/rag_service.py)
-  - [`AI_Frontend_IDE/app/services/rag_ingestion.py`](AI_Frontend_IDE/app/services/rag_ingestion.py)
-  - [`AI_Frontend_IDE/app/services/rag_policy.py`](AI_Frontend_IDE/app/services/rag_policy.py)
   - [`AI_Frontend_IDE/app/services/cache_service.py`](AI_Frontend_IDE/app/services/cache_service.py)
 - Frontend workbench:
   - [`ai-frontend-ide/src/stores/useChatStore.ts`](ai-frontend-ide/src/stores/useChatStore.ts)
+  - [`ai-frontend-ide/src/components/chat/RevisionAssistPanel.vue`](ai-frontend-ide/src/components/chat/RevisionAssistPanel.vue)
   - [`ai-frontend-ide/src/components/chat/AgentInspector.vue`](ai-frontend-ide/src/components/chat/AgentInspector.vue)
 
 ## Delivery Docs
@@ -126,23 +113,14 @@ bash scripts/final_acceptance.sh
 
 ```mermaid
 flowchart LR
-    U[User Input] --> API[chat/workspace API]
-    API --> G[LangGraph Runtime]
-    G --> I[intent_agent]
-    I --> P[planner_agent]
-    P --> O[outline_resolver]
-    O --> B[component_builder]
-    B --> E[note_editor_agent]
-    E --> T[theme_compiler]
-    T --> V[document_verifier]
-    V --> R[document_renderer]
-    R --> UI[Workbench UI]
-
-    G --> ND[(NoteDocument)]
-    P --> ND
-    B --> ND
-    E --> ND
-    T --> ND
+    U[User] --> API[chat/workspace API]
+    API --> S[Supervisor Runtime]
+    S --> RW[retrieval_worker]
+    S --> CW[composition_worker]
+    S --> KW[critique_worker]
+    S --> A[(artifact)]
+    S --> K[(session_kb)]
+    K --> A
 ```
 
 ## Interview Positioning
@@ -156,4 +134,4 @@ flowchart LR
 
 你可以把它讲成：
 
-> 一个以 `NoteDocument` 为单一协议、结合 LangGraph runtime、structured editing、RAG grounding、热点缓存与 Benchmark 面板的内容创作 Agent 工作台。
+> 一个围绕 artifact/version、知识审查、revision loop 和白盒观测构建的数码购买决策 Agent 工作台。

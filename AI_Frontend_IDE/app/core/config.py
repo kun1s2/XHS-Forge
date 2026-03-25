@@ -13,11 +13,6 @@ for var in proxy_vars:
     if var in os.environ:
         del os.environ[var]
 
-# 2. 开启 LangSmith 监控底座
-# 注意：若 LangSmith 无法连接，我们需要在后续单独为其配置代理
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-
 class Settings(BaseSettings):
     API_HOST: str = "127.0.0.1"
     API_PORT: int = 8000
@@ -71,3 +66,20 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _configure_langsmith_runtime() -> None:
+    tracing_enabled = bool(settings.LANGSMITH_API_KEY) and bool(settings.LANGSMITH_TRACING)
+    if tracing_enabled:
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+        os.environ["LANGCHAIN_API_KEY"] = str(settings.LANGSMITH_API_KEY or "")
+        os.environ["LANGCHAIN_PROJECT"] = settings.LANGSMITH_PROJECT
+        return
+
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+    for key in ("LANGCHAIN_ENDPOINT", "LANGCHAIN_API_KEY", "LANGCHAIN_PROJECT"):
+        os.environ.pop(key, None)
+
+
+_configure_langsmith_runtime()

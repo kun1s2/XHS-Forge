@@ -25,7 +25,7 @@ export const createSessionWorkspaceState = () => {
   const activePanel = ref<string>('main')
   const imageAssets = ref<ImageAsset[]>([])
   const sourceCode = ref<string>('')
-  const nodePrompts = ref<Record<string, unknown>>({})
+  const workerPrompts = ref<Record<string, unknown>>({})
   const noteDocument = ref<NoteDocument>({})
   const artifact = ref<ArtifactSummary | null>(null)
   const artifactVersion = ref<ArtifactVersion | null>(null)
@@ -64,7 +64,7 @@ export const createSessionWorkspaceState = () => {
     activePanel,
     imageAssets,
     sourceCode,
-    nodePrompts,
+    workerPrompts,
     noteDocument,
     artifact,
     artifactVersion,

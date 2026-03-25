@@ -1,66 +1,76 @@
-# ⚡️ XHS-Forge — 小红书风格生成式 UI 锻造炉 (Social-Engine 1.0)
+# XHS-Forge Project Guide
 
-本项目名为 **XHS-Forge**，旨在通过多 Agent 编排技术，为用户提供工业级的小红书风格前端页面生成能力。
+XHS-Forge 当前正式产品是一套 **数码购买决策 Agent 工作台**。
 
----
+它的核心不是传统页面生成器，而是：
 
-## 🏗️ 项目概述 (Project Vision)
+- 一个自由对话式 `supervisor`
+- 三个正式 worker：`retrieval_worker`、`composition_worker`、`critique_worker`
+- 一份持续演化的 `purchase_decision_note` artifact
+- 一条围绕 `artifact_version`、知识审查、revision loop、局部重做和白盒观测的主链
 
-- **目标**：根据用户输入的**文字与图片**，生成高保真、小红书风格的前端页面（笔记页）。
-- **核心理念**：DSL 驱动 (Data/Style JSON)、场景原型约束 (Archetype)、以及可观测的交互体验 (Observable UX)。
-- **架构哲学**：主脑与感知分离。使用 OpenAI 范式进行思考，使用智谱全家桶进行感知。
+## Product Positioning
 
----
+- 用户始终只和一个 supervisor 对话
+- 系统围绕一份长期维护的购买决策档案工作
+- 所有外部知识先进入待审会话知识，再进入正式生成
+- revision 默认不打断主聊天流，只通过输入框旁的轻量面板触发
 
-## 📂 目录结构与职责
+## Formal Runtime
+
+正式后端主控已经统一到：
+
+- `AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py`
+- `AI_Frontend_IDE/app/agents/runtime/session_state.py`
+
+正式状态真相为：
+
+- `SupervisorSessionState`
+
+正式产物协议为：
+
+- `artifact`
+- `artifact_version`
+- `revision_plan`
+- `revision_result`
+
+## Repo Responsibilities
 
 | 路径 | 职责 |
 | :--- | :--- |
-| `AI_Frontend_IDE/` | **后端**：FastAPI + LangGraph。处理状态机、RAG、工具调用及 WebSocket 流式推送。 |
-| `ai-frontend-ide/` | **前端**：Vue 3 + TS + Pinia + Tailwind。负责实时渲染、时间胶囊回滚及用户交互。 |
-| `.cursor/rules/` | **治理**：严格的开发规则，涵盖状态优先逻辑、中间件使用及结构化输出规范。 |
-| `docker-compose.yml` | **编排**：一键启动全栈服务 (Backend, Frontend, Redis, Postgres)。 |
+| `AI_Frontend_IDE/` | 后端运行时、RAG、知识治理、artifact/version、WebSocket 与诊断 API |
+| `ai-frontend-ide/` | 前端会话工作台、全局资产中心、RevisionAssistPanel、Inspector 与预览 |
+| `docs/` | 当前产品架构、交付材料、视觉回归、运行维护说明 |
+| `scripts/` | 最终验收、全量体检、运行时重置、WebSocket 探测 |
 
----
+## Backend Design Principles
 
-## 🚀 最新进度 (战役 G/H - 架构重构)
+- **单一正式主控**：只有 supervisor runtime 是正式运行入口
+- **结构化优先**：所有关键产物都必须是结构化对象，而不是自由文本拼接
+- **artifact-centered**：每次成功 turn 必须生成 `artifact_version`
+- **revision-safe**：局部重做、补图、润色必须走统一 contract
+- **knowledge-governed**：`candidate_session_kb -> session_kb -> persistent_kb`
+- **observable by default**：phase、worker、skill、tool、knowledge version、failure point 必须可追踪
 
-### 1. 硬核 Agent 架构 (LangGraph + OpenAI)
-- **主脑范式**：所有 Intent/Content/Style 节点强制使用 `ChatOpenAI` 接口，兼容阿里云 Qwen/DeepSeek。
-- **结构化输出**：全面启用 Pydantic `with_structured_output`，杜绝正则解析幻觉。
-- **解耦设计**：主模型只负责“蒸馏”与“决策”，不直接调用底层感知 API。
+## Frontend Principles
 
-### 2. 感知与记忆矩阵 (ZhipuAI 全家桶)
-- **原生 SDK**：彻底移除 httpx/zai 库，全线接入智谱官方 `zhipuai` SDK。
-- **搜网能力**：使用 `client.web_search` 接口进行全网即时检索。
-- **多模态能力**：
-    - **识图**：`glm-4.6v-flashx`
-    - **绘图**：`cogview-3-plus`
-- **向量记忆**：`ZhipuAIEmbeddings` (`embedding-3`) 驱动 PGVector。
+- 会话工作台只展示 session runtime 数据
+- 全局资产中心不污染 session artifact/state
+- 高亮、最近变更块、revision 状态从 artifact diff 派生
+- revision 默认走输入框旁小面板，不走强打断卡片
 
-### 3. 风控与安全 (Defense-in-Depth)
-- **网关拦截**：在 WebSocket 入口处进行第一层短路拦截。
-- **云端同步**：通过 Redis 实时同步云端变种违禁词库 (500+ 实战词汇)。
-- **双栈审计**：结合关键词匹配与 PGVector 语义向量审计。
+## Operational Guidance
 
----
+- 正式验收：
+  - `bash scripts/final_acceptance.sh`
+- 全量体检：
+  - `bash scripts/full_system_audit.sh`
+- 运行时清空重置：
+  - `bash scripts/reset_project_state.sh --yes`
 
-## 🛠️ 外部服务与凭证矩阵 (Service Matrix)
+## Guardrails
 
-| 服务领域 | 供应商 | 核心模型/接口 | 环境变量 Key | 必填 |
-| :--- | :--- | :--- | :--- | :--- |
-| **中央主脑** | 兼容 OpenAI 协议 (如阿里云/DeepSeek) | `qwen-max`, `qwen-plus` 等 | `LLM_API_KEY`, `LLM_BASE_URL` | ✅ |
-| **感知与搜索** | 智谱 AI (ZhipuAI) | `glm-4-flash` (搜索), `cogview-3-plus` (绘图), `glm-4v` (识图) | `ZHI_PU_API_KEY` | ✅ |
-| **向量记忆** | 智谱 AI (ZhipuAI) | `embedding-3` | `ZHI_PU_API_KEY` (复用) | ✅ |
-| **物理世界 (LBS)** | 高德开放平台 (AMap) | Web 服务 API (地理编码/POI) | `AMAP_WEB_SERVICE_KEY` | ❌ (可选) |
-| **对象存储 (OSS)** | AWS S3 / 阿里云 OSS | S3 协议兼容接口 | `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, ... | ✅ |
-| **搜索引擎 (备用)** | SerpAPI (Google) | Google Search API | `SERPAPI_API_KEY` | ❌ (可选) |
-
----
-
-## 📜 开发准则
-
-- **始终** 视 `UIProjectState` 为单一事实来源。
-- **优先** 使用结构化输出而非字符串解析。
-- **绝不** 阻塞主线程；同步 SDK 调用必须使用 `asyncio.to_thread`。
-- **遵循** 黄金比例间距系统添加任何新 UI 组件。
+- 不再把旧运行时状态模型和旧 checkpoint 语义作为正式路径
+- 不再扩回 travel/general 主线
+- 不要重新引入任何旧时代运行时命名或多版本兼容语义
+- Prompt 继续统一文件化管理，不在 Python 中重新散落内嵌系统提示

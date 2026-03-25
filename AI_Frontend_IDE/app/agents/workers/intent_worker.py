@@ -10,7 +10,9 @@ from app.core.prompt_engineering import build_chat_prompt, build_prompt_snapshot
 from app.core.query_heuristics import (
     infer_existing_canvas_edit_route,
     looks_like_capability_query,
+    looks_like_append_block_request,
     looks_like_existing_canvas_edit,
+    looks_like_revision_review_request,
 )
 from app.core.schema import IntentDecision
 from app.services.scenario_manager import scenario_manager
@@ -117,7 +119,7 @@ def _build_fast_path_result(
         "scenarios": [scenario],
         "scenario_scores": {scenario: 1.0},
         "active_archetype": scenario,
-        "node_prompts": {
+        "worker_prompts": {
             "intent_worker": [
                 {
                     "role": "system",
@@ -154,7 +156,7 @@ def _derive_route_from_intent_decision(intent_decision: dict, *, user_query: str
     if fallback_required:
         return "fact_gap_checkpoint"
     if task_type in {"review", "ingest"}:
-        return "knowledge_review_checkpoint"
+        return "retrieval_worker"
     if task_type == "inspect":
         return "supervisor_agent"
     if scope == "selected_block" and _has_valid_selection(selected_id):
@@ -172,7 +174,8 @@ async def intent_worker(state: dict[str, object]) -> dict:
     execution_view = build_note_document_layout_from_state(state)
     selected_id = state.get("selected_element_id")
     active_archetype = "seeding"
-    has_existing_canvas = bool(execution_view.get("blocks"))
+    note_document = state.get("note_document") if isinstance(state.get("note_document"), dict) else {}
+    has_existing_canvas = bool(execution_view.get("blocks")) or bool(note_document.get("blocks"))
     active_panel = str(state.get("active_panel", "main") or "main")
 
     messages = state.get(f"{active_panel}_messages", [])
@@ -207,6 +210,60 @@ async def intent_worker(state: dict[str, object]) -> dict:
             has_existing_canvas=has_existing_canvas,
             route=route,
         )
+
+    if active_panel == "main" and (
+        _looks_like_asset_request(user_query)
+        or _looks_like_ingest_request(user_query)
+        or _looks_like_review_request(user_query)
+    ):
+        return _build_fast_path_result(
+            user_query=user_query,
+            selected_id=selected_id,
+            active_panel=active_panel,
+            active_archetype=active_archetype,
+            has_existing_canvas=has_existing_canvas,
+            route="retrieval_worker",
+        )
+
+    if active_panel == "main" and has_existing_canvas and looks_like_append_block_request(user_query):
+        return _build_fast_path_result(
+            user_query=user_query,
+            selected_id=None,
+            active_panel=active_panel,
+            active_archetype=active_archetype,
+            has_existing_canvas=has_existing_canvas,
+            route="retrieval_worker",
+        )
+
+    if active_panel == "main" and has_existing_canvas and looks_like_revision_review_request(user_query):
+        return {
+            "intent_decision": IntentDecision(
+                thought_process="",
+                reason="复盘建议快速路由",
+                task_type="inspect",
+                operation_type="generate",
+                scope="selected_block" if _has_valid_selection(selected_id) else "global_canvas",
+                needs_research=False,
+                needs_assets=False,
+                confidence=0.95,
+                fallback_required=False,
+                risk_flags=[],
+            ).model_dump(),
+            "intent_route": "critique_worker",
+            "selected_element_id": selected_id,
+            "scenarios": ["seeding"],
+            "scenario_scores": {"seeding": 1.0},
+            "active_archetype": "seeding",
+            "worker_prompts": {
+                "intent_worker": [
+                    {
+                        "role": "system",
+                        "content": "Intent Fast Path: critique review requested on existing artifact",
+                    }
+                ]
+            },
+            "agent_backends": {"intent_worker": "deterministic_revision_review_fast_path"},
+        }
 
     if active_panel == "main" and has_existing_canvas and looks_like_existing_canvas_edit(user_query):
         return _build_fast_path_result(
@@ -292,7 +349,7 @@ async def intent_worker(state: dict[str, object]) -> dict:
             "scenario_scores": {"seeding": 1.0},
             "active_archetype": "seeding",
             "thought_process": result.thought_process,
-            "node_prompts": build_prompt_snapshot("intent_worker", messages=prompt_messages),
+            "worker_prompts": build_prompt_snapshot("intent_worker", messages=prompt_messages),
             "agent_backends": {"intent_worker": "structured_function_calling"},
         }
     except Exception as error:

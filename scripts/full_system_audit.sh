@@ -10,7 +10,6 @@ echo
 echo "[2/5] Running runtime/workspace integration audit..."
 cd "$ROOT_DIR"
 pytest -q \
-  tests/test_e2e_smoke.py \
   tests/test_workspace_assets_api.py \
   tests/test_workspace_api.py \
   tests/test_workspace_showcase_api.py \
@@ -18,20 +17,20 @@ pytest -q \
   tests/test_ws_probe.py
 
 echo
-echo "[3/5] Running generation and editor audit..."
+echo "[3/5] Running supervisor / artifact / revision audit..."
 pytest -q \
-  tests/test_generation_smoke.py \
-  tests/test_note_editor_v2.py \
-  tests/test_patch_node.py \
-  tests/test_architecture_v2.py
+  tests/test_agent_runtime.py \
+  tests/test_artifact_revision_services.py \
+  tests/test_digital_purchase_runtime.py \
+  tests/test_final_product_guards.py
 
 echo
 echo "[4/5] Running RAG / trends / cache audit..."
 pytest -q \
   tests/test_rag_pipeline.py \
   tests/test_trend_pipeline.py \
-  tests/test_enrichment_agent.py \
-  tests/test_enrichment_integration.py
+  tests/test_knowledge_hub.py \
+  tests/test_skill_registry.py
 
 echo
 echo "[5/5] Running frontend visual audit..."

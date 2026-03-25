@@ -8,7 +8,7 @@ import type {
 export const createTransientUiState = () => {
   const isSidebarOpen = ref(true)
   const wsStatus = ref<'disconnected' | 'connecting' | 'connected'>('disconnected')
-  const currentNode = ref<string>('')
+  const activeWorker = ref<string>('')
   const thoughtText = ref<string>('')
   const nodeStreamOutput = ref<string>('')
   const workspaceMode = ref<WorkspaceViewMode>('session_preview')
@@ -21,11 +21,12 @@ export const createTransientUiState = () => {
   const assetSearchLoading = ref(false)
   const factConfirmingField = ref<string | null>(null)
   const hoveredComponentId = ref<string | null>(null)
+  const submittingCheckpointId = ref<string | null>(null)
 
   return {
     isSidebarOpen,
     wsStatus,
-    currentNode,
+    activeWorker,
     thoughtText,
     nodeStreamOutput,
     workspaceMode,
@@ -38,5 +39,6 @@ export const createTransientUiState = () => {
     assetSearchLoading,
     factConfirmingField,
     hoveredComponentId,
+    submittingCheckpointId,
   }
 }

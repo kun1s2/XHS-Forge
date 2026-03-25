@@ -1,8 +1,15 @@
 import asyncio
 from typing import List, Dict, Optional, Any
 from app.agents.tools_registry import TOOL_POOL
-from app.agents.utils.entity_utils import normalize_entity_name
-from app.core.query_heuristics import wants_image_search
+from app.agents.utils.entity_utils import (
+    extract_entity_candidates,
+    is_generic_entity_name,
+    mentions_other_specific_entity,
+    normalize_entity_name,
+    resolve_state_entity_name,
+)
+from app.core.query_heuristics import looks_like_append_block_request, wants_image_search
+from app.core.request_semantics import latest_user_text_from_state
 from app.services.rag_ingestion import ingest_retrieved_knowledge
 from app.services.knowledge_hub import (
     build_confirmed_facts_from_records,
@@ -32,6 +39,94 @@ from langchain_core.messages import AIMessage
 
 RuntimeState = dict[str, Any]
 
+
+def _cache_keyword_matches_entity(keyword: str, entity_name: str) -> bool:
+    normalized_entity = normalize_entity_name(entity_name)
+    if not normalized_entity or is_generic_entity_name(normalized_entity):
+        return True
+    normalized_keyword = normalize_entity_name(keyword)
+    if not normalized_keyword:
+        return False
+    if is_generic_entity_name(normalized_keyword):
+        return False
+    lhs = normalized_entity.lower()
+    rhs = normalized_keyword.lower()
+    return lhs in rhs or rhs in lhs
+
+
+def _cache_payload_matches_entity(payload: dict[str, Any] | None, entity_name: str) -> bool:
+    normalized_entity = normalize_entity_name(entity_name)
+    if not normalized_entity or is_generic_entity_name(normalized_entity):
+        return True
+    cached = payload if isinstance(payload, dict) else {}
+    cached_entity = normalize_entity_name(
+        str(cached.get("entity_name") or (cached.get("retrieval_summary") or {}).get("entity_name") or "")
+    )
+    if not cached_entity:
+        return False
+    lhs = normalized_entity.lower()
+    rhs = cached_entity.lower()
+    return lhs in rhs or rhs in lhs
+
+
+def _build_asset_search_query(*, entity_name: str, user_query: str, asset_mode: str) -> str:
+    normalized_entity = normalize_entity_name(entity_name)
+    if asset_mode == "SEARCH" and normalized_entity and not is_generic_entity_name(normalized_entity):
+        return f"{normalized_entity} 真机图 产品图"
+    return user_query
+
+
+def _structured_result_matches_entity(item: dict[str, Any], entity_name: str) -> bool:
+    normalized_entity = normalize_entity_name(entity_name)
+    if not normalized_entity or is_generic_entity_name(normalized_entity):
+        return True
+    haystack = " ".join(
+        str(item.get(key) or "").strip()
+        for key in ("title", "snippet", "link")
+        if str(item.get(key) or "").strip()
+    )
+    if not haystack:
+        return True
+    if mentions_other_specific_entity(haystack, normalized_entity):
+        return False
+    lowered_entity = normalized_entity.lower()
+    lowered_haystack = haystack.lower()
+    if lowered_entity in lowered_haystack:
+        return True
+    entity_tokens = [token.strip().lower() for token in normalized_entity.split() if token.strip()]
+    if entity_tokens and any(token in lowered_haystack for token in entity_tokens):
+        return True
+    return not bool(extract_entity_candidates(haystack))
+
+
+def _filter_structured_results_for_entity(items: list[dict[str, Any]], entity_name: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in (items or [])
+        if isinstance(item, dict) and _structured_result_matches_entity(item, entity_name)
+    ]
+
+
+def _filter_candidate_records_for_entity(items: list[dict[str, Any]], entity_name: str) -> list[dict[str, Any]]:
+    normalized_entity = normalize_entity_name(entity_name)
+    if not normalized_entity or is_generic_entity_name(normalized_entity):
+        return [item for item in (items or []) if isinstance(item, dict)]
+    filtered: list[dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        current_entity = normalize_entity_name(
+            str(item.get("normalized_entity") or item.get("source_title") or item.get("title") or "")
+        )
+        if not current_entity:
+            filtered.append(item)
+            continue
+        lhs = normalized_entity.lower()
+        rhs = current_entity.lower()
+        if lhs in rhs or rhs in lhs:
+            filtered.append(item)
+    return filtered
+
 # --- 🚀 事实哨兵 6.6：柔性取证版 ---
 
 async def research_service(state: RuntimeState) -> dict:
@@ -48,6 +143,8 @@ async def research_service(state: RuntimeState) -> dict:
         return str(message_content or "").strip()
 
     def _infer_asset_mode_from_query(query: str) -> str:
+        if looks_like_append_block_request(query):
+            return "NONE"
         if wants_image_search(query):
             return "SEARCH"
         return "NONE"
@@ -129,15 +226,13 @@ async def research_service(state: RuntimeState) -> dict:
             deduped[key] = item
         return list(deduped.values())
 
-    main_msgs = state.get("main_messages", [])
-    if not main_msgs:
+    user_query = latest_user_text_from_state(state)
+    if not user_query:
+        resume_directive = state.get("resume_directive") if isinstance(state.get("resume_directive"), dict) else {}
+        user_query = str(resume_directive.get("resume_query") or "").strip()
+    if not user_query:
         return {}
-    latest_message = main_msgs[-1]
-    raw_message_content = getattr(latest_message, "content", None)
-    if raw_message_content is None and isinstance(latest_message, dict):
-        raw_message_content = latest_message.get("content")
-    user_query = _extract_user_text(raw_message_content)
-    entity_name = normalize_entity_name(user_query)
+    entity_name = resolve_state_entity_name(state, user_query)
     existing_knowledge = state.get("retrieved_knowledge") if isinstance(state.get("retrieved_knowledge"), dict) else {}
     knowledge_plan = build_knowledge_plan(state)
     required_fields = [str(item) for item in (knowledge_plan.get("required_fields") or []) if str(item).strip()]
@@ -243,8 +338,17 @@ async def research_service(state: RuntimeState) -> dict:
             "messages": [AIMessage(content=f"我先复用了当前会话和正式知识库里关于「{entity_name or user_query}」的已确认知识。")],
         }
 
+    intent_decision = state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {}
+    explicit_asset_mode = "NONE" if looks_like_append_block_request(user_query) else ("SEARCH" if bool(intent_decision.get("needs_assets")) else "NONE")
+    asset_mode = explicit_asset_mode if intent_decision else _infer_asset_mode_from_query(user_query)
+    effective_query = _build_asset_search_query(
+        entity_name=entity_name or user_query,
+        user_query=user_query,
+        asset_mode=asset_mode,
+    )
+
     rag_result = await retrieve_knowledge_hits(
-        user_query,
+        effective_query,
         limit=max(4, int(knowledge_plan.get("knowledge_budget") or 4)),
         metadata_filter={
             "scene_hint": str(state.get("active_archetype") or "seeding"),
@@ -334,7 +438,12 @@ async def research_service(state: RuntimeState) -> dict:
 
     # 1. 缓存嗅探
     from app.services.cache_service import cache_service
-    hit_keywords = await cache_service.match_trends_in_text(user_query)
+    hit_keywords = await cache_service.match_trends_in_text(effective_query)
+    hit_keywords = [
+        keyword
+        for keyword in hit_keywords
+        if _cache_keyword_matches_entity(str(keyword), entity_name or user_query)
+    ]
     retrieval_policy = choose_retrieval_policy(
         user_query=user_query,
         cache_keywords=hit_keywords,
@@ -343,7 +452,9 @@ async def research_service(state: RuntimeState) -> dict:
     )
     if hit_keywords:
         cached = await cache_service.get_hot_knowledge(hit_keywords[0])
-        if cached:
+        if cached and not _cache_payload_matches_entity(cached, entity_name or user_query):
+            cached = None
+        if cached and asset_mode != "SEARCH":
             print(f"🚀 [哨兵加速] 命中缓存: {hit_keywords[0]}")
             next_knowledge = merge_candidate_records_into_retrieved(
                 dict(cached or {}),
@@ -392,11 +503,13 @@ async def research_service(state: RuntimeState) -> dict:
                 "retrieved_knowledge": next_knowledge,
                 "agent_backends": {"retrieval_service": "deterministic_tool_orchestrator"},
             }
+        if cached and asset_mode == "SEARCH":
+            print(f"🖼️ [素材检索] 命中缓存但本轮需要图片，跳过缓存短路，继续执行实时搜图。")
 
     # 2. 信号提取
     intent_decision = state.get("intent_decision") or {}
     if isinstance(intent_decision, dict) and intent_decision:
-        asset_mode = "SEARCH" if bool(intent_decision.get("needs_assets")) else "NONE"
+        asset_mode = "NONE" if looks_like_append_block_request(user_query) else ("SEARCH" if bool(intent_decision.get("needs_assets")) else "NONE")
     else:
         asset_mode = _infer_asset_mode_from_query(user_query)
     retrieval_policy = choose_retrieval_policy(
@@ -409,7 +522,7 @@ async def research_service(state: RuntimeState) -> dict:
     # 3. 并发取证决策
     search_tool = TOOL_POOL["network_search"]
     query_variants = build_query_variants_for_profile(
-        user_query=user_query,
+        user_query=effective_query,
         entity_name=entity_name or user_query,
         retrieval_profile=retrieval_profile,
     )
@@ -427,7 +540,15 @@ async def research_service(state: RuntimeState) -> dict:
     # 任务 B: 图片打捞（柔性触发）
     # 只有当意图探测开启了 SEARCH 模式才启动
     should_search_images = (asset_mode == "SEARCH")
-    image_query = f"{user_query} 真实素材图"
+    image_query = (
+        _build_asset_search_query(
+            entity_name=entity_name or effective_query,
+            user_query=user_query,
+            asset_mode=asset_mode,
+        )
+        if should_search_images
+        else ""
+    )
     image_task = search_google_images(query=image_query, num=5) if should_search_images else asyncio.sleep(0, result=[])
 
     print(f"📡 [搜证引擎] 正在作业... 文本: 并发多路强取 | 图片: {'已激活' if should_search_images else '已旁路'}")
@@ -464,8 +585,16 @@ async def research_service(state: RuntimeState) -> dict:
             else:
                 structured_results_map[scope] = list(structured_result or [])
 
-        official_results = structured_results_map.get("official") or []
-        review_results = structured_results_map.get("review") or []
+        official_results = _filter_structured_results_for_entity(
+            structured_results_map.get("official") or [],
+            entity_name or user_query,
+        )
+        review_results = _filter_structured_results_for_entity(
+            structured_results_map.get("review") or [],
+            entity_name or user_query,
+        )
+        structured_results_map["official"] = official_results
+        structured_results_map["review"] = review_results
 
         if isinstance(image_result, Exception):
             print(f"⚠️ [搜证引擎] 图片搜证失败: {image_result}")
@@ -492,7 +621,15 @@ async def research_service(state: RuntimeState) -> dict:
 
     # 构造 image_assets 结构
     asset_label = _build_asset_label(entity_name, user_query)
-    final_assets = [{"url": u, "desc": f"{asset_label} 实拍图"} for u in real_image_urls]
+    final_assets = [
+        {
+            "url": u,
+            "desc": f"{asset_label} 实拍图",
+            "query": image_query,
+            "source_reason": f"围绕「{entity_name or user_query}」检索到的真机图素材",
+        }
+        for u in real_image_urls
+    ]
     official_summary, official_sources = _format_structured_results("official", official_query, official_results)
     review_summary, review_sources = _format_structured_results("review", review_query, review_results)
     fact_sources = _dedupe_fact_sources([*official_sources, *review_sources])
@@ -545,7 +682,10 @@ async def research_service(state: RuntimeState) -> dict:
             )
             for idx, item in enumerate(followup_query_variants):
                 scope = str(item.get("scope") or "followup")
-                results_for_scope = followup_batches[idx] or []
+                results_for_scope = _filter_structured_results_for_entity(
+                    followup_batches[idx] or [],
+                    entity_name or user_query,
+                )
                 if not results_for_scope:
                     continue
                 followup_results_map.setdefault(scope, []).extend(results_for_scope)
@@ -624,6 +764,7 @@ async def research_service(state: RuntimeState) -> dict:
         scene_hint=str(state.get("active_archetype") or "seeding"),
         source_type="web_search",
     )
+    candidate_records = _filter_candidate_records_for_entity(candidate_records, entity_name or user_query)
     knowledge = {
         "entity_name": entity_name or user_query,
         "is_fact_ready": True,

@@ -25,7 +25,7 @@ from app.core.component_manifest import (
     resolve_component_candidates_for_block_intent,
     resolve_component_for_block_intent,
 )
-from app.core.request_semantics import latest_user_text_from_messages, state_requests_create
+from app.core.request_semantics import latest_user_text_from_state, state_requests_create
 from app.core.truth_safety import (
     has_user_provided_facts,
     normalize_user_provided_facts,
@@ -44,7 +44,7 @@ RuntimeState = dict[str, Any]
 
 
 def _user_query(state: RuntimeState) -> str:
-    return latest_user_text_from_messages(state.get("main_messages", []) or [])
+    return latest_user_text_from_state(state)
 
 
 def _entity_name(state: RuntimeState) -> str:
@@ -95,6 +95,87 @@ def _truth_mode_progress(state: RuntimeState) -> dict[str, Any]:
     if not isinstance(progress, dict):
         return {}
     return dict(progress.get("truth_mode") or {})
+
+
+def _checkpoint_progress_slice(state: RuntimeState, key: str) -> dict[str, Any]:
+    progress = state.get("checkpoint_progress") or {}
+    if not isinstance(progress, dict):
+        return {}
+    value = progress.get(key)
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _is_same_checkpoint_signature_resolved(state: RuntimeState, key: str, signature: str) -> bool:
+    if not signature:
+        return False
+    progress = _checkpoint_progress_slice(state, key)
+    return bool(progress.get("resolved")) and str(progress.get("signature") or "") == signature
+
+
+def _merge_checkpoint_progress(
+    state: RuntimeState,
+    key: str,
+    *,
+    signature: str,
+    selected: str,
+    extras: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    progress = deepcopy(state.get("checkpoint_progress") or {})
+    next_slice = {
+        "resolved": True,
+        "signature": signature,
+        "selected": selected,
+    }
+    if isinstance(extras, dict):
+        next_slice.update(deepcopy(extras))
+    progress[key] = next_slice
+    return progress
+
+
+def _knowledge_review_signature(groups: list[dict[str, Any]]) -> str:
+    tokens: list[str] = []
+    for group in groups:
+        field = str(group.get("field_or_topic") or "")
+        for item in (group.get("records") or []):
+            if not isinstance(item, dict):
+                continue
+            token = str(item.get("record_id") or "").strip()
+            if not token:
+                token = "|".join(
+                    [
+                        str(item.get("normalized_entity") or "").strip(),
+                        field,
+                        str(item.get("summary") or item.get("value") or "").strip(),
+                    ]
+                )
+            if token:
+                tokens.append(token)
+    return "knowledge_review::" + "||".join(sorted(set(tokens)))
+
+
+def _fact_gap_signature(
+    *,
+    state: RuntimeState,
+    profile_name: str,
+    critical_keys: list[str],
+) -> str:
+    entity = _entity_name(state)
+    query = _user_query(state)
+    normalized_keys = "|".join(sorted({str(key).strip() for key in critical_keys if str(key).strip()}))
+    return f"fact_gap::{profile_name}::{entity}::{query}::{normalized_keys}"
+
+
+def _asset_checkpoint_signature(*, state: RuntimeState, mode: str, asset_urls: list[str]) -> str:
+    active = str(state.get("active_archetype") or "seeding")
+    normalized_urls = "|".join(sorted({str(url).strip() for url in asset_urls if str(url).strip()}))
+    return f"asset::{active}::{mode}::{normalized_urls}"
+
+
+def _fact_conflict_signature(field: str, values: list[dict[str, Any]]) -> str:
+    normalized_values = "|".join(
+        sorted({str(item.get("value") or "").strip() for item in values if str(item.get("value") or "").strip()})
+    )
+    return f"fact_conflict::{field}::{normalized_values}"
 
 
 def _truth_mode_kind(state: RuntimeState) -> str:
@@ -602,6 +683,23 @@ def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
 def build_structure_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     if not state_requests_create(state):
         return None
+    checkpoint_progress = state.get("checkpoint_progress") or {}
+    structure_progress = checkpoint_progress.get("structure") if isinstance(checkpoint_progress, dict) else {}
+    if isinstance(structure_progress, dict) and structure_progress.get("resolved"):
+        return None
+    planner_policy = state.get("planner_policy") or {}
+    layout_policy = planner_policy.get("layout_policy") if isinstance(planner_policy, dict) else {}
+    confirmed_mode = str((layout_policy or {}).get("confirmed_structure_mode") or "").strip()
+    if confirmed_mode:
+        return None
+    planner_output = state.get("planner_output") or {}
+    block_intents = planner_output.get("block_intents") if isinstance(planner_output, dict) else []
+    if isinstance(block_intents, list) and block_intents:
+        return None
+    note_document = state.get("note_document") or {}
+    blocks = note_document.get("blocks") if isinstance(note_document, dict) else []
+    if isinstance(blocks, list) and blocks:
+        return None
     options = _recommended_structure_options(state)
     if not options:
         return None
@@ -644,6 +742,13 @@ def apply_structure_checkpoint_decision(state: RuntimeState, decision: dict[str,
     return {
         "planner_output": planner_output,
         "planner_policy": planner_policy,
+        "checkpoint_progress": {
+            "structure": {
+                "resolved": True,
+                "selected": str(selected.get("value") or ""),
+                "label": str(selected.get("label") or ""),
+            }
+        },
         "turn_trace": _append_custom_note({
             "conversation_checkpoints": {
                 "structure": {
@@ -677,6 +782,31 @@ def _critical_missing_slot_keys(state: RuntimeState) -> tuple[list[str], dict[st
     return critical_keys, retrieval_profile, slot_labels
 
 
+def _has_existing_artifact_blocks(state: RuntimeState) -> bool:
+    note_document = state.get("note_document") if isinstance(state.get("note_document"), dict) else {}
+    blocks = note_document.get("blocks") if isinstance(note_document.get("blocks"), list) else []
+    return bool(blocks)
+
+
+def _should_gate_fact_gap(state: RuntimeState) -> bool:
+    intent_decision = state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {}
+    task_type = str(intent_decision.get("task_type") or "").strip().lower()
+    operation_type = str(intent_decision.get("operation_type") or "").strip().lower()
+    revision_status = state.get("revision_status") if isinstance(state.get("revision_status"), dict) else {}
+    turn_trace = state.get("turn_trace") if isinstance(state.get("turn_trace"), dict) else {}
+    message_kind = str(turn_trace.get("message_kind") or "").strip().lower()
+
+    if operation_type == "asset_edit":
+        return False
+    if message_kind == "revision_action":
+        return False
+    if revision_status.get("status") in {"ready", "applied"}:
+        return False
+    if _has_existing_artifact_blocks(state) and task_type != "create":
+        return False
+    return True
+
+
 def _pending_candidate_groups(state: RuntimeState) -> list[dict[str, Any]]:
     knowledge = state.get("retrieved_knowledge") or {}
     candidate_payload = (knowledge.get("candidate_session_kb") or {}) if isinstance(knowledge, dict) else {}
@@ -697,6 +827,9 @@ def build_knowledge_review_checkpoint(state: RuntimeState) -> dict[str, Any] | N
         return None
     groups = _pending_candidate_groups(state)
     if not groups:
+        return None
+    signature = _knowledge_review_signature(groups)
+    if _is_same_checkpoint_signature_resolved(state, "knowledge_review", signature):
         return None
     knowledge = state.get("retrieved_knowledge") or {}
     plan = (knowledge.get("knowledge_plan") or {}) if isinstance(knowledge, dict) else {}
@@ -728,6 +861,7 @@ def build_knowledge_review_checkpoint(state: RuntimeState) -> dict[str, Any] | N
         "other_placeholder": "如果你想说明采用原则，也可以补一句",
         "recommended_option": "approve_recommended",
         "blocking": True,
+        "signature": signature,
         "options": _safe_options(
             [
                 {
@@ -755,6 +889,13 @@ def build_knowledge_review_checkpoint(state: RuntimeState) -> dict[str, Any] | N
 def apply_knowledge_review_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
     decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
     custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""
+    signature = _knowledge_review_signature(_pending_candidate_groups(state))
+    checkpoint_progress = _merge_checkpoint_progress(
+        state,
+        "knowledge_review",
+        signature=signature,
+        selected=decision_value or "continue_with_existing",
+    )
     if decision_value == "approve_recommended":
         next_knowledge = apply_knowledge_review_decision(
             state.get("retrieved_knowledge") if isinstance(state.get("retrieved_knowledge"), dict) else {},
@@ -762,6 +903,7 @@ def apply_knowledge_review_checkpoint_decision(state: RuntimeState, decision: di
         )
         return {
             "retrieved_knowledge": next_knowledge,
+            "checkpoint_progress": checkpoint_progress,
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {
                     "knowledge_review": {"resolved": True, "selected": "approve_recommended"}
@@ -775,6 +917,7 @@ def apply_knowledge_review_checkpoint_decision(state: RuntimeState, decision: di
         )
         return {
             "retrieved_knowledge": next_knowledge,
+            "checkpoint_progress": checkpoint_progress,
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {
                     "knowledge_review": {"resolved": True, "selected": "defer_all"}
@@ -782,6 +925,7 @@ def apply_knowledge_review_checkpoint_decision(state: RuntimeState, decision: di
             }, note=custom_note),
         }
     return {
+        "checkpoint_progress": checkpoint_progress,
         "turn_trace": _append_custom_note({
             "conversation_checkpoints": {
                 "knowledge_review": {"resolved": True, "selected": "continue_with_existing"}
@@ -791,11 +935,16 @@ def apply_knowledge_review_checkpoint_decision(state: RuntimeState, decision: di
 
 
 def build_fact_gap_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
+    if not _should_gate_fact_gap(state):
+        return None
     critical_keys, retrieval_profile, slot_labels = _critical_missing_slot_keys(state)
     if not critical_keys:
         return None
     missing_labels = [slot_labels.get(key, key) for key in critical_keys]
     profile_name = str(retrieval_profile.get("profile_name") or "digital_review")
+    signature = _fact_gap_signature(state=state, profile_name=profile_name, critical_keys=critical_keys)
+    if _is_same_checkpoint_signature_resolved(state, "fact_gap", signature):
+        return None
     return {
         "action_type": "fact_gap_checkpoint",
         "checkpoint_id": f"fact-gap::{profile_name}",
@@ -807,6 +956,7 @@ def build_fact_gap_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
         "other_placeholder": "如果你想指定补搜重点或保留策略，可以补一句",
         "recommended_option": "continue_research",
         "blocking": True,
+        "signature": signature,
         "options": _safe_options(
             [
                 {
@@ -879,6 +1029,39 @@ def apply_confirmed_only_strategy(state: RuntimeState, *, custom_note: str | Non
     }
 
 
+def apply_fact_gap_checkpoint_decision(state: RuntimeState, decision: dict[str, Any] | str | None) -> dict[str, Any]:
+    decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
+    custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""
+    critical_keys, retrieval_profile, _slot_labels = _critical_missing_slot_keys(state)
+    profile_name = str(retrieval_profile.get("profile_name") or "digital_review")
+    signature = _fact_gap_signature(state=state, profile_name=profile_name, critical_keys=critical_keys)
+    checkpoint_progress = _merge_checkpoint_progress(
+        state,
+        "fact_gap",
+        signature=signature,
+        selected=decision_value or "continue_research",
+    )
+    if decision_value == "cautious_generate":
+        patch = apply_cautious_fact_strategy(state, custom_note=custom_note)
+        patch["checkpoint_progress"] = checkpoint_progress
+        return patch
+    if decision_value == "confirmed_only":
+        patch = apply_confirmed_only_strategy(state, custom_note=custom_note)
+        patch["checkpoint_progress"] = checkpoint_progress
+        return patch
+    patch: dict[str, Any] = {
+        "checkpoint_progress": checkpoint_progress,
+        "turn_trace": _append_custom_note({
+            "conversation_checkpoints": {
+                "fact_gap": {"resolved": True, "selected": decision_value or "continue_research"}
+            }
+        }, note=custom_note),
+    }
+    if isinstance(decision, dict) and isinstance(decision.get("user_provided_facts"), dict):
+        patch["user_provided_facts"] = deepcopy(decision.get("user_provided_facts") or {})
+    return patch
+
+
 def build_asset_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     planner_output = state.get("planner_output") or {}
     wants_hero_media = any(
@@ -888,7 +1071,9 @@ def build_asset_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     )
     raw_assets = [
         asset for asset in (state.get("image_assets") or [])
-        if isinstance(asset, dict) and str(asset.get("url") or "").strip()
+        if isinstance(asset, dict)
+        and str(asset.get("url") or "").strip()
+        and str(asset.get("selection_state") or "").strip().lower() != "excluded"
     ]
     assets: list[dict[str, Any]] = []
     seen_asset_urls: set[str] = set()
@@ -906,6 +1091,13 @@ def build_asset_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
         return f"第{position}张图片"
 
     if len(assets) >= 2:
+        signature = _asset_checkpoint_signature(
+            state=state,
+            mode="selection",
+            asset_urls=[str(asset.get("url") or "") for asset in assets],
+        )
+        if _is_same_checkpoint_signature_resolved(state, "asset", signature):
+            return None
         recommended_cover = next(
             (asset for asset in assets if str(asset.get("role") or "").strip().lower() == "cover"),
             assets[0],
@@ -960,9 +1152,13 @@ def build_asset_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
             "other_placeholder": "如果你有别的图组想法，也可以补一句说明",
             "recommended_option": "use_recommended_bundle",
             "blocking": True,
+            "signature": signature,
             "options": _safe_options(options),
         }
     if wants_hero_media and not assets:
+        signature = _asset_checkpoint_signature(state=state, mode="missing", asset_urls=[])
+        if _is_same_checkpoint_signature_resolved(state, "asset", signature):
+            return None
         return {
             "action_type": "asset_checkpoint",
             "checkpoint_id": "asset::missing",
@@ -974,6 +1170,7 @@ def build_asset_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
             "other_placeholder": "如果你想指定搜图方向或直接说明不要图，也可以补一句",
             "recommended_option": "continue_without_images",
             "blocking": True,
+            "signature": signature,
             "options": _safe_options(
                 [
                     {
@@ -1004,6 +1201,20 @@ def apply_asset_checkpoint_decision(state: RuntimeState, decision: dict[str, Any
     custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""
     assets = deepcopy(state.get("image_assets") or [])
     planner_output = deepcopy(state.get("planner_output") or {})
+    available_asset_urls = [
+        str(asset.get("url") or "").strip()
+        for asset in assets
+        if isinstance(asset, dict)
+        and str(asset.get("url") or "").strip()
+        and str(asset.get("selection_state") or "").strip().lower() != "excluded"
+    ]
+    asset_mode = "selection" if len(available_asset_urls) >= 2 else "missing"
+    checkpoint_progress = _merge_checkpoint_progress(
+        state,
+        "asset",
+        signature=_asset_checkpoint_signature(state=state, mode=asset_mode, asset_urls=available_asset_urls),
+        selected=decision_value or "use_recommended_bundle",
+    )
 
     def _mark_assets(*, cover_url: str | None = None, excluded_urls: set[str] | None = None) -> list[dict[str, Any]]:
         excluded_urls = excluded_urls or set()
@@ -1039,6 +1250,7 @@ def apply_asset_checkpoint_decision(state: RuntimeState, decision: dict[str, Any
     if decision_value == "use_recommended_bundle":
         cover_url = str(decision.get("asset_url") or "") if isinstance(decision, dict) else ""
         return {
+            "checkpoint_progress": checkpoint_progress,
             "image_assets": [{"__replace__": True}, *_mark_assets(cover_url=cover_url or None)],
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {
@@ -1047,9 +1259,20 @@ def apply_asset_checkpoint_decision(state: RuntimeState, decision: dict[str, Any
             }, note=custom_note),
         }
 
+    if decision_value == "search_images_for_cover":
+        return {
+            "checkpoint_progress": checkpoint_progress,
+            "turn_trace": _append_custom_note({
+                "conversation_checkpoints": {
+                    "asset": {"resolved": True, "selected": "search_images_for_cover"}
+                }
+            }, note=custom_note),
+        }
+
     if decision_value.startswith("set_cover::"):
         cover_url = decision_value.split("::", 1)[1]
         return {
+            "checkpoint_progress": checkpoint_progress,
             "image_assets": [{"__replace__": True}, *_mark_assets(cover_url=cover_url or None)],
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {
@@ -1061,6 +1284,7 @@ def apply_asset_checkpoint_decision(state: RuntimeState, decision: dict[str, Any
     if decision_value.startswith("exclude::"):
         excluded_url = decision_value.split("::", 1)[1]
         return {
+            "checkpoint_progress": checkpoint_progress,
             "image_assets": [{"__replace__": True}, *_mark_assets(excluded_urls={excluded_url})],
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {
@@ -1083,6 +1307,7 @@ def apply_asset_checkpoint_decision(state: RuntimeState, decision: dict[str, Any
         ]
         planner_policy["layout_policy"] = layout_policy
         return {
+            "checkpoint_progress": checkpoint_progress,
             "planner_output": planner_output,
             "planner_policy": planner_policy,
             "turn_trace": _append_custom_note({
@@ -1104,6 +1329,9 @@ def build_fact_conflict_checkpoint(state: RuntimeState) -> dict[str, Any] | None
     field = str(conflict.get("field") or "").strip()
     values = [item for item in (conflict.get("values") or []) if isinstance(item, dict)]
     if not field or len(values) < 2:
+        return None
+    signature = _fact_conflict_signature(field, values)
+    if _is_same_checkpoint_signature_resolved(state, "fact_conflict", signature):
         return None
     options: list[dict[str, Any]] = []
     for item in values[:3]:
@@ -1138,6 +1366,7 @@ def build_fact_conflict_checkpoint(state: RuntimeState) -> dict[str, Any] | None
         "other_placeholder": "如果你想补充采用原则，也可以写在这里",
         "recommended_option": "keep_cautious",
         "blocking": True,
+        "signature": signature,
         "options": _safe_options(options),
     }
 
@@ -1146,8 +1375,18 @@ def apply_fact_conflict_checkpoint_decision(state: RuntimeState, decision: dict[
     knowledge = deepcopy(state.get("retrieved_knowledge") or {})
     decision_value = str(decision.get("decision") or decision.get("value") or "") if isinstance(decision, dict) else str(decision or "")
     custom_note = str((decision or {}).get("custom_note") or "").strip() if isinstance(decision, dict) else ""
+    conflict = next((item for item in (knowledge.get("fact_conflicts") or []) if isinstance(item, dict)), {})
+    values = [item for item in (conflict.get("values") or []) if isinstance(item, dict)]
+    signature = _fact_conflict_signature(str(conflict.get("field") or ""), values)
+    checkpoint_progress = _merge_checkpoint_progress(
+        state,
+        "fact_conflict",
+        signature=signature,
+        selected=decision_value or "keep_cautious",
+    )
     if decision_value == "keep_cautious":
         return {
+            "checkpoint_progress": checkpoint_progress,
             "retrieved_knowledge": apply_confirmed_facts_to_knowledge(knowledge),
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {
@@ -1173,6 +1412,7 @@ def apply_fact_conflict_checkpoint_decision(state: RuntimeState, decision: dict[
             sources=selected_sources,
         )
         return {
+            "checkpoint_progress": checkpoint_progress,
             "retrieved_knowledge": next_knowledge,
             "turn_trace": _append_custom_note({
                 "conversation_checkpoints": {

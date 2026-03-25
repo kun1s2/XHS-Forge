@@ -46,13 +46,13 @@ def truncate_text(value: Any, max_len: int = 220) -> str:
     return text[: max_len - 3] + '...'
 
 
-def summarize_node_output(node_name: str, output: Any) -> str:
+def summarize_worker_output(worker_name: str, output: Any) -> str:
     if not isinstance(output, dict):
         return truncate_text(output)
 
     summary_parts: list[str] = []
 
-    if node_name in {'supervisor_agent', 'composition_worker'}:
+    if worker_name in {'supervisor_agent', 'composition_worker'}:
         html = output.get('final_html') or ''
         oss_url = output.get('final_oss_url') or ''
         note_document = output.get('note_document') or {}
@@ -65,8 +65,8 @@ def summarize_node_output(node_name: str, output: Any) -> str:
     else:
         if isinstance(output.get('note_document'), dict):
             summary_parts.append(f"note_document.blocks={len(output['note_document'].get('blocks') or [])}")
-        if isinstance(output.get('node_prompts'), dict):
-            summary_parts.append(f"node_prompts={len(output['node_prompts'].keys())}")
+        if isinstance(output.get('worker_prompts'), dict):
+            summary_parts.append(f"worker_prompts={len(output['worker_prompts'].keys())}")
         if isinstance(output.get('planner_output'), dict):
             summary_parts.append(f"planner.block_intents={len(output['planner_output'].get('block_intents') or [])}")
         if isinstance(output.get('retrieved_knowledge'), dict):

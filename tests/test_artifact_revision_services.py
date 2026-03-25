@@ -1,8 +1,11 @@
 from app.agents.services.artifact_service import build_artifact_patch
+from app.agents.services.runtime_protocol_service import should_commit_artifact_version
+from app.agents.services.session_state_service import ensure_session_runtime_defaults
 from app.agents.services.revision_service import (
     build_revision_plan,
     build_revision_result,
     build_revision_status,
+    reconcile_revision_result,
     select_primary_recipe,
 )
 
@@ -96,12 +99,111 @@ def test_artifact_patch_creates_lineage_and_knowledge_version():
     }
     state["revision_plan"] = build_revision_plan(state)
     state["revision_result"] = build_revision_result(state)
-    patch = build_artifact_patch(state, snapshot_id="snapshot_new", checkpoint_id="ckpt_new")
+    patch = build_artifact_patch(
+        state,
+        snapshot_id="snapshot_new",
+        checkpoint_id="ckpt_new",
+        thread_id="thread_quality_demo",
+    )
 
     assert patch["artifact"]["artifact_id"] == "artifact_123"
     assert patch["artifact"]["current_snapshot_id"] == "snapshot_new"
     assert patch["artifact_version"]["parent_version_id"] == "version_prev"
     assert patch["artifact_version"]["snapshot_id"] == "snapshot_new"
     assert patch["artifact_version"]["checkpoint_id"] == "ckpt_new"
+    assert patch["artifact_version"]["thread_id"] == "thread_quality_demo"
     assert patch["artifact_version"]["knowledge_version"] == "session-kb::3"
     assert patch["version_history_head"][0]["version_id"] == patch["artifact_version"]["version_id"]
+
+
+def test_session_defaults_do_not_invent_revision_state_for_blank_session():
+    defaults = ensure_session_runtime_defaults(
+        {
+            "note_document": {"document_meta": {"title": "空白页"}, "blocks": [], "assets": []},
+            "artifact": {"artifact_id": "artifact_blank", "title": "空白页"},
+            "critique_feedback": {},
+            "revision_plan": {},
+            "revision_result": {},
+            "revision_status": {},
+        }
+    )
+
+    assert defaults["revision_plan"] == {}
+    assert defaults["revision_result"] == {}
+    assert defaults["revision_status"] == {}
+
+
+def test_should_commit_artifact_version_ignores_analysis_only_turns():
+    state = _base_state()
+    state["last_worker_result"] = {
+        "worker_name": "critique_worker",
+        "status": "success",
+        "changed_blocks": [],
+        "assets_delta": [],
+        "failure_reason": "",
+        "commit_eligible": False,
+    }
+    state["turn_trace"] = {}
+    state["revision_result"] = {"status": "idle", "changed_blocks": [], "assets_delta": [], "failure_reason": ""}
+
+    assert should_commit_artifact_version(state) is False
+
+
+def test_should_commit_artifact_version_uses_visible_diff_even_after_critique():
+    state = _base_state()
+    state["last_worker_result"] = {
+        "worker_name": "critique_worker",
+        "status": "success",
+        "changed_blocks": [],
+        "assets_delta": [],
+        "failure_reason": "",
+        "commit_eligible": False,
+    }
+    state["revision_result"] = {
+        "status": "success",
+        "changed_blocks": [{"id": "story_1", "type": "StoryText", "changed_fields": ["props"]}],
+        "assets_delta": [],
+        "failure_reason": "",
+    }
+
+    assert should_commit_artifact_version(state) is True
+
+
+def test_reconcile_revision_result_downgrades_false_success_without_real_diff():
+    revision_result = {
+        "status": "success",
+        "changed_blocks": [{"id": "story_1", "type": "StoryText", "changed_fields": ["props"]}],
+        "assets_delta": [],
+        "failure_reason": "",
+        "worker_name": "composition_worker",
+    }
+
+    reconciled = reconcile_revision_result(revision_result, turn_trace={"changed_blocks": []})
+
+    assert reconciled["status"] == "no_effect"
+    assert reconciled["changed_blocks"] == []
+    assert reconciled["failure_reason"] == "composition_no_effect"
+
+
+def test_should_not_commit_when_worker_claims_change_but_trace_has_no_diff():
+    state = _base_state()
+    state["turn_trace"] = {"changed_blocks": []}
+    state["revision_result"] = {
+        "status": "success",
+        "changed_blocks": [{"id": "story_1", "type": "StoryText", "changed_fields": ["props"]}],
+        "assets_delta": [],
+        "failure_reason": "",
+        "worker_name": "composition_worker",
+    }
+
+    assert should_commit_artifact_version(state) is False
+
+
+def test_should_not_commit_when_artifact_quality_fails():
+    state = _base_state()
+    state["artifact_quality"] = {
+        "passed": False,
+        "failure_reason": "artifact_quality_failed:页面缺少优缺点或路线对比区块。",
+    }
+
+    assert should_commit_artifact_version(state) is False

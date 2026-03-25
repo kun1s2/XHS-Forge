@@ -1,6 +1,6 @@
 # 🧪 战役四：时空穿梭与幽灵数据防御 (Time-Travel & Ghost Data Tests)
 import pytest
-from AI_Frontend_IDE.app.agents.state import (
+from app.agents.runtime.state_helpers import (
     merge_state_patch,
     merge_patch_tracks,
     restore_component_version,

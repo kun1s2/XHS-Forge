@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from app.core.request_semantics import latest_user_text_from_state
+
 
 ARTIFACT_TYPE = "purchase_decision_note"
 ARTIFACT_STATUS = "active"
@@ -78,15 +80,22 @@ def _normalized_assets_delta(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def infer_revision_reason(state: dict[str, Any]) -> str:
-    for candidate in (
+    candidates = [
         _as_dict(state.get("revision_plan")).get("reason"),
         _as_dict(state.get("revision_result")).get("revision_reason"),
         _as_dict(state.get("checkpoint_decision")).get("custom_note"),
-        _as_dict(state.get("last_worker_result")).get("failure_reason"),
-    ):
+    ]
+    changed_blocks = _normalized_changed_blocks(state)
+    assets_delta = _normalized_assets_delta(state)
+    if not (changed_blocks or assets_delta):
+        candidates.append(_as_dict(state.get("last_worker_result")).get("failure_reason"))
+    for candidate in candidates:
         text = str(candidate or "").strip()
         if text:
             return text
+    latest_user_query = latest_user_text_from_state(state)
+    if latest_user_query:
+        return latest_user_query[:200]
     messages = _as_list(state.get("main_messages") or state.get("messages"))
     for msg in reversed(messages):
         content = getattr(msg, "content", None)
@@ -95,7 +104,13 @@ def infer_revision_reason(state: dict[str, Any]) -> str:
     return "turn_update"
 
 
-def build_artifact_version(state: dict[str, Any], *, snapshot_id: str, checkpoint_id: str = "") -> dict[str, Any]:
+def build_artifact_version(
+    state: dict[str, Any],
+    *,
+    snapshot_id: str,
+    checkpoint_id: str = "",
+    thread_id: str = "",
+) -> dict[str, Any]:
     artifact = ensure_artifact_manifest(state)
     previous_version = _as_dict(state.get("artifact_version"))
     version_id = f"version_{uuid4().hex[:16]}"
@@ -106,6 +121,7 @@ def build_artifact_version(state: dict[str, Any], *, snapshot_id: str, checkpoin
         "parent_version_id": str(previous_version.get("version_id") or "").strip() or None,
         "snapshot_id": snapshot_id,
         "checkpoint_id": checkpoint_id or None,
+        "thread_id": str(thread_id or "").strip() or None,
         "revision_reason": infer_revision_reason(state),
         "changed_blocks": changed_blocks,
         "assets_delta": assets_delta,
@@ -136,9 +152,20 @@ def build_version_history_head(
     return head
 
 
-def build_artifact_patch(state: dict[str, Any], *, snapshot_id: str, checkpoint_id: str = "") -> dict[str, Any]:
+def build_artifact_patch(
+    state: dict[str, Any],
+    *,
+    snapshot_id: str,
+    checkpoint_id: str = "",
+    thread_id: str = "",
+) -> dict[str, Any]:
     artifact = ensure_artifact_manifest(state)
-    version = build_artifact_version(state, snapshot_id=snapshot_id, checkpoint_id=checkpoint_id)
+    version = build_artifact_version(
+        state,
+        snapshot_id=snapshot_id,
+        checkpoint_id=checkpoint_id,
+        thread_id=thread_id,
+    )
     artifact["current_version_id"] = version["version_id"]
     artifact["current_snapshot_id"] = snapshot_id
     artifact["title"] = _document_title(state)

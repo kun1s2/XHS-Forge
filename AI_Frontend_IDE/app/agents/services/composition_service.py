@@ -17,8 +17,9 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field, field_validator
 
-from app.agents.state import merge_state_patch
+from app.agents.runtime.state_helpers import merge_state_patch
 from app.agents.tools_registry import LOCAL_COMPOSITION_TOOLS, COMPOSITION_TOOLS
+from app.agents.utils.entity_utils import is_generic_entity_name, mentions_other_specific_entity, normalize_entity_name
 from app.agents.utils.fact_utils import build_fact_grounding_context
 from app.core.config import settings
 from app.core.context_engineering import (
@@ -30,15 +31,28 @@ from app.core.context_engineering import (
     build_selection_context,
 )
 from app.core.llm_factory import create_llm
-from app.core.query_heuristics import wants_attention_hook, wants_before_position, wants_image_search, wants_sharper_tone
+from app.core.query_heuristics import (
+    looks_like_append_block_request,
+    wants_attention_hook,
+    wants_before_position,
+    wants_image_search,
+    wants_sharper_tone,
+)
+from app.core.request_semantics import latest_user_text_from_messages, latest_user_text_from_state
 from app.core.prompt_engineering import build_prompt_snapshot
 from app.core.component_manifest import (
     filter_payload_for_component,
     normalize_component_type,
     resolve_component_for_block_intent,
 )
-from app.core.note_document import build_note_document_editing_context, build_note_document, build_note_document_from_state
+from app.core.note_document import (
+    append_note_document_block,
+    build_note_document_editing_context,
+    build_note_document,
+    build_note_document_from_state,
+)
 from app.agents.services.component_builder import build_component_fallback, enforce_component_contract
+from app.agents.services.artifact_quality_service import apply_artifact_quality_fixes
 from app.agents.services.composition_support import (
     COMPONENT_SIGNAL_TOKENS,
     SUPPORTED_COMPONENTS,
@@ -265,6 +279,382 @@ def _build_canvas_creation_fallback(state: RuntimeState, user_query: str) -> Can
     return _prompt_build_canvas_creation_fallback(state, user_query, CanvasCreationOutput)
 
 
+def _is_deterministic_asset_materialization_request(state: RuntimeState, user_query: str) -> bool:
+    if looks_like_append_block_request(user_query):
+        return False
+    intent_decision = state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {}
+    operation_type = str(intent_decision.get("operation_type") or "").strip().lower()
+    return operation_type == "asset_edit" or wants_image_search(user_query)
+
+
+def _materialize_asset_edit_result(state: RuntimeState, user_query: str, note_document: dict[str, Any]) -> dict[str, Any]:
+    quality_patch = apply_artifact_quality_fixes({**state, "note_document": note_document})
+    next_note_document = quality_patch.get("note_document") if isinstance(quality_patch.get("note_document"), dict) else note_document
+    changed_blocks = [
+        item for item in (quality_patch.get("autofix_changed_blocks") or [])
+        if isinstance(item, dict)
+    ]
+    bound_assets = next_note_document.get("assets") if isinstance(next_note_document.get("assets"), list) else []
+    summary = "已把当前素材绑定到首屏封面和页面结构里。" if (changed_blocks or bound_assets) else "当前没有找到可落到页面的图片素材。"
+    return {
+        "note_document": next_note_document,
+        "main_messages": [AIMessage(content=summary)],
+        "turn_trace": {
+            "composition_worker": {
+                "mode": "asset_materialize",
+                "action": "bind_hero_media",
+                "reason": user_query or "已补图并绑定到页面。",
+                "structured": False,
+                "fallback_used": False,
+                "selected_element_id": state.get("selected_element_id"),
+            },
+            "changed_blocks": changed_blocks,
+        },
+        "agent_backends": {"composition_worker": "deterministic_asset_materializer"},
+    }
+
+
+def _is_deterministic_append_block_request(state: RuntimeState, user_query: str, note_document: dict[str, Any]) -> bool:
+    if not isinstance(note_document, dict) or not (note_document.get("blocks") or []):
+        return False
+    query = str(user_query or "").strip()
+    if not query:
+        return False
+    append_language = (
+        "补一个新块",
+        "新增一个新块",
+        "增加一个新块",
+        "加一个新块",
+        "插入一个新块",
+        "在现有档案后面",
+        "继续补一个新块",
+        "再补一个新块",
+    )
+    if not any(token in query for token in append_language):
+        return False
+    if wants_image_search(query):
+        return False
+    return True
+
+
+def _append_block_topic(user_query: str) -> tuple[str, tuple[str, ...]]:
+    query = str(user_query or "")
+    if any(token in query for token in ("销量", "销量表现", "卖了多少", "销售表现")):
+        return "销量", ("销量", "销量表现", "卖了多少", "销售")
+    if any(token in query for token in ("发展史", "历史", "演进", "历代")):
+        return "发展史", ("发展史", "历史", "演进", "历代")
+    if any(token in query for token in ("适合什么人群", "适合人群", "适合谁", "目标人群")):
+        return "适合人群", ("适合什么人群", "适合人群", "适合谁", "目标人群")
+    return "补充说明", ("补充说明",)
+
+
+def _iter_user_queries_for_append_topics(state: RuntimeState) -> list[str]:
+    user_messages = state.get("user_messages")
+    if not isinstance(user_messages, list):
+        latest = latest_user_text_from_state(state)
+        return [latest] if latest else []
+    queries: list[str] = []
+    for message in user_messages:
+        text = latest_user_text_from_messages([message]).strip()
+        if text:
+            queries.append(text)
+    latest = latest_user_text_from_state(state)
+    if latest and (not queries or queries[-1] != latest):
+        queries.append(latest)
+    return queries
+
+
+def _collect_requested_append_topics(state: RuntimeState) -> list[tuple[str, tuple[str, ...]]]:
+    ordered: list[tuple[str, tuple[str, ...]]] = []
+    seen: set[str] = set()
+    for query in _iter_user_queries_for_append_topics(state):
+        if not looks_like_append_block_request(query):
+            continue
+        topic_label, topic_tokens = _append_block_topic(query)
+        if topic_label in seen:
+            continue
+        seen.add(topic_label)
+        ordered.append((topic_label, topic_tokens))
+    return ordered
+
+
+def _document_contains_topic(note_document: dict[str, Any], topic_tokens: tuple[str, ...]) -> bool:
+    invisible_keys = {"paragraph_meta", "feature_meta", "source_items", "sources", "hint", "confidence", "fact_bindings"}
+
+    def _collect_visible_text(value: Any, *, key: str = "") -> list[str]:
+        if key in invisible_keys:
+            return []
+        if isinstance(value, str):
+            text = value.strip()
+            return [text] if text else []
+        if isinstance(value, list):
+            items: list[str] = []
+            for item in value:
+                items.extend(_collect_visible_text(item))
+            return items
+        if isinstance(value, dict):
+            items: list[str] = []
+            for child_key, child_value in value.items():
+                items.extend(_collect_visible_text(child_value, key=str(child_key)))
+            return items
+        return []
+
+    for block in (note_document.get("blocks") or []):
+        if not isinstance(block, dict):
+            continue
+        haystack = " ".join(
+            _collect_visible_text(
+                {
+                    "content_brief": block.get("content_brief"),
+                    "props": block.get("props") or {},
+                    "semantic_role": block.get("semantic_role"),
+                }
+            )
+        )
+        if any(token in haystack for token in topic_tokens):
+            return True
+    return False
+
+
+def _next_append_block_id(note_document: dict[str, Any], component_type: str) -> str:
+    prefix = _guess_block_prefix(component_type)
+    existing_ids = {str(block.get("id") or "") for block in (note_document.get("blocks") or []) if isinstance(block, dict)}
+    serial = len(existing_ids) + 1
+    block_id = f"{prefix}_{serial}"
+    while block_id in existing_ids:
+        serial += 1
+        block_id = f"{prefix}_{serial}"
+    return block_id
+
+
+def _extract_topic_evidence_lines(knowledge: dict[str, Any], topic_tokens: tuple[str, ...], limit: int = 2) -> list[str]:
+    text_facts = str(knowledge.get("text_facts") or "").strip()
+    lines: list[str] = []
+    if text_facts:
+        for raw_line in text_facts.splitlines():
+            line = str(raw_line or "").strip()
+            if not line:
+                continue
+            line = line.lstrip("#-*0123456789. ").strip()
+            if not line:
+                continue
+            if any(token in line for token in topic_tokens):
+                lines.append(line)
+            if len(lines) >= limit:
+                break
+    if lines:
+        return lines[:limit]
+
+    sources = [str(item.get("title") or "").strip() for item in (knowledge.get("fact_sources") or []) if isinstance(item, dict)]
+    matched_sources = [item for item in sources if any(token in item for token in topic_tokens)]
+    return matched_sources[:limit]
+
+
+def _build_append_story_payload(
+    *,
+    user_query: str,
+    entity_name: str,
+    knowledge: dict[str, Any],
+    image_assets: list[dict[str, Any]],
+    block_id: str,
+    topic_label: str,
+    topic_tokens: tuple[str, ...],
+) -> dict[str, Any]:
+    content_brief = f"{entity_name or '当前产品'} 的{topic_label}" if entity_name else topic_label
+    payload = build_component_fallback(
+        comp_type="StoryText",
+        comp_id=block_id,
+        content_brief=content_brief,
+        user_query=user_query,
+        retrieved_knowledge=knowledge,
+        image_assets=image_assets,
+    )
+    paragraphs = [str(item).strip() for item in (payload.get("paragraphs") or []) if str(item).strip()]
+    sections = [deepcopy(item) for item in (payload.get("sections") or []) if isinstance(item, dict)]
+    paragraph_meta = [deepcopy(item) for item in (payload.get("paragraph_meta") or []) if isinstance(item, dict)]
+    evidence_lines = _extract_topic_evidence_lines(knowledge, topic_tokens)
+    lead_paragraph = (
+        f"{topic_label}：{evidence_lines[0]}"
+        if evidence_lines
+        else f"{entity_name or '这款机型'}的{topic_label}值得单独看一眼，下面补一段更聚焦的判断。"
+    )
+    if not paragraphs or paragraphs[0] != lead_paragraph:
+        paragraphs.insert(0, lead_paragraph)
+        paragraph_meta.insert(0, {"kind": "verified" if evidence_lines else "default", "sources": [], "source_items": [], "hint": f"{topic_label}补充"})
+        sections.insert(
+            0,
+            {
+                "label": topic_label,
+                "role": "summary",
+                "paragraph": lead_paragraph,
+                "summary": f"补充 {topic_label} 这一块的关键信息。",
+                "source_items": [],
+            },
+        )
+    if len(evidence_lines) > 1:
+        follow_paragraph = evidence_lines[1]
+        if follow_paragraph not in paragraphs:
+            paragraphs.append(follow_paragraph)
+            paragraph_meta.append({"kind": "verified", "sources": [], "source_items": [], "hint": f"{topic_label}补充"})
+            sections.append(
+                {
+                    "label": f"{topic_label}补充",
+                    "role": "verified",
+                    "paragraph": follow_paragraph,
+                    "summary": "把最相关的证据再补一句。",
+                    "source_items": [],
+                }
+            )
+    payload["paragraphs"] = paragraphs
+    payload["paragraph_meta"] = paragraph_meta
+    payload["sections"] = sections
+    return payload
+
+
+def _materialize_append_block_result(state: RuntimeState, user_query: str, note_document: dict[str, Any]) -> dict[str, Any]:
+    knowledge = state.get("retrieved_knowledge") if isinstance(state.get("retrieved_knowledge"), dict) else {}
+    entity_name = normalize_entity_name(knowledge.get("entity_name") or note_document.get("document_meta", {}).get("title") or user_query)
+    component_type = "StoryText"
+    requested_topics = _collect_requested_append_topics(state)
+    current_topic = _append_block_topic(user_query)
+    if not any(item[0] == current_topic[0] for item in requested_topics):
+        requested_topics.append(current_topic)
+    next_note_document = deepcopy(note_document or {})
+    changed_blocks: list[dict[str, Any]] = []
+    appended_labels: list[str] = []
+    for topic_label, topic_tokens in requested_topics:
+        if _document_contains_topic(next_note_document, topic_tokens):
+            continue
+        block_id = _next_append_block_id(next_note_document, component_type)
+        payload = _build_append_story_payload(
+            user_query=user_query,
+            entity_name=entity_name,
+            knowledge=knowledge,
+            image_assets=[item for item in (state.get("image_assets") or []) if isinstance(item, dict)],
+            block_id=block_id,
+            topic_label=topic_label,
+            topic_tokens=topic_tokens,
+        )
+        next_note_document = append_note_document_block(
+            next_note_document,
+            {
+                "id": block_id,
+                "component_type": component_type,
+                "content_brief": f"{entity_name or '当前产品'} 的{topic_label}",
+            },
+            props=payload,
+        )
+        changed_blocks.append({"id": block_id, "type": component_type, "changed_fields": ["added", "props"]})
+        appended_labels.append(topic_label)
+    return {
+        "note_document": next_note_document,
+        "main_messages": [AIMessage(content=f"已在当前档案后面补充“{' / '.join(appended_labels or [current_topic[0]])}”新块。")],
+        "turn_trace": {
+            "composition_worker": {
+                "mode": "global",
+                "action": "append_block",
+                "reason": user_query or f"已补充 {current_topic[0]} 新块。",
+                "structured": False,
+                "fallback_used": False,
+                "selected_element_id": state.get("selected_element_id"),
+                "target_block_id": changed_blocks[-1]["id"] if changed_blocks else "",
+            },
+            "changed_blocks": changed_blocks,
+        },
+        "agent_backends": {"composition_worker": "deterministic_append_block"},
+    }
+
+
+def _looks_like_placeholder_generation(value: Any, *, component_type: str = "") -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    placeholders = {
+        "titleblock",
+        "storytext",
+        "productspeccard",
+        "radarchartblock",
+        "pollblock",
+        "versuscard",
+        "coverswiper",
+        "页面标题",
+        "正文叙事",
+        "内容整理中",
+        "优势整理中",
+        "短板整理中",
+        "优缺点速览",
+        "这篇笔记",
+        "当前主题",
+        "xhs-forge note",
+    }
+    if component_type and lowered == str(component_type).lower():
+        return True
+    return lowered in placeholders
+
+
+def _sanitize_canvas_payload_node(
+    value: Any,
+    *,
+    key: str = "",
+    component_type: str,
+    target_entity: str,
+    specific_entity: bool,
+) -> Any:
+    if key == "type":
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if _looks_like_placeholder_generation(text, component_type=component_type):
+            return None
+        if specific_entity and mentions_other_specific_entity(text, target_entity):
+            return None
+        return text
+    if isinstance(value, list):
+        sanitized_items = [
+            _sanitize_canvas_payload_node(
+                item,
+                key="",
+                component_type=component_type,
+                target_entity=target_entity,
+                specific_entity=specific_entity,
+            )
+            for item in value
+        ]
+        return [item for item in sanitized_items if item not in (None, "", [], {})]
+    if isinstance(value, dict):
+        sanitized_dict: dict[str, Any] = {}
+        for child_key, child_value in value.items():
+            sanitized_value = _sanitize_canvas_payload_node(
+                child_value,
+                key=str(child_key),
+                component_type=component_type,
+                target_entity=target_entity,
+                specific_entity=specific_entity,
+            )
+            if sanitized_value in (None, "", [], {}):
+                continue
+            sanitized_dict[str(child_key)] = sanitized_value
+        return sanitized_dict
+    return value
+
+
+def _sanitize_canvas_creation_payload(
+    *,
+    component_type: str,
+    payload: dict[str, Any],
+    target_entity: str,
+) -> dict[str, Any]:
+    specific_entity = bool(target_entity and not is_generic_entity_name(target_entity))
+    sanitized = _sanitize_canvas_payload_node(
+        payload,
+        component_type=component_type,
+        target_entity=target_entity,
+        specific_entity=specific_entity,
+    )
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
 def _apply_canvas_creation_plan(
     original_document_view: dict,
     original_block_style_map: dict,
@@ -281,7 +671,12 @@ def _apply_canvas_creation_plan(
     final_blocks: list[dict[str, Any]] = []
     used_ids: set[str] = set()
 
-    page_title = str(plan.page_title or final_document_view.get("page_title") or knowledge.get("entity_name") or "XHS-Forge Note").strip()
+    target_entity = normalize_entity_name(knowledge.get("entity_name") or user_query)
+    page_title = str(plan.page_title or final_document_view.get("page_title") or target_entity or "XHS-Forge Note").strip()
+    if _looks_like_placeholder_generation(page_title) or (
+        target_entity and not is_generic_entity_name(target_entity) and mentions_other_specific_entity(page_title, target_entity)
+    ):
+        page_title = f"{target_entity} 购买决策档案" if target_entity else "购买决策档案"
     final_document_view["page_title"] = page_title or "XHS-Forge Note"
     final_document_view["blocks"] = []
 
@@ -305,6 +700,11 @@ def _apply_canvas_creation_plan(
             image_assets=assets,
         )
         payload = filter_payload_for_component(component_type, dict(block_plan.payload or {}))
+        payload = _sanitize_canvas_creation_payload(
+            component_type=component_type,
+            payload=payload,
+            target_entity=target_entity,
+        )
         payload = enforce_component_contract(component_type, payload, fallback_payload)
 
         final_blocks.append({
@@ -1128,7 +1528,7 @@ def _restrict_local_edit_scope(
 
 async def composition_service(state: RuntimeState) -> dict:
     """
-    Unified editor node for long-lived NoteDocument canvases.
+    Unified editor worker for long-lived NoteDocument canvases.
 
     Flow:
     1. build compact editing context
@@ -1136,17 +1536,10 @@ async def composition_service(state: RuntimeState) -> dict:
     3. apply deterministic patches
     4. fall back only when the structured path cannot cover the request
     """
-    main_msgs = state.get("main_messages", [])
-    raw_user_content = getattr(main_msgs[-1], "content", "") if main_msgs else "请整理当前笔记"
-    if isinstance(raw_user_content, list):
-        user_query = "".join(
-            str(part.get("text"))
-            for part in raw_user_content
-            if isinstance(part, dict) and part.get("type") == "text" and part.get("text")
-        ).strip() or "请整理当前笔记"
-    else:
-        user_query = str(raw_user_content)
+    user_query = latest_user_text_from_state(state) or "请整理当前笔记"
     selected_element_id = state.get("selected_element_id")
+    if _is_deterministic_append_block_request(state, user_query, build_note_document_from_state(state)):
+        selected_element_id = None
     _execution_note_document, document_view, block_style_map, _image_assets = build_note_document_editing_context(state)
     knowledge = state.get("retrieved_knowledge", {})
     note_document = build_note_document_from_state(state)
@@ -1190,11 +1583,21 @@ async def composition_service(state: RuntimeState) -> dict:
         print(f"✅ [Composition Agent] 首版画布创建完成: blocks={len(updated_document_view.get('blocks', []))}")
         return {
             "note_document": next_note_document,
-            "node_prompts": _build_composition_prompt_snapshot("create", creation_prompt, plan),
+            "worker_prompts": _build_composition_prompt_snapshot("create", creation_prompt, plan),
             "main_messages": [AIMessage(content=plan.reason or "已完成首版笔记创建。")],
             "turn_trace": {"composition_worker": {"mode": "create", "action": "create_canvas", "reason": plan.reason, "structured": True, "fallback_used": False, "selected_element_id": selected_element_id}},
             "agent_backends": {"composition_worker": "structured_function_calling"},
         }
+
+    if _is_deterministic_append_block_request(state, user_query, note_document):
+        materialized = _materialize_append_block_result(state, user_query, note_document)
+        print("✅ [Composition Agent] 追加补充块完成: action=append_block")
+        return materialized
+
+    if _is_deterministic_asset_materialization_request(state, user_query):
+        materialized = _materialize_asset_edit_result(state, user_query, note_document)
+        print("✅ [Composition Agent] 素材绑定完成: action=bind_hero_media")
+        return materialized
 
     if local_mode and target_exists:
         try:
@@ -1240,7 +1643,7 @@ async def composition_service(state: RuntimeState) -> dict:
             )
             return {
                 "note_document": next_note_document,
-                "node_prompts": _build_composition_prompt_snapshot("local", local_prompt, plan),
+                "worker_prompts": _build_composition_prompt_snapshot("local", local_prompt, plan),
                 "main_messages": [AIMessage(content=plan.reason or "已完成当前选中区块的更新。")],
                 "turn_trace": {"composition_worker": {"mode": "local", "action": plan.action, "reason": plan.reason, "structured": True, "fallback_used": False, "selected_element_id": selected_element_id, "target_block_id": plan.block_id, "new_component_type": plan.new_component_type}},
                 "agent_backends": {"composition_worker": "structured_function_calling"},

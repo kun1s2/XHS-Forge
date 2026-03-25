@@ -85,3 +85,7 @@ AI_Frontend_IDE/docs/html生成
 
 # === Visual regression artifacts ===
 ai-frontend-ide/visual-regression/
+ai-frontend-ide/playwright-report/
+ai-frontend-ide/test-results/
+ai-frontend-ide/blob-report/
+ai-frontend-ide/.playwright/

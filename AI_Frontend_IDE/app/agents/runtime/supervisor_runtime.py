@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from langchain.agents.middleware import (
     after_agent,
     before_agent,
     before_model,
     dynamic_prompt,
+    wrap_model_call,
     wrap_tool_call,
 )
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from pydantic import BaseModel, Field
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt.tool_node import ToolRuntime
 from langgraph.store.base import BaseStore
@@ -20,6 +20,19 @@ from langgraph.types import Command
 
 from app.agents.runtime.session_state import SupervisorSessionState
 from app.agents.services.artifact_service import get_knowledge_version
+from app.agents.services.artifact_quality_service import apply_artifact_quality_fixes
+from app.agents.services.runtime_protocol_service import (
+    build_checkpoint_resume_directive,
+    build_worker_result,
+    derive_followup_resume_directive,
+    derive_phase_from_state,
+    PHASE_CHECKPOINT,
+    PHASE_COMPOSITION,
+    PHASE_CRITIQUE,
+    PHASE_RESUME,
+    PHASE_RETRIEVAL,
+    transition_phase,
+)
 from app.agents.services.revision_service import (
     build_revision_plan,
     build_revision_result,
@@ -30,7 +43,7 @@ from app.agents.workers.composition_worker import composition_worker_payload
 from app.agents.workers.critique_worker import critique_worker_payload
 from app.agents.workers.intent_worker import intent_worker
 from app.agents.workers.retrieval_worker import retrieval_worker_payload
-from app.agents.state import merge_state_patch
+from app.agents.runtime.state_helpers import merge_state_patch
 from app.core.agent_runtime import create_controlled_agent
 from app.core.config import settings
 from app.core.llm_factory import create_llm
@@ -38,6 +51,7 @@ from app.core.note_document import build_note_document_from_state
 from app.core.prompt_engineering import load_prompt_template, render_string_prompt
 from app.services.conversational_checkpoints import (
     apply_asset_checkpoint_decision,
+    apply_fact_gap_checkpoint_decision,
     apply_fact_conflict_checkpoint_decision,
     apply_knowledge_review_checkpoint_decision,
     apply_structure_checkpoint_decision,
@@ -53,27 +67,85 @@ from app.services.knowledge_hub import build_knowledge_plan
 from app.services.skill_registry import build_skill_context
 
 
-class SupervisorStructuredResponse(BaseModel):
-    reply: str = Field(..., description="用户这轮能直接看到的自然语言回复")
-    next_step: str = Field(..., description="本轮结束后最建议继续推进的下一步")
-    turn_outcome: Literal["checkpoint", "updated_note", "analysis", "failed"] = Field(
-        ...,
-        description="本轮运行结果类型",
-    )
+class SupervisorStructuredResponse(TypedDict):
+    reply: str
+    next_step: str
+    turn_outcome: Literal["checkpoint", "updated_note", "analysis", "failed"]
+
+
+def _normalize_structured_response(value: Any) -> dict[str, Any]:
+    if hasattr(value, "model_dump") and callable(getattr(value, "model_dump")):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return deepcopy(value)
+    return {}
 
 
 def _latest_user_text(state: dict[str, Any]) -> str:
-    messages = list(state.get("main_messages") or state.get("messages") or [])
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            content = msg.content
-            if isinstance(content, list):
-                text = "".join(str(item.get("text") or "") for item in content if isinstance(item, dict))
-            else:
-                text = str(content or "")
-            if text.strip():
-                return text.strip()
+    for key in ("user_messages", "main_messages", "messages"):
+        messages = list(state.get(key) or [])
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                content = msg.content
+                if isinstance(content, list):
+                    text = "".join(str(item.get("text") or "") for item in content if isinstance(item, dict))
+                else:
+                    text = str(content or "")
+                if text.strip():
+                    return text.strip()
     return ""
+
+
+def _sanitize_persistent_messages(messages: list[BaseMessage] | None) -> list[BaseMessage]:
+    sanitized: list[BaseMessage] = []
+    for msg in list(messages or []):
+        if isinstance(msg, HumanMessage):
+            sanitized.append(msg)
+            continue
+        if isinstance(msg, SystemMessage):
+            sanitized.append(msg)
+            continue
+        if isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            if tool_calls:
+                continue
+            sanitized.append(msg)
+            continue
+        if isinstance(msg, ToolMessage):
+            continue
+    return sanitized
+
+
+def _sanitize_model_messages(messages: list[BaseMessage] | None) -> list[BaseMessage]:
+    sanitized: list[BaseMessage] = []
+    pending_tool_calls: set[str] = set()
+
+    for msg in list(messages or []):
+        if isinstance(msg, ToolMessage):
+            tool_call_id = str(getattr(msg, "tool_call_id", "") or "")
+            if tool_call_id and tool_call_id in pending_tool_calls:
+                sanitized.append(msg)
+                pending_tool_calls.discard(tool_call_id)
+            continue
+
+        if isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            if tool_calls:
+                pending_tool_calls = {
+                    str(call.get("id") or "")
+                    for call in tool_calls
+                    if isinstance(call, dict) and str(call.get("id") or "").strip()
+                }
+                sanitized.append(msg)
+                continue
+            pending_tool_calls.clear()
+            sanitized.append(msg)
+            continue
+
+        pending_tool_calls.clear()
+        sanitized.append(msg)
+
+    return sanitized
 
 
 def _ensure_note_document(state: dict[str, Any]) -> dict[str, Any]:
@@ -91,25 +163,6 @@ def _with_resume_token(checkpoint: dict[str, Any], runtime: ToolRuntime) -> dict
     payload["checkpoint_type"] = str(payload.get("action_type") or payload.get("checkpoint_type") or checkpoint_id)
     payload["resume_token"] = f"{thread_id}:{checkpoint_id}:{runtime.tool_call_id or 'resume'}"
     return payload
-
-
-def _make_worker_result(
-    *,
-    worker_name: str,
-    status: str,
-    changed_blocks: list[dict[str, Any]] | None = None,
-    assets_delta: list[dict[str, Any]] | None = None,
-    candidate_kb_delta: list[dict[str, Any]] | None = None,
-    failure_reason: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "worker_name": worker_name,
-        "status": status,
-        "changed_blocks": list(changed_blocks or []),
-        "assets_delta": list(assets_delta or []),
-        "candidate_kb_delta": list(candidate_kb_delta or []),
-        "failure_reason": str(failure_reason or "").strip(),
-    }
 
 
 def _tool_trace_entry(runtime: ToolRuntime, *, worker_name: str, status: str, failure_reason: str | None = None) -> dict[str, Any]:
@@ -143,6 +196,7 @@ def _command_from_update(
     next_update.setdefault("agent_backends", {})
     next_update["agent_backends"][worker_name] = "supervisor_worker_tool"
     next_update["active_worker"] = worker_name
+    next_update.setdefault("resume_directive", None)
     next_update["tool_trace"] = {
         "calls": {
             str(runtime.tool_call_id or worker_name): _tool_trace_entry(
@@ -188,20 +242,62 @@ async def retrieval_worker(
 ) -> Command:
     """检索数码购买决策所需的结构化知识、混合检索证据和候选事实。"""
     state = dict(runtime.state or {})
-    payload = await _run_retrieval_payload(state)
+    try:
+        payload = await _run_retrieval_payload(state)
+    except Exception as exc:
+        failure_reason = f"retrieval_worker_runtime_error:{type(exc).__name__}"
+        update = {
+            "current_phase": "retrieval",
+            "turn_trace": {
+                "retrieval_worker": {
+                    "tool_plan_summary": "检索 worker 运行失败，已保留当前会话状态。",
+                    "selected_skills": list(state.get("selected_skills") or []),
+                    "skill_tool_plan": [],
+                    "skill_execution_result": "failed",
+                    "skill_fallback": [failure_reason],
+                },
+                "agentic_runtime": {
+                    "current_stage": "retrieval",
+                    "current_agent": "retrieval_worker",
+                    "selected_skills": list(state.get("selected_skills") or []),
+                    "failure_point": failure_reason,
+                },
+            },
+            "last_worker_result": build_worker_result(
+                worker_name="retrieval_worker",
+                status="failed",
+                phase_entered=PHASE_RETRIEVAL,
+                phase_exited=PHASE_RETRIEVAL,
+                failure_reason=failure_reason,
+            ),
+        }
+        return _command_from_update(
+            runtime=runtime,
+            worker_name="retrieval_worker",
+            summary="这轮检索失败了，我先保留当前状态，等下一步继续处理。",
+            update=update,
+            status="failed",
+            failure_reason=failure_reason,
+        )
     merged = merge_state_patch(state, payload)
     checkpoint = _pick_business_checkpoint(merged)
     candidate_records = _candidate_records_from_state(merged)
     update = deepcopy(payload)
-    update["current_phase"] = "retrieval"
-    update["last_worker_result"] = _make_worker_result(
+    update["current_phase"] = PHASE_RETRIEVAL
+    update["last_worker_result"] = build_worker_result(
         worker_name="retrieval_worker",
         status="success" if payload else "no_effect",
+        phase_entered=PHASE_RETRIEVAL,
+        phase_exited=PHASE_CHECKPOINT if checkpoint else PHASE_RETRIEVAL,
         candidate_kb_delta=candidate_records[:8],
     )
     if checkpoint:
         update["pending_checkpoint"] = _with_resume_token(checkpoint, runtime)
-        update["current_phase"] = "knowledge_review"
+        update["current_phase"] = PHASE_CHECKPOINT
+    else:
+        followup_directive = derive_followup_resume_directive({**state, **update})
+        if followup_directive:
+            update["resume_directive"] = followup_directive
     summary = str(
         (((payload.get("retrieved_knowledge") or {}).get("retrieval_summary") or {}).get("strategy"))
         or "已完成结构化优先检索，并准备进入下一步。"
@@ -216,94 +312,60 @@ async def retrieval_worker(
 
 
 @tool
-async def review_worker(
-    focus: str = "",
-    runtime: ToolRuntime = None,  # type: ignore[assignment]
-) -> Command:
-    """整理候选知识、冲突事实和待审项，并在需要时发起业务级 checkpoint。"""
-    state = dict(runtime.state or {})
-    checkpoint = _pick_business_checkpoint(state)
-    status = "success" if checkpoint else "no_effect"
-    update: dict[str, Any] = {
-        "current_phase": "knowledge_review",
-        "last_worker_result": _make_worker_result(worker_name="review_worker", status=status),
-    }
-    if checkpoint:
-        update["pending_checkpoint"] = _with_resume_token(checkpoint, runtime)
-        summary = str(checkpoint.get("summary") or checkpoint.get("title") or "需要你确认一项关键信息。")
-    else:
-        summary = "当前没有新的待审知识或冲突事实。"
-    return _command_from_update(
-        runtime=runtime,
-        worker_name="review_worker",
-        summary=summary,
-        update=update,
-        status=status,
-    )
-
-
-@tool
-async def asset_worker(
-    focus: str = "",
-    runtime: ToolRuntime = None,  # type: ignore[assignment]
-) -> Command:
-    """判断当前档案是否缺图，必要时补搜图片并生成素材使用 checkpoint。"""
-    state = dict(runtime.state or {})
-    intent = deepcopy(state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {})
-    intent.update(
-        {
-            "task_type": "edit",
-            "operation_type": "asset_edit",
-            "scope": str(intent.get("scope") or "global_canvas"),
-            "needs_research": True,
-            "needs_assets": True,
-            "confidence": float(intent.get("confidence") or 0.99),
-            "fallback_required": False,
-        }
-    )
-    asset_state = merge_state_patch(state, {"intent_decision": intent})
-    payload = await _run_retrieval_payload(asset_state)
-    merged = merge_state_patch(asset_state, payload)
-    checkpoint = build_asset_checkpoint(merged)
-    image_assets = [item for item in (merged.get("image_assets") or []) if isinstance(item, dict) and str(item.get("url") or "").strip()]
-    update = deepcopy(payload)
-    update["current_phase"] = "asset"
-    update["last_worker_result"] = _make_worker_result(
-        worker_name="asset_worker",
-        status="success" if image_assets else "failed",
-        assets_delta=image_assets[:6],
-        failure_reason="" if image_assets else "asset_search_no_result",
-    )
-    if checkpoint:
-        update["pending_checkpoint"] = _with_resume_token(checkpoint, runtime)
-    summary = "已补充图片候选，等待你确认素材使用方式。" if checkpoint else ("已补充图片素材。" if image_assets else "这轮还没补图成功。")
-    return _command_from_update(
-        runtime=runtime,
-        worker_name="asset_worker",
-        summary=summary,
-        update=update,
-        status="success" if image_assets else "failed",
-        failure_reason="" if image_assets else "asset_search_no_result",
-    )
-
-
-@tool
 async def composition_worker(
     focus: str = "",
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
     """根据已审知识与素材修改购买决策档案，并返回可验证的区块变化。"""
     state = dict(runtime.state or {})
-    payload = await composition_worker_payload(state)
+    try:
+        payload = await composition_worker_payload(state)
+    except Exception as exc:
+        failure_reason = f"composition_worker_runtime_error:{type(exc).__name__}"
+        update = {
+            "current_phase": "composition",
+            "turn_trace": {
+                "composition_worker": {
+                    "tool_plan_summary": "成品编辑 worker 运行失败，已保留当前页面。",
+                    "selected_skills": list(state.get("selected_skills") or []),
+                    "skill_tool_plan": [],
+                    "skill_execution_result": "failed",
+                    "skill_fallback": [failure_reason],
+                },
+                "agentic_runtime": {
+                    "current_stage": "composition",
+                    "current_agent": "composition_worker",
+                    "selected_skills": list(state.get("selected_skills") or []),
+                    "failure_point": failure_reason,
+                },
+            },
+            "last_worker_result": build_worker_result(
+                worker_name="composition_worker",
+                status="failed",
+                phase_entered=PHASE_COMPOSITION,
+                phase_exited=PHASE_COMPOSITION,
+                failure_reason=failure_reason,
+            ),
+        }
+        return _command_from_update(
+            runtime=runtime,
+            worker_name="composition_worker",
+            summary="这轮页面修改失败了，我先保留当前版本。",
+            update=update,
+            status="failed",
+            failure_reason=failure_reason,
+        )
     changed_blocks = list((((payload.get("turn_trace") or {}).get("changed_blocks")) or []))
     note_document = payload.get("note_document") if isinstance(payload.get("note_document"), dict) else {}
     asset_delta = [item for item in ((note_document or {}).get("assets") or []) if isinstance(item, dict)]
     failure_reason = "" if (changed_blocks or asset_delta) else "composition_no_effect"
     update = deepcopy(payload)
-    update["current_phase"] = "composition"
-    update["last_worker_result"] = _make_worker_result(
+    update["current_phase"] = PHASE_COMPOSITION
+    update["last_worker_result"] = build_worker_result(
         worker_name="composition_worker",
         status="success" if (changed_blocks or asset_delta) else "failed",
+        phase_entered=PHASE_COMPOSITION,
+        phase_exited=PHASE_COMPOSITION,
         changed_blocks=changed_blocks,
         assets_delta=asset_delta[:6],
         failure_reason=failure_reason,
@@ -326,13 +388,52 @@ async def critique_worker(
 ) -> Command:
     """复盘当前购买决策档案，区分知识缺口和表达缺口，并给出下一步建议。"""
     state = dict(runtime.state or {})
-    payload = await critique_worker_payload(state)
+    try:
+        payload = await critique_worker_payload(state)
+    except Exception as exc:
+        failure_reason = f"critique_worker_runtime_error:{type(exc).__name__}"
+        update = {
+            "current_phase": "critique",
+            "turn_trace": {
+                "critique_worker": {
+                    "selected_skills": list(state.get("selected_skills") or []),
+                    "skill_tool_plan": [],
+                    "skill_execution_result": "failed",
+                    "skill_fallback": [failure_reason],
+                },
+                "agentic_runtime": {
+                    "current_stage": "critique",
+                    "current_agent": "critique_worker",
+                    "selected_skills": list(state.get("selected_skills") or []),
+                    "failure_point": failure_reason,
+                },
+            },
+            "last_worker_result": build_worker_result(
+                worker_name="critique_worker",
+                status="failed",
+                phase_entered=PHASE_CRITIQUE,
+                phase_exited=PHASE_CRITIQUE,
+                failure_reason=failure_reason,
+            ),
+        }
+        return _command_from_update(
+            runtime=runtime,
+            worker_name="critique_worker",
+            summary="这轮复盘失败了，但我保留了当前页面和知识状态。",
+            update=update,
+            status="failed",
+            failure_reason=failure_reason,
+        )
     feedback = payload.get("critique_feedback") if isinstance(payload.get("critique_feedback"), dict) else {}
     update = deepcopy(payload)
-    update["current_phase"] = "critique"
-    update["last_worker_result"] = _make_worker_result(
+    update["current_phase"] = PHASE_CRITIQUE
+    update["last_worker_result"] = build_worker_result(
         worker_name="critique_worker",
         status="success" if feedback else "no_effect",
+        phase_entered=PHASE_CRITIQUE,
+        phase_exited=PHASE_CRITIQUE,
+        commit_eligible=False,
+        checkpoint_eligible=False,
     )
     summary = str((feedback.get("suggestions") or ["已完成复盘。"])[0] if feedback else "已完成复盘。")
     return _command_from_update(
@@ -351,13 +452,58 @@ def _note_outline(state: dict[str, Any]) -> str:
     return "\n".join(block_outline) if block_outline else "当前还没有正式成品区块。"
 
 
+def _select_runtime_tools(state: dict[str, Any]) -> list[Any]:
+    intent_decision = state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {}
+    operation_type = str(intent_decision.get("operation_type") or "").lower()
+    task_type = str(intent_decision.get("task_type") or "").lower()
+    needs_research = bool(intent_decision.get("needs_research"))
+    needs_assets = bool(intent_decision.get("needs_assets"))
+    selected_block = str(state.get("selected_element_id") or "").strip()
+    pending_checkpoint = state.get("pending_checkpoint") if isinstance(state.get("pending_checkpoint"), dict) else {}
+    resume_directive = state.get("resume_directive") if isinstance(state.get("resume_directive"), dict) else {}
+    revision_status = state.get("revision_status") if isinstance(state.get("revision_status"), dict) else {}
+    primary_recipe = revision_status.get("primary_recipe") if isinstance(revision_status.get("primary_recipe"), dict) else {}
+
+    if pending_checkpoint:
+        return []
+    if resume_directive:
+        preferred_worker = str(resume_directive.get("preferred_worker") or "").strip()
+        if preferred_worker == "retrieval_worker":
+            return [retrieval_worker, composition_worker, critique_worker]
+        if preferred_worker == "composition_worker":
+            return [composition_worker, critique_worker]
+        if preferred_worker == "critique_worker":
+            return [critique_worker]
+    if task_type == "inspect":
+        return [critique_worker]
+    if task_type in {"review", "ingest"}:
+        return [retrieval_worker]
+    if operation_type == "asset_edit" or needs_assets:
+        return [retrieval_worker, composition_worker]
+    if selected_block or operation_type in {"text_edit", "layout_edit"}:
+        return [composition_worker, critique_worker] if not needs_research else [composition_worker, retrieval_worker, critique_worker]
+    if primary_recipe:
+        recipe_scope = str(primary_recipe.get("scope") or "").lower()
+        if recipe_scope in {"factual_issues", "completeness_issues"}:
+            return [retrieval_worker, composition_worker, critique_worker]
+    if task_type in {"create", "edit"}:
+        return [retrieval_worker, composition_worker, critique_worker]
+    return [retrieval_worker, composition_worker, critique_worker]
+
+
 @before_agent(state_schema=SupervisorSessionState, name="SessionContextMiddleware")
 def _session_context_middleware(state: SupervisorSessionState, runtime) -> dict[str, Any]:
     defaults = ensure_session_runtime_defaults(dict(state))
-    if state.get("main_messages") is None and state.get("messages"):
-        human_messages = [msg for msg in (state.get("messages") or []) if isinstance(msg, HumanMessage)]
-        if human_messages:
-            defaults["main_messages"] = human_messages
+    sanitized_main_messages = _sanitize_persistent_messages(list(state.get("main_messages") or []))
+    sanitized_runtime_messages = _sanitize_persistent_messages(list(state.get("messages") or []))
+    if sanitized_runtime_messages:
+        defaults["messages"] = sanitized_runtime_messages
+    if sanitized_main_messages:
+        defaults["main_messages"] = sanitized_main_messages
+    elif sanitized_runtime_messages:
+        human_messages = [msg for msg in sanitized_runtime_messages if isinstance(msg, HumanMessage)]
+        ai_messages = [msg for msg in sanitized_runtime_messages if isinstance(msg, AIMessage)]
+        defaults["main_messages"] = human_messages + ai_messages
     return defaults
 
 
@@ -394,19 +540,20 @@ async def _intent_and_skill_middleware(state: SupervisorSessionState, runtime) -
     return updates
 
 
-@before_model(state_schema=SupervisorSessionState, can_jump_to=["end"], name="CheckpointMiddleware")
-def _checkpoint_middleware(state: SupervisorSessionState, runtime) -> Command[Any] | None:
+@before_model(state_schema=SupervisorSessionState, name="CheckpointMiddleware")
+def _checkpoint_middleware(state: SupervisorSessionState, runtime) -> dict[str, Any]:
     checkpoint = state.get("pending_checkpoint")
     if isinstance(checkpoint, dict) and checkpoint:
-        return Command(update={"current_phase": "checkpoint", "active_worker": "checkpoint"}, goto="end")
-    return None
+        return {"current_phase": PHASE_CHECKPOINT, "active_worker": "checkpoint"}
+    return {}
 
 
 @before_model(state_schema=SupervisorSessionState, name="SessionPhaseMiddleware")
 def _phase_middleware(state: SupervisorSessionState, runtime) -> dict[str, Any]:
+    current_phase = derive_phase_from_state(dict(state))
     return {
-        "current_phase": str(state.get("current_phase") or "supervisor"),
-        "active_worker": str(state.get("active_worker") or "supervisor"),
+        "current_phase": transition_phase(state.get("current_phase"), current_phase),
+        "active_worker": "checkpoint" if current_phase == PHASE_CHECKPOINT else str(state.get("active_worker") or "supervisor"),
     }
 
 
@@ -416,6 +563,7 @@ def _supervisor_dynamic_prompt(request) -> str:
     note_outline = _note_outline(state)
     knowledge_plan = state.get("knowledge_plan") if isinstance(state.get("knowledge_plan"), dict) else {}
     pending_checkpoint = state.get("pending_checkpoint") if isinstance(state.get("pending_checkpoint"), dict) else {}
+    resume_directive = state.get("resume_directive") if isinstance(state.get("resume_directive"), dict) else {}
     last_worker_result = state.get("last_worker_result") if isinstance(state.get("last_worker_result"), dict) else {}
     intent_decision = state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {}
     selected_skills = [str(item) for item in (state.get("selected_skills") or []) if str(item).strip()]
@@ -425,17 +573,25 @@ def _supervisor_dynamic_prompt(request) -> str:
         knowledge_plan=json.dumps(knowledge_plan, ensure_ascii=False),
         selected_skills=json.dumps(selected_skills, ensure_ascii=False),
         pending_checkpoint=json.dumps(pending_checkpoint, ensure_ascii=False),
+        resume_directive=json.dumps(resume_directive, ensure_ascii=False),
         last_worker_result=json.dumps(last_worker_result, ensure_ascii=False),
         note_outline=note_outline,
     )
+
+
+@wrap_model_call(name="DynamicToolSelectionMiddleware")
+async def _dynamic_tool_selection_middleware(request, handler):
+    allowed_tools = _select_runtime_tools(dict(request.state or {}))
+    clean_messages = _sanitize_model_messages(list(request.messages or []))
+    sanitized_state = dict(request.state or {})
+    sanitized_state["messages"] = clean_messages
+    return await handler(request.override(tools=allowed_tools, messages=clean_messages, state=sanitized_state))
 
 
 @wrap_tool_call(name="ToolGuardMiddleware")
 async def _tool_guard_middleware(request, handler):
     allowed = {
         "retrieval_worker",
-        "review_worker",
-        "asset_worker",
         "composition_worker",
         "critique_worker",
     }
@@ -455,16 +611,52 @@ def _result_validation_middleware(state: SupervisorSessionState, runtime) -> dic
     turn_trace = deepcopy(state.get("turn_trace") or {})
     agentic_runtime = deepcopy(turn_trace.get("agentic_runtime") or {})
     last_worker_result = state.get("last_worker_result") if isinstance(state.get("last_worker_result"), dict) else {}
-    revision_plan = build_revision_plan(dict(state))
-    revision_result = build_revision_result({**dict(state), "revision_plan": revision_plan})
+    quality_patch = apply_artifact_quality_fixes({**dict(state), "note_document": note_document})
+    note_document = quality_patch.get("note_document") if isinstance(quality_patch.get("note_document"), dict) else note_document
+    artifact_quality = quality_patch.get("artifact_quality") if isinstance(quality_patch.get("artifact_quality"), dict) else {}
+    autofix_changed_blocks = [
+        item for item in (quality_patch.get("autofix_changed_blocks") or [])
+        if isinstance(item, dict)
+    ]
+    if autofix_changed_blocks:
+        existing_changed = [
+            item for item in ((turn_trace.get("changed_blocks") or []))
+            if isinstance(item, dict)
+        ]
+        seen_pairs = {
+            (str(item.get("id") or "").strip(), str(item.get("type") or "").strip())
+            for item in existing_changed
+        }
+        for item in autofix_changed_blocks:
+            pair = (str(item.get("id") or "").strip(), str(item.get("type") or "").strip())
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            existing_changed.append(deepcopy(item))
+        turn_trace["changed_blocks"] = existing_changed
+    next_last_worker_result = deepcopy(last_worker_result)
+    if artifact_quality and not bool(artifact_quality.get("passed")) and next_last_worker_result:
+        if str(next_last_worker_result.get("worker_name") or "").strip() == "composition_worker":
+            next_last_worker_result["status"] = "failed"
+            next_last_worker_result["failure_reason"] = str(artifact_quality.get("failure_reason") or "artifact_quality_failed").strip()
+            next_last_worker_result["commit_eligible"] = False
+    enriched_state = {
+        **dict(state),
+        "note_document": note_document,
+        "turn_trace": turn_trace,
+        "artifact_quality": artifact_quality,
+        "last_worker_result": next_last_worker_result or last_worker_result,
+    }
+    revision_plan = build_revision_plan(enriched_state)
+    revision_result = build_revision_result({**enriched_state, "revision_plan": revision_plan})
     revision_status = build_revision_status(
         {
-            **dict(state),
+            **enriched_state,
             "revision_plan": revision_plan,
             "revision_result": revision_result,
         }
     )
-    failure_reason = str(last_worker_result.get("failure_reason") or "").strip()
+    failure_reason = str((next_last_worker_result or last_worker_result).get("failure_reason") or "").strip()
     agentic_runtime.update(
         {
             "current_stage": str(state.get("current_phase") or "supervisor"),
@@ -483,6 +675,7 @@ def _result_validation_middleware(state: SupervisorSessionState, runtime) -> dic
         "changed_blocks": revision_result.get("changed_blocks") or [],
         "failure_reason": revision_result.get("failure_reason") or "",
     }
+    turn_trace["artifact_quality"] = deepcopy(artifact_quality)
     pending_checkpoint = state.get("pending_checkpoint") if isinstance(state.get("pending_checkpoint"), dict) else {}
     if pending_checkpoint:
         turn_trace.setdefault("conversation_checkpoints", {})
@@ -491,19 +684,34 @@ def _result_validation_middleware(state: SupervisorSessionState, runtime) -> dic
             "checkpoint_id": str(pending_checkpoint.get("checkpoint_id") or ""),
             "title": str(pending_checkpoint.get("title") or ""),
         }
-    return {
+    resume_directive = state.get("resume_directive") if isinstance(state.get("resume_directive"), dict) else {}
+    if resume_directive:
+        turn_trace["resume_directive"] = deepcopy(resume_directive)
+    else:
+        followup_directive = derive_followup_resume_directive(dict(state))
+        if followup_directive:
+            resume_directive = followup_directive
+            turn_trace["resume_directive"] = deepcopy(followup_directive)
+    normalized_structured_response = _normalize_structured_response(state.get("structured_response"))
+    update = {
         "note_document": note_document,
         "turn_trace": turn_trace,
+        "artifact_quality": artifact_quality,
         "revision_plan": revision_plan,
         "revision_result": revision_result,
         "revision_status": revision_status,
+        "last_worker_result": next_last_worker_result or last_worker_result,
+        **({"structured_response": normalized_structured_response} if normalized_structured_response else {}),
     }
+    if resume_directive:
+        update["resume_directive"] = resume_directive
+    return update
 
 
 @after_agent(state_schema=SupervisorSessionState, name="TelemetryMiddleware")
 def _telemetry_middleware(state: SupervisorSessionState, runtime) -> dict[str, Any]:
-    structured_response = state.get("structured_response")
-    if not isinstance(structured_response, dict):
+    structured_response = _normalize_structured_response(state.get("structured_response"))
+    if not structured_response:
         return {}
     return {
         "turn_trace": {
@@ -525,25 +733,26 @@ def apply_supervisor_checkpoint_decision(state: dict[str, Any], decision_payload
         "structure_checkpoint": apply_structure_checkpoint_decision,
         "knowledge_review_checkpoint": apply_knowledge_review_checkpoint_decision,
         "asset_checkpoint": apply_asset_checkpoint_decision,
+        "fact_gap_checkpoint": apply_fact_gap_checkpoint_decision,
         "fact_conflict_checkpoint": apply_fact_conflict_checkpoint_decision,
     }
     if checkpoint_type in handlers:
         patch = handlers[checkpoint_type](state, decision_payload)  # type: ignore[arg-type]
-    elif checkpoint_type == "fact_gap_checkpoint":
-        patch = {
-            "user_provided_facts": deepcopy(decision_payload.get("user_provided_facts") or {}),
-            "checkpoint_progress": {
-                "fact_gap": {
-                    "resolved": True,
-                    "selected": str(decision_payload.get("decision") or ""),
-                }
-            },
-        }
     else:
         patch = {
             "checkpoint_decision": deepcopy(decision_payload),
         }
-    patch["pending_checkpoint"] = {}
+    patch["pending_checkpoint"] = None
+    patch["resume_directive"] = build_checkpoint_resume_directive(
+        state=state,
+        checkpoint_type=checkpoint_type,
+        decision_payload=decision_payload,
+    )
+    patch["current_phase"] = PHASE_RESUME
+    patch["active_worker"] = str(
+        ((patch.get("resume_directive") if isinstance(patch.get("resume_directive"), dict) else {}) or {}).get("preferred_worker")
+        or "supervisor"
+    )
     patch.setdefault("checkpoint_decision", {})
     patch["checkpoint_decision"]["last"] = deepcopy(decision_payload)
     return patch
@@ -552,8 +761,6 @@ def apply_supervisor_checkpoint_decision(state: dict[str, Any], decision_payload
 def build_supervisor_runtime(checkpointer, store: BaseStore | None = None):
     tools = [
         retrieval_worker,
-        review_worker,
-        asset_worker,
         composition_worker,
         critique_worker,
     ]
@@ -562,6 +769,7 @@ def build_supervisor_runtime(checkpointer, store: BaseStore | None = None):
         _intent_and_skill_middleware,
         _checkpoint_middleware,
         _phase_middleware,
+        _dynamic_tool_selection_middleware,
         _tool_guard_middleware,
         _result_validation_middleware,
         _telemetry_middleware,

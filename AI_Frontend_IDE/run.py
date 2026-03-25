@@ -16,12 +16,17 @@ sys.path.insert(0, _root)
 from app.core.config import settings
 
 
+def _reload_enabled() -> bool:
+    raw = str(os.getenv("XHS_FORGE_RELOAD", "true")).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 async def _serve():
     config = uvicorn.Config(
         "app.main:app",
         host=settings.API_HOST,
         port=settings.API_PORT,
-        reload=True,
+        reload=_reload_enabled(),
         log_level="info",
     )
     server = uvicorn.Server(config)

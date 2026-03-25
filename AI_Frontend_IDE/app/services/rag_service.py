@@ -12,10 +12,39 @@ class QueryFilter(BaseModel):
     filter_dict: Dict = Field(default_factory=dict, description="针对 metadata 的过滤字典，如 {'price': {'$lt': 500}}")
     refined_query: str = Field(description="优化后的纯文本查询词")
 
+
+def _looks_like_structured_filter_query(query: str) -> bool:
+    normalized = str(query or "").strip().lower()
+    if not normalized:
+        return False
+    filter_cues = (
+        "低于",
+        "高于",
+        "小于",
+        "大于",
+        "以内",
+        "以上",
+        "便宜",
+        "贵",
+        "价格",
+        "brand",
+        "品牌",
+        "city",
+        "城市",
+        "doc_type",
+        "category",
+        "筛选",
+        "过滤",
+    )
+    return any(token in normalized for token in filter_cues)
+
 async def _parse_self_query(query: str) -> QueryFilter:
     """
     【Self-Query 解析器】：利用 LLM 将自然语言解析为结构化过滤条件。
     """
+    if not _looks_like_structured_filter_query(query):
+        return QueryFilter(filter_dict={}, refined_query=query)
+
     llm = create_llm(
         model=settings.LLM_MODEL,
         api_key=settings.LLM_API_KEY,

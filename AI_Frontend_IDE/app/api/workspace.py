@@ -47,6 +47,7 @@ from app.api.workspace_diagnostics import (
     dedupe_assets as _present_dedupe_assets,
     fetch_latest_session_snapshots as _present_fetch_latest_session_snapshots,
 )
+from app.agents.runtime.state_helpers import restore_component_version
 
 router = APIRouter(prefix="/workspace", tags=["Workspace Operations"])
 
@@ -211,7 +212,7 @@ async def _record_workspace_operation(agent, config: dict, *, action: str, reaso
         "query": reason,
         "selected_element_id": selected_element_id or after_values.get("selected_element_id") or "global",
         "panel": str(after_values.get("active_panel") or "main"),
-        "timeline": [{"event": "workspace_action", "node": action}],
+        "timeline": [{"event": "workspace_action", "worker": action}],
         "route": {
             "intent_route": str(after_values.get("intent_route") or "workspace_operation"),
             "active_archetype": str(after_values.get("active_archetype") or ""),
@@ -312,7 +313,6 @@ async def rollback_component(thread_id: str, req: ComponentRollbackRequest, requ
     state = await agent.aget_state(config)
     values = state.values
     
-    from app.agents.state import restore_component_version
     # 2. 调用逻辑函数生成回滚补丁
     patch = restore_component_version(values, req.element_id, req.version_index)
     
@@ -841,7 +841,7 @@ async def get_workspace_data(thread_id: str, request: Request):
             active_panel="main",
             selected_element_id=None,
             image_assets=[],
-            node_prompts={},
+            worker_prompts={},
             note_document={},
             artifact={},
             artifact_version={},
@@ -872,7 +872,7 @@ async def get_workspace_data(thread_id: str, request: Request):
     # aget_state_history 返回的是 StateSnapshot 对象集合
     async for snapshot in agent.aget_state_history(config):
         metadata = snapshot.metadata or {}
-        # LangGraph 会自动记录这个快照是由哪个 node (节点) 产生的
+        # runtime 会记录这个快照是由哪个 worker 产生的
         source_node = metadata.get("source", "unknown")
         
         # 提取精确的时间戳 (LangGraph 原生支持 created_at)
@@ -881,7 +881,7 @@ async def get_workspace_data(thread_id: str, request: Request):
         
         checkpoints.append({
             "checkpoint_id": snapshot.config["configurable"]["checkpoint_id"],
-            "node": source_node,                     # 产生该快照的节点 (如 supervisor_agent / composition_worker)
+            "worker": source_node,                   # 产生该快照的 worker (如 supervisor_agent / composition_worker)
             "intent": values.get("intent_route", ""),# 当时的路由意图
             "timestamp": timestamp_str               # 绝对精准的本轮结束时间！
         })
@@ -900,7 +900,7 @@ async def get_workspace_data(thread_id: str, request: Request):
         active_panel=values.get("active_panel", "main"),
         selected_element_id=values.get("selected_element_id"),
         image_assets=dedupe_assets(values.get("image_assets", [])),
-        node_prompts=values.get("node_prompts", {}),
+        worker_prompts=values.get("worker_prompts", {}),
         note_document=note_document,
         artifact=values.get("artifact", {}),
         artifact_version=values.get("artifact_version", {}),

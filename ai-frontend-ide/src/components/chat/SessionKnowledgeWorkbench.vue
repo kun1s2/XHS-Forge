@@ -1,5 +1,5 @@
 <template>
-  <div class="mx-auto w-full max-w-6xl space-y-4 rounded-[26px] border border-[#333] bg-[#1e1e1e] p-5 text-gray-200 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:p-6">
+  <div data-testid="session-knowledge-workbench" class="mx-auto w-full max-w-6xl space-y-4 rounded-[26px] border border-[#333] bg-[#1e1e1e] p-5 text-gray-200 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:p-6">
     <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[#333] pb-4">
       <div class="space-y-2">
         <div class="flex items-center gap-2">
@@ -31,6 +31,40 @@
         </div>
       </div>
     </div>
+
+    <section
+      v-if="hasArtifactContext"
+      class="rounded-[22px] border border-[#334155] bg-[#0f172a] p-4"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div class="text-[11px] font-black uppercase tracking-[0.18em] text-gray-500">Artifact Version</div>
+          <div class="mt-2 text-[13px] font-semibold text-gray-100">{{ artifact?.title || '当前购买决策档案' }}</div>
+          <div class="mt-2 flex flex-wrap gap-2 text-[10px]">
+            <span class="rounded-full border border-violet-800/30 bg-violet-950/20 px-2 py-1 text-violet-200">
+              当前版本 {{ artifactVersionId }}
+            </span>
+            <span class="rounded-full border border-slate-700/30 bg-[#111827] px-2 py-1 text-slate-300">
+              父版本 {{ parentArtifactVersionId }}
+            </span>
+            <span class="rounded-full border border-cyan-800/30 bg-cyan-950/20 px-2 py-1 text-cyan-200">
+              知识版本 {{ artifactKnowledgeVersion }}
+            </span>
+          </div>
+        </div>
+        <div class="max-w-sm rounded-2xl border border-[#334155] bg-[#111827] px-3 py-2.5 text-[11px] leading-relaxed text-gray-400">
+          <div>修改原因：{{ artifactRevisionReason }}</div>
+          <div class="mt-1">最近变更：{{ artifactChangedBlocks.length ? artifactChangedBlocks.join(' / ') : '本轮暂无块级变化' }}</div>
+        </div>
+      </div>
+    </section>
+
+    <section
+      v-else
+      class="rounded-[22px] border border-dashed border-[#334155] bg-[#0f172a] p-4 text-[12px] leading-relaxed text-gray-400"
+    >
+      当前会话还没有生成购买决策档案。等第一版成品创建成功后，这里会显示 artifact 版本信息和本轮变更原因。
+    </section>
 
     <section class="rounded-[22px] border border-[#334155] bg-[#0f172a] p-4">
       <div class="flex flex-wrap items-start justify-between gap-3">
@@ -188,7 +222,7 @@ import {
 import KnowledgeGroupSection from './KnowledgeWorkbenchSection.vue'
 
 const chatStore = useChatStore()
-const { threadId, agentMeta, sessionSnapshotStatus } = storeToRefs(chatStore)
+const { threadId, agentMeta, sessionSnapshotStatus, artifact, artifactVersion, revisionStatus } = storeToRefs(chatStore)
 
 const uploadModes = [
   { value: 'file', label: '上传文件' },
@@ -215,6 +249,24 @@ const candidateGroups = computed<KnowledgeGroup[]>(() =>
 )
 const sessionGroups = computed<KnowledgeGroup[]>(() => (knowledge.value?.session_kb?.groups || []) as KnowledgeGroup[])
 const sessionKnowledgeVersion = computed(() => String(knowledge.value?.session_kb?.knowledge_version || 'v0'))
+const artifactVersionId = computed(() => String(artifactVersion.value?.version_id || artifact.value?.current_version_id || '未生成'))
+const parentArtifactVersionId = computed(() => String(artifactVersion.value?.parent_version_id || '首版'))
+const artifactRevisionReason = computed(() => String(artifactVersion.value?.revision_reason || revisionStatus.value?.primary_recipe?.why_now || '本轮暂无修订原因'))
+const artifactKnowledgeVersion = computed(() => String(artifactVersion.value?.knowledge_version || sessionKnowledgeVersion.value || 'session-kb::0'))
+const artifactOwnsCurrentThread = computed(() => {
+  const versionThreadId = String(artifactVersion.value?.thread_id || '').trim()
+  const activeThreadId = String(threadId.value || '').trim()
+  return Boolean(versionThreadId && activeThreadId && versionThreadId === activeThreadId)
+})
+const hasArtifactContext = computed(() => {
+  const versionId = String(artifactVersion.value?.version_id || '').trim()
+  return Boolean(artifactOwnsCurrentThread.value && versionId)
+})
+const artifactChangedBlocks = computed(() =>
+  Array.isArray(artifactVersion.value?.changed_blocks)
+    ? artifactVersion.value?.changed_blocks?.map((item) => String(item?.id || '').trim()).filter(Boolean)
+    : [],
+)
 const sessionEntities = computed(() => {
   const entities = new Set<string>()
   for (const group of sessionGroups.value) {

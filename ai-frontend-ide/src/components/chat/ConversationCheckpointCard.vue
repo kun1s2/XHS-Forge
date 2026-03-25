@@ -1,5 +1,9 @@
 <template>
-  <div class="mt-3 rounded-[22px] border border-[#2f3d59] bg-[linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(17,24,39,0.96))] p-4">
+  <div
+    data-testid="checkpoint-card"
+    :data-checkpoint-id="action.checkpoint_id"
+    class="mt-3 rounded-[22px] border border-[#2f3d59] bg-[linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(17,24,39,0.96))] p-4"
+  >
     <div class="flex flex-wrap items-center gap-2">
       <span class="rounded-full border border-blue-900/40 bg-blue-950/30 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-blue-300">
         Agent 协作
@@ -109,10 +113,18 @@
       />
     </div>
 
-    <div class="mt-4 grid gap-2">
+    <div
+      v-if="disabled || action.resolved"
+      class="mt-4 rounded-2xl border border-[#334155] bg-[#0f172a] px-3 py-2 text-[11px] text-gray-400"
+    >
+      {{ disabled ? '正在提交这张协作卡，请稍等系统继续推进。' : '这张协作卡已处理完成，可继续查看后续结果。' }}
+    </div>
+
+    <div v-if="!(disabled || action.resolved) && action.options.length > 0" class="mt-4 grid gap-2">
       <button
         v-for="option in action.options"
         :key="option.value"
+        :data-testid="`checkpoint-option-${option.value}`"
         @click="$emit('select', option, customNotePayload)"
         class="rounded-2xl border px-3 py-3 text-left transition-all"
         :class="option.recommended || action.recommended_option === option.value
@@ -151,6 +163,7 @@ import type { ConversationCheckpointAction, ConversationCheckpointInputField, Co
 
 const props = defineProps<{
   action: ConversationCheckpointAction
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{

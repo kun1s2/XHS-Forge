@@ -1,5 +1,5 @@
 <template>
-  <div class="preview-shell pb-[92px]" :style="globalStyles">
+  <div data-testid="preview-shell" class="preview-shell pb-[92px]" :style="globalStyles">
     <div class="sticky top-0 z-50 px-4 py-3 flex justify-between items-center border-b backdrop-blur-md" :style="topBarStyle">
       <div class="text-xl font-bold cursor-pointer w-8 h-8 flex items-center justify-center rounded-full transition-colors" :style="iconButtonStyle">←</div>
       <div class="flex gap-5 text-[15px]">
@@ -24,7 +24,7 @@
         />
       </template>
       
-      <div v-else-if="currentNode" class="space-y-4 w-full p-4 rounded-2xl" :style="emptyCardStyle">
+      <div v-else-if="activeWorker" class="space-y-4 w-full p-4 rounded-2xl" :style="emptyCardStyle">
         <div class="h-48 rounded-xl animate-pulse" :style="skeletonStyle"></div>
         <div class="h-6 rounded-full w-3/4 animate-pulse" :style="skeletonStyle"></div>
       </div>
@@ -53,7 +53,7 @@ import { useChatStore } from '../../stores/useChatStore'
 import { storeToRefs } from 'pinia'
 
 const chatStore = useChatStore()
-const { currentNode, renderPageData, renderStyleData, previewInteractionMode, recentlyChangedBlockIds, recentlyChangedBlockDetails } = storeToRefs(chatStore)
+const { activeWorker, renderPageData, renderStyleData, previewInteractionMode, recentlyChangedBlockIds, recentlyChangedBlockDetails } = storeToRefs(chatStore)
 
 const blocks = computed(() => {
   return (renderPageData.value as any)?.blocks || []

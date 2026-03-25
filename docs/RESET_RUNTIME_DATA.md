@@ -14,9 +14,9 @@ bash scripts/reset_project_state.sh --yes
 1. 清空 Redis 当前库
 2. 清空 PostgreSQL `public` schema
 3. 重新创建：
-   - LangGraph checkpointer
-   - LangGraph store
-   - PGVector 表
+   - supervisor runtime 所需的 session snapshot / store 表
+   - 向量召回缓存表
+   - 运行时持久化依赖
 4. 重新灌入一份基础知识样本
 5. 清理本地运行日志
 

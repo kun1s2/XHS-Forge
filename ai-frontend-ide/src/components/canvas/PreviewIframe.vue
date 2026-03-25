@@ -42,6 +42,7 @@
             >
               <button
                 @click="setWorkspaceMode('session_preview')"
+                data-testid="workspace-tab-session-preview"
                 :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'session_preview', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'session_preview'}"
                 class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 whitespace-nowrap"
               >
@@ -76,6 +77,7 @@
               </button>
               <button
                 @click="setWorkspaceMode('session_knowledge')"
+                data-testid="workspace-tab-session-knowledge"
                 :class="{'bg-[#333] text-gray-100 shadow': workspaceMode === 'session_knowledge', 'text-gray-500 hover:text-gray-300': workspaceMode !== 'session_knowledge'}"
                 class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 whitespace-nowrap"
               >
@@ -118,6 +120,7 @@
             >
               <button
                 @click="setPreviewInteractionMode(previewInteractionMode === 'select' ? 'browse' : 'select')"
+                data-testid="preview-selection-toggle"
                 class="rounded-full border px-3 py-1 font-bold transition-colors whitespace-nowrap"
                 :class="
                   previewInteractionMode === 'select'
@@ -152,7 +155,7 @@
 
     <div class="flex-1 relative overflow-hidden bg-[#141414] flex">
 
-      <div v-show="workspaceMode === 'session_preview'" class="w-full h-full overflow-y-auto bg-[#141414] p-3 lg:p-4 custom-scrollbar">
+      <div v-show="workspaceMode === 'session_preview'" data-testid="session-preview-container" class="w-full h-full overflow-y-auto bg-[#141414] p-3 lg:p-4 custom-scrollbar">
         <div class="mx-auto w-full max-w-6xl">
           <div v-if="hasRenderableDocument" class="rounded-[28px] border border-[#333] bg-[#1b1b1d] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:p-4">
             <!-- ✨ 4.0 重构修复：依赖 blocks 列表而非旧的 root 树 -->
@@ -218,10 +221,10 @@
             </button>
             <button
               class="rounded-full border px-3 py-1 text-[10px] font-bold transition-all"
-              :class="showPromptKeyNodesOnly ? 'border-violet-700/30 bg-violet-950/20 text-violet-300' : 'border-[#3a3a3a] bg-black/10 text-gray-400 hover:text-gray-200'"
-              @click="showPromptKeyNodesOnly = !showPromptKeyNodesOnly"
+              :class="showPromptKeyWorkersOnly ? 'border-violet-700/30 bg-violet-950/20 text-violet-300' : 'border-[#3a3a3a] bg-black/10 text-gray-400 hover:text-gray-200'"
+              @click="showPromptKeyWorkersOnly = !showPromptKeyWorkersOnly"
             >
-              {{ showPromptKeyNodesOnly ? '只看关键节点 · 开' : '只看关键节点' }}
+              {{ showPromptKeyWorkersOnly ? '只看关键角色 · 开' : '只看关键角色' }}
             </button>
             <button
               class="rounded-full border px-3 py-1 text-[10px] font-bold transition-all"
@@ -235,22 +238,22 @@
           <div class="mt-4 flex flex-wrap gap-2">
             <span
               v-for="item in promptCoverage"
-              :key="item.node"
+              :key="item.worker"
               class="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[10px] font-bold"
               :class="item.present ? 'border-emerald-700/30 bg-emerald-950/20 text-emerald-300' : 'border-amber-700/30 bg-amber-950/20 text-amber-300'"
             >
               <span>{{ item.present ? '●' : '○' }}</span>
-              <span>{{ humanizePromptNode(item.node) }}</span>
+              <span>{{ humanizePromptWorker(item.worker) }}</span>
             </span>
           </div>
 
           <div v-if="filteredPromptEntries.length > 0" class="mt-6 flex flex-col gap-6">
-            <article v-for="entry in filteredPromptEntries" :key="entry.node" class="rounded-[22px] border border-[#333] bg-[linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(29,29,29,1))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] lg:p-5">
+            <article v-for="entry in filteredPromptEntries" :key="entry.worker" class="rounded-[22px] border border-[#333] bg-[linear-gradient(180deg,_rgba(37,37,38,0.98),_rgba(29,29,29,1))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] lg:p-5">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#333]/80 pb-3">
                 <div class="space-y-1">
                   <div class="flex items-center gap-2">
-                    <span class="rounded-full border border-[#2f456d] bg-[#162033] px-2 py-0.5 text-[9px] font-bold text-[#8ab4ff]">{{ humanizePromptNode(entry.node) }}</span>
-                    <span class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ entry.node }}</span>
+                    <span class="rounded-full border border-[#2f456d] bg-[#162033] px-2 py-0.5 text-[9px] font-bold text-[#8ab4ff]">{{ humanizePromptWorker(entry.worker) }}</span>
+                    <span class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ entry.worker }}</span>
                   </div>
                   <div class="text-[11px] text-gray-500">共 {{ entry.messages.length }} 条 prompt / snapshot 消息</div>
                 </div>
@@ -270,11 +273,11 @@
                       {{ msg.role || 'info' }}
                     </span>
                     <button
-                      @click="copyIndividualPrompt(String(msg.content || ''), entry.node + mIdx)"
+                      @click="copyIndividualPrompt(String(msg.content || ''), entry.worker + mIdx)"
                       class="flex items-center gap-1.5 text-[10px] transition-all"
-                      :class="copiedSubNode === (entry.node + mIdx) ? 'text-green-400' : 'text-gray-500 hover:text-white opacity-0 group-hover:opacity-100'"
+                      :class="copiedSubNode === (entry.worker + mIdx) ? 'text-green-400' : 'text-gray-500 hover:text-white opacity-0 group-hover:opacity-100'"
                     >
-                      <template v-if="copiedSubNode === (entry.node + mIdx)">
+                      <template v-if="copiedSubNode === (entry.worker + mIdx)">
                         <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                         已复制！
                       </template>
@@ -370,13 +373,13 @@ type PromptMessage = {
 
 const chatStore = useChatStore()
 const { getPreferredPayloadById } = chatStore
-const { previewUrl, renderPageData, nodePrompts, hoveredComponentId, sourceCode, pendingFactConflictCount, noteDocument, hasRenderableDocument, workspaceMode, previewInteractionMode } = storeToRefs(chatStore)
+const { previewUrl, renderPageData, workerPrompts, hoveredComponentId, sourceCode, pendingFactConflictCount, noteDocument, hasRenderableDocument, workspaceMode, previewInteractionMode } = storeToRefs(chatStore)
 
 const isCopied = ref(false)
 const copiedSubNode = ref<string | null>(null) // 追踪当前被复制的单条提示词 ID
 const copiedPromptBundle = ref(false)
 const showPromptSystemOnly = ref(false)
-const showPromptKeyNodesOnly = ref(false)
+const showPromptKeyWorkersOnly = ref(false)
 
 // 一键复制代码
 const copyCode = async () => {
@@ -445,22 +448,22 @@ const normalizePromptMessages = (messages: unknown): PromptMessage[] => {
 }
 
 const promptEntries = computed(() =>
-  Object.entries((nodePrompts.value || {}) as Record<string, unknown>).map(([node, messages]) => ({
-    node,
+  Object.entries((workerPrompts.value || {}) as Record<string, unknown>).map(([worker, messages]) => ({
+    worker,
     messages: normalizePromptMessages(messages),
   }))
 )
-const promptExpectedNodes = ['supervisor_agent', 'intent_worker', 'retrieval_worker', 'composition_worker', 'critique_worker']
+const promptExpectedWorkers = ['supervisor_agent', 'intent_worker', 'retrieval_worker', 'composition_worker', 'critique_worker']
 const promptCoverage = computed(() => {
-  const present = new Set(promptEntries.value.map(entry => entry.node))
-  return promptExpectedNodes.map((node) => ({
-    node,
-    present: present.has(node),
+  const present = new Set(promptEntries.value.map(entry => entry.worker))
+  return promptExpectedWorkers.map((worker) => ({
+    worker,
+    present: present.has(worker),
   }))
 })
 const filteredPromptEntries = computed(() => {
   return promptEntries.value
-    .filter((entry) => !showPromptKeyNodesOnly.value || promptExpectedNodes.includes(entry.node))
+    .filter((entry) => !showPromptKeyWorkersOnly.value || promptExpectedWorkers.includes(entry.worker))
     .map((entry) => ({
       ...entry,
       messages: entry.messages.filter((msg) => !showPromptSystemOnly.value || msg.role === 'system'),
@@ -472,7 +475,7 @@ const promptMessageCount = computed(() => filteredPromptEntries.value.reduce((su
 const promptBundleText = computed(() =>
   filteredPromptEntries.value
     .map((entry) => {
-      const header = `## ${humanizePromptNode(entry.node)} (${entry.node})`
+      const header = `## ${humanizePromptWorker(entry.worker)} (${entry.worker})`
       const body = entry.messages
         .map((msg) => `[${String(msg.role || 'info').toUpperCase()}]\n${String(msg.content || '')}`)
         .join('\n\n')
@@ -480,13 +483,13 @@ const promptBundleText = computed(() =>
     })
     .join('\n\n====\n\n')
 )
-const humanizePromptNode = (node: string) => ({
+const humanizePromptWorker = (worker: string) => ({
   supervisor_agent: '总控协调',
   intent_worker: '意图解析',
   retrieval_worker: '证据检索',
   composition_worker: '内容编辑',
   critique_worker: '结果复盘',
-}[node] || node)
+}[worker] || worker)
 
 // 监听 iframe 传来的 hover/select 事件 (现在不通过 iframe，但保留以便兼容)
 const handleMessage = (event: MessageEvent) => {

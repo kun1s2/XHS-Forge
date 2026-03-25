@@ -72,6 +72,32 @@ STRUCTURE_ROUTE_TOKENS = (
     "补一个",
 )
 
+APPEND_BLOCK_REQUEST_TOKENS = (
+    "补一个新块",
+    "新增一个新块",
+    "增加一个新块",
+    "加一个新块",
+    "插入一个新块",
+    "在现有档案后面",
+    "继续补一个新块",
+    "再补一个新块",
+)
+
+APPEND_BLOCK_TOPIC_TOKENS = (
+    "销量",
+    "销量表现",
+    "卖了多少",
+    "销售表现",
+    "发展史",
+    "历史",
+    "演进",
+    "历代",
+    "适合什么人群",
+    "适合人群",
+    "适合谁",
+    "目标人群",
+)
+
 IMAGE_REQUEST_TOKENS = (
     "搜图",
     "找图",
@@ -131,6 +157,18 @@ ATTENTION_HOOK_TOKENS = (
     "更抓眼球",
 )
 
+REVISION_REVIEW_TOKENS = (
+    "检查一遍",
+    "再检查",
+    "最值得优化",
+    "优化的一点",
+    "还差什么",
+    "看看这份档案",
+    "给建议",
+    "复盘一下",
+    "哪里还能改",
+)
+
 
 def contains_any_token(text: str | None, tokens: Iterable[str]) -> bool:
     raw_text = text or ""
@@ -142,8 +180,22 @@ def looks_like_existing_canvas_edit(user_text: str | None) -> bool:
         contains_any_token(user_text, EXISTING_CANVAS_EDIT_ACTION_TOKENS)
         or contains_any_token(user_text, EXISTING_CANVAS_TARGET_TOKENS)
         or contains_any_token(user_text, PARAGRAPH_REFERENCE_TOKENS)
+        or looks_like_append_block_request(user_text)
         or wants_image_search(user_text)
     )
+
+
+def looks_like_append_block_request(user_text: str | None) -> bool:
+    raw_text = str(user_text or "").strip()
+    if not raw_text:
+        return False
+    return contains_any_token(raw_text, APPEND_BLOCK_REQUEST_TOKENS) and contains_any_token(
+        raw_text, APPEND_BLOCK_TOPIC_TOKENS
+    )
+
+
+def looks_like_revision_review_request(user_text: str | None) -> bool:
+    return contains_any_token(user_text, REVISION_REVIEW_TOKENS)
 
 
 def infer_existing_canvas_edit_route(user_text: str | None) -> str:

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+
 from app.core.query_heuristics import (
     looks_like_capability_query,
     looks_like_existing_canvas_edit,
@@ -33,18 +35,54 @@ def latest_user_text_from_messages(messages: list[Any] | None) -> str:
     safe_messages = list(messages or [])
     if not safe_messages:
         return ""
-    last_message = safe_messages[-1]
-    if isinstance(last_message, dict):
-        content = last_message.get("content", "") or ""
-    else:
-        content = getattr(last_message, "content", "") or ""
-    if isinstance(content, list):
-        text_parts = []
-        for part in content:
-            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
-                text_parts.append(str(part.get("text")))
-        return "".join(text_parts).strip()
-    return str(content).strip()
+
+    def _extract_text(message: Any) -> str:
+        if isinstance(message, dict):
+            content = message.get("content", "") or ""
+        elif isinstance(message, tuple) and len(message) >= 2:
+            content = message[1]
+        else:
+            content = getattr(message, "content", "") or ""
+        if isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                    text_parts.append(str(part.get("text")))
+            return "".join(text_parts).strip()
+        return str(content).strip()
+
+    def _is_user_message(message: Any) -> bool:
+        if isinstance(message, HumanMessage):
+            return True
+        if isinstance(message, dict):
+            role = str(message.get("role") or message.get("type") or "").strip().lower()
+            return role in {"user", "human"}
+        if isinstance(message, tuple) and len(message) >= 1:
+            return str(message[0] or "").strip().lower() in {"user", "human"}
+        return message.__class__.__name__ == "HumanMessage"
+
+    for message in reversed(safe_messages):
+        if not _is_user_message(message):
+            continue
+        text = _extract_text(message)
+        if text:
+            return text
+
+    for message in reversed(safe_messages):
+        text = _extract_text(message)
+        if text:
+            return text
+    return ""
+
+
+def latest_user_text_from_state(state: dict[str, Any] | None) -> str:
+    """优先从 user_messages 里取最新用户文本，避免 AI 回包污染后续路由。"""
+    safe_state = state or {}
+    for key in ("user_messages", "main_messages", "messages"):
+        text = latest_user_text_from_messages(safe_state.get(key) or [])
+        if text:
+            return text
+    return ""
 
 
 def is_create_like_request(
@@ -78,7 +116,7 @@ def state_requests_create(state: dict[str, Any] | None) -> bool:
         task_type=str(intent_decision.get("task_type") or ""),
         selected_element_id=safe_state.get("selected_element_id"),
         active_panel=safe_state.get("active_panel"),
-        user_text=latest_user_text_from_messages(safe_state.get("main_messages") or []),
+        user_text=latest_user_text_from_state(safe_state),
     )
 
 

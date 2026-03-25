@@ -7,5 +7,11 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // 允许端口转发后在本机浏览器访问
     port: 5173,
+    watch: {
+      ignored: [
+        '**/playwright-report/**',
+        '**/test-results/**',
+      ],
+    },
   },
 })

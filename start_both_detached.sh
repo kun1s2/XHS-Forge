@@ -9,13 +9,22 @@ FRONTEND="$ROOT/ai-frontend-ide"
 PID_FILE="$ROOT/.start_both.pid"
 LOG_DIR="$ROOT/logs"
 
+kill_matching() {
+  local pattern="$1"
+  pkill -f "$pattern" 2>/dev/null || true
+}
+
 mkdir -p "$LOG_DIR"
 
 echo "🧹 [1/3] 正在强制清理旧进程，防止端口占用与变量残留..."
 # 杀死所有相关的 python 和 node/vite 进程
-pkill -f "python run.py" || true
-pkill -f "uvicorn app.main:app" || true
-pkill -f "vite" || true
+kill_matching "python run.py"
+kill_matching "uvicorn app.main:app"
+kill_matching "uvicorn AI_Frontend_IDE.app.main:app"
+kill_matching "watchfiles"
+kill_matching "AI_Frontend_IDE.app.main:app"
+kill_matching "vite"
+kill_matching "node .*vite"
 # 如果有 PID 文件，也尝试清理
 if [ -f "$PID_FILE" ]; then
   while read pid; do
@@ -33,11 +42,12 @@ if command -v conda &>/dev/null; then
 fi
 
 echo "🚀 [3/3] 正在后台启动 XHS-Forge 服务..."
+echo "ℹ️ 如果刚升级过运行时/序列化协议，建议先执行: bash scripts/reset_project_state.sh --yes"
 
 # 启动后端
 cd "$BACKEND"
 # 强制使用最新的环境变量运行
-nohup python run.py >> "$LOG_DIR/backend.log" 2>&1 &
+nohup env XHS_FORGE_RELOAD=false python run.py >> "$LOG_DIR/backend.log" 2>&1 &
 echo $! >> "$PID_FILE"
 
 # 启动前端

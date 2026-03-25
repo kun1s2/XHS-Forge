@@ -9,13 +9,13 @@ export const setupFrontendObserver = (pinia: Pinia) => {
   const chatStore = useChatStore(pinia)
   const {
     threadId,
-    currentNode,
+    activeWorker,
     selectedComponentId,
     hasRenderableDocument,
     renderPageData,
     noteDocument,
     sourceCode,
-    nodePrompts,
+    workerPrompts,
     previewUrl,
   } = storeToRefs(chatStore)
 
@@ -29,12 +29,12 @@ export const setupFrontendObserver = (pinia: Pinia) => {
       event_type: 'health_snapshot',
       message: reason,
       payload: {
-        current_node: currentNode.value || '',
+        active_worker: activeWorker.value || '',
         selected_component_id: selectedComponentId.value || '',
         has_renderable_document: Boolean(hasRenderableDocument.value),
         render_blocks: blocks,
         note_document_blocks: docBlocks,
-        node_prompt_count: Object.keys((nodePrompts.value || {}) as Record<string, unknown>).length,
+        worker_prompt_count: Object.keys((workerPrompts.value || {}) as Record<string, unknown>).length,
         has_source_code: Boolean(sourceCode.value),
         has_preview_url: Boolean(previewUrl.value),
       },
@@ -57,7 +57,7 @@ export const setupFrontendObserver = (pinia: Pinia) => {
           event_type: 'render_output_missing_in_ui',
           message: '后端已返回 preview/sourceCode，但前端仍不可渲染',
           payload: {
-            current_node: currentNode.value || '',
+            active_worker: activeWorker.value || '',
             selected_component_id: selectedComponentId.value || '',
             render_blocks: getRenderBlockCount(),
             note_document_blocks: Array.isArray(((noteDocument.value as NoteDocument | undefined) || {})?.blocks)
@@ -65,7 +65,7 @@ export const setupFrontendObserver = (pinia: Pinia) => {
               : 0,
             has_source_code: Boolean(sourceCode.value),
             has_preview_url: Boolean(previewUrl.value),
-            node_prompt_count: Object.keys((nodePrompts.value || {}) as Record<string, unknown>).length,
+            worker_prompt_count: Object.keys((workerPrompts.value || {}) as Record<string, unknown>).length,
           },
         })
       }
@@ -73,7 +73,7 @@ export const setupFrontendObserver = (pinia: Pinia) => {
   }
 
   watch(
-    [threadId, currentNode, selectedComponentId, hasRenderableDocument, previewUrl, sourceCode],
+    [threadId, activeWorker, selectedComponentId, hasRenderableDocument, previewUrl, sourceCode],
     () => {
       sendHealthSnapshot('state_changed')
       scheduleRenderAnomalyCheck()
@@ -94,7 +94,7 @@ export const setupFrontendObserver = (pinia: Pinia) => {
         filename,
         lineno: event.lineno || 0,
         colno: event.colno || 0,
-        current_node: currentNode.value || '',
+        active_worker: activeWorker.value || '',
         selected_component_id: selectedComponentId.value || '',
       },
     })
@@ -107,7 +107,7 @@ export const setupFrontendObserver = (pinia: Pinia) => {
       event_type: 'unhandled_rejection',
       message: reason,
       payload: {
-        current_node: currentNode.value || '',
+        active_worker: activeWorker.value || '',
         selected_component_id: selectedComponentId.value || '',
       },
     })

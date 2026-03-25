@@ -30,7 +30,7 @@
 
       <div class="mt-3 flex flex-wrap gap-2">
         <span class="rounded-full border border-[#30343b] bg-[#1b1d22] px-3 py-1 text-[10px] text-gray-400">
-          当前节点 {{ nodeMap[currentNode] || currentNode || '待命' }}
+          当前执行角色 {{ workerMap[activeWorker] || activeWorker || '待命' }}
         </span>
         <span
           v-if="pendingFactConflictCount > 0"
@@ -199,7 +199,7 @@
                   class="rounded-2xl border border-[#2f3440] bg-[#1a1d24]"
                 >
                   <summary class="cursor-pointer list-none px-3 py-2 text-[11px] text-gray-400 hover:text-blue-300">
-                    🧠 {{ thought.node }} 已完成处理
+                    🧠 {{ thought.worker }} 已完成处理
                   </summary>
                   <div class="border-t border-[#2f3440] px-3 py-3 text-[11px] leading-relaxed text-gray-500">
                     {{ thought.text }}
@@ -255,6 +255,7 @@
                 <ConversationCheckpointCard
                   v-if="msg.actionRequired"
                   :action="msg.actionRequired"
+                  :disabled="submittingCheckpointId === msg.actionRequired.checkpoint_id"
                   @select="(option, overrides) => handleCheckpointOptionSelect(msg.actionRequired, option, overrides)"
                 />
               </div>
@@ -290,11 +291,12 @@
 
         <RevisionAssistPanel
           v-if="!pendingBlockingCheckpointAction"
+          :current-thread-id="threadId"
           :artifact-version="artifactVersion"
           :revision-plan="revisionPlan"
           :revision-result="revisionResult"
           :revision-status="revisionStatus"
-          :disabled="isUploading || currentNode !== ''"
+          :disabled="isUploading || activeWorker !== ''"
           @accept="acceptPrimaryRevision"
         />
 
@@ -314,12 +316,14 @@
                 v-model="composerDraft"
                 @keydown.enter.prevent="handleSend"
                 :placeholder="composerPlaceholder"
+                data-testid="composer-input"
                 class="block min-h-[72px] max-h-[160px] w-full resize-none overflow-y-auto rounded-[20px] border border-[#353840] bg-[#111317] px-4 py-3 pr-16 text-sm leading-relaxed text-gray-200 outline-none transition-all placeholder:text-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 custom-scrollbar"
               ></textarea>
 
               <button
                 @click="handleSend"
-                :disabled="(!composerDraft.trim() && imageAssets.length === 0) || isUploading || currentNode !== ''"
+                :disabled="(!composerDraft.trim() && imageAssets.length === 0) || isUploading || activeWorker !== ''"
+                data-testid="composer-send"
                 class="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition-colors hover:bg-blue-500 disabled:bg-[#30343b] disabled:text-gray-500"
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
@@ -345,9 +349,10 @@ import { buildEditingGuidance } from './chatEditingGuidance'
 
 const chatStore = useChatStore()
 const {
+  threadId,
   messages,
   wsStatus,
-  currentNode,
+  activeWorker,
   thoughtText,
   nodeStreamOutput,
   selectedComponentId,
@@ -368,6 +373,7 @@ const {
   revisionPlan,
   revisionResult,
   revisionStatus,
+  submittingCheckpointId,
 } = storeToRefs(chatStore)
 const { setSelectedComponent, addPendingUploadAsset, acceptPrimaryRevision } = chatStore
 const msgListRef = ref<HTMLElement | null>(null)
@@ -447,7 +453,7 @@ const applySelectedQuickAction = (prompt: string) => {
 }
 
 const runSelectedDirectAction = (prompt: string) => {
-  if (!prompt || isUploading.value || currentNode.value !== '') return
+  if (!prompt || isUploading.value || activeWorker.value !== '') return
   const handled = chatStore.submitComposerMessage(prompt)
   if (handled) {
     composerDraft.value = ''
@@ -465,12 +471,10 @@ const pendingImages = ref<PendingImage[]>([])
 const stagedUploadUrls = ref<string[]>([])
 const isUploading = computed(() => pendingImages.value.some(img => img.status === 'uploading'))
 
-const nodeMap: Record<string, string> = {
+const workerMap: Record<string, string> = {
   supervisor_agent: '总控协调',
   intent_worker: '意图分析',
   retrieval_worker: '证据检索',
-  review_worker: '知识审查',
-  asset_worker: '素材处理',
   composition_worker: '内容编辑',
   critique_worker: '结果复盘',
 }
@@ -513,7 +517,7 @@ const handleFileSelect = async (e: Event) => {
 }
 
 const handleSend = () => {
-  if ((!composerDraft.value.trim() && stagedUploadUrls.value.length === 0) || isUploading.value || currentNode.value !== '') return
+  if ((!composerDraft.value.trim() && stagedUploadUrls.value.length === 0) || isUploading.value || activeWorker.value !== '') return
 
   const handled = chatStore.submitComposerMessage(composerDraft.value, { imageUrls: stagedUploadUrls.value })
   if (handled) {

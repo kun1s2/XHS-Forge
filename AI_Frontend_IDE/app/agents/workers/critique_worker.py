@@ -74,6 +74,11 @@ class NoteCritiqueAgent:
             
             # Parse JSON response
             feedback_data = self._parse_json_response(content)
+            feedback_data = self._coerce_feedback_data(
+                feedback_data,
+                note_text=note_text,
+                citations=citations,
+            )
             feedback = CritiqueFeedback(**feedback_data)
             
             # Log critique result
@@ -101,6 +106,26 @@ class NoteCritiqueAgent:
                 "critique_feedback": fallback,
                 "needs_revision": bool(fallback.get("needs_revision")),
             }
+
+    def _coerce_feedback_data(
+        self,
+        feedback_data: Dict[str, Any],
+        *,
+        note_text: str,
+        citations: list[Any],
+    ) -> Dict[str, Any]:
+        """Fill missing required fields so partial model output does not explode the turn."""
+        base = self._build_fallback_feedback(note_text=note_text, citations=citations)
+        merged = {**base, **(feedback_data or {})}
+        merged["score"] = max(0, min(100, int(merged.get("score") or base.get("score") or 72)))
+        merged["emoji_density"] = float(merged.get("emoji_density") or 0.0)
+        merged["emotional_intensity"] = str(merged.get("emotional_intensity") or base.get("emotional_intensity") or "Medium")
+        merged["has_hook"] = bool(merged.get("has_hook"))
+        merged["has_call_to_action"] = bool(merged.get("has_call_to_action"))
+        merged["needs_revision"] = bool(merged.get("needs_revision"))
+        for key in ("factual_issues", "completeness_issues", "suggestions"):
+            merged[key] = [str(item).strip() for item in (merged.get(key) or []) if str(item).strip()]
+        return merged
     
     def _render_note_text(self, note_doc: Dict[str, Any]) -> str:
         """Render note document to plain text for evaluation."""

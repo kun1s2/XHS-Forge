@@ -1,207 +1,166 @@
 # Architecture And Flow
 
-最后更新: 2026-03-21
+最后更新: 2026-03-24
 
-这份文档是面试和代码审阅时使用的最终架构图说明。目标不是覆盖所有实现细节，而是让读者在 3 到 5 分钟内理解：
-
-- 系统围绕什么对象运行
-- agent 在哪里
-- 确定性模块在哪里
-- RAG / cache / benchmark 怎么挂进整套系统
+这份文档只描述当前正式主线，不保留历史 graph 架构说明。
 
 ## 1. One-line Architecture
 
-XHS-Forge 是一套以 `NoteDocument` 为唯一主协议、由 LangGraph 编排少量决策 agent 和大量确定性执行层的内容创作工作台。
+XHS-Forge 是一个 **自由对话式 Supervisor Agent + Artifact-Centered 成品系统**。  
+用户只和一个 supervisor 对话，系统围绕一份持续演化的 `purchase_decision_note` artifact 工作。
 
-## 2. Core Runtime
-
-```mermaid
-flowchart LR
-    U[User Input] --> API[chat.py / workspace.py]
-    API --> G[LangGraph Runtime]
-    G --> I[intent_agent]
-    I --> P[planner_agent]
-    P --> O[outline_resolver]
-    O --> B[component_builder]
-    B --> E[note_editor_agent]
-    E --> T[theme_compiler]
-    T --> V[document_verifier]
-    V --> R[document_renderer]
-    R --> UI[Workbench UI]
-```
-
-### 如何理解
-
-- `LangGraph Runtime`
-  - 负责编排、状态流转、checkpoint、会话恢复
-- `intent_agent`
-  - 只做网关判断
-- `planner_agent`
-  - 只做页面策略和 block intents
-- `outline_resolver`
-  - 把 block intents 稳定映射成积木 skeleton
-- `component_builder`
-  - 在 manifest contract 下生成区块 payload
-- `note_editor_agent`
-  - 负责已有页面的开放式编辑决策
-- `theme_compiler / verifier / document_renderer`
-  - 属于确定性执行层
-
-## 3. Single Source Of Truth
-
-```mermaid
-flowchart TD
-    ND[NoteDocument] --> Blocks[blocks]
-    ND --> Assets[assets]
-    ND --> Facts[fact_bindings]
-    ND --> Theme[theme]
-    ND --> Meta[document_meta]
-
-    Manifest[component_manifest] --> Builder[component_builder]
-    Manifest --> Resolver[outline_resolver]
-    Manifest --> Editor[note_editor_agent]
-    Manifest --> Renderer[document_renderer]
-```
-
-### 真相源
-
-- 主状态真相源：
-  - `NoteDocument`
-- 组件能力真相源：
-  - `component_manifest`
-- 页面策略真相源：
-  - `planner_output / planner_policy`
-
-项目里已经没有第二套 DSL 或旧页面协议。
-
-## 4. Prompt And Context Engineering
+## 2. Top-level Runtime
 
 ```mermaid
 flowchart LR
-    ND[NoteDocument] --> CE[context_engineering]
-    Policy[planner_policy] --> CE
-    Facts[retrieved_knowledge] --> CE
-    Assets[image_assets] --> CE
-    Manifest[component_manifest] --> CE
-
-    CE --> Prompt[prompt_engineering]
-    Prompt --> Intent[intent_agent]
-    Prompt --> Planner[planner_agent]
-    Prompt --> Editor[note_editor_agent]
-    Prompt --> Builder[component_builder]
+    U[User] --> API[chat/workspace API]
+    API --> S[Supervisor Runtime]
+    S --> RW[retrieval_worker]
+    S --> CW[composition_worker]
+    S --> KW[critique_worker]
+    S --> A[(artifact)]
+    S --> K[(session_kb)]
 ```
 
-### 当前上下文工程的核心原则
+关键点：
 
-- 不再把大对象整包直喂给模型
-- 按节点职责喂压缩后的上下文包
-- 统一上下文包命名：
-  - `document_summary`
-  - `selection_context`
-  - `policy_summary`
-  - `fact_summary`
-  - `asset_summary`
-  - `evidence_slice`
+- supervisor 是唯一对话入口
+- worker 不直接和用户说话
+- 每轮由 supervisor 动态决定调用哪个 worker
 
-## 5. RAG, Cache, Grounding
+## 3. Formal Runtime Modules
 
-```mermaid
-flowchart LR
-    Query[User Query] --> Research[research_agent]
-    Research --> Cache[cache_service]
-    Research --> Policy[rag_policy]
-    Research --> Search[search_enricher / rag_service]
-    Search --> KB[(Trend KB / Fact KB / Pattern KB)]
-    Cache --> KB
-    KB --> Eval[retrieval eval + grounding]
-    Eval --> ND[NoteDocument fact_bindings]
-    Eval --> Inspector[Agent Inspector]
-    Eval --> Benchmark[Benchmark Panel]
-```
+- Supervisor runtime：
+  - [`AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py`](../AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py)
+- Session state：
+  - [`AI_Frontend_IDE/app/agents/runtime/session_state.py`](../AI_Frontend_IDE/app/agents/runtime/session_state.py)
+- State helpers：
+  - [`AI_Frontend_IDE/app/agents/runtime/state_helpers.py`](../AI_Frontend_IDE/app/agents/runtime/state_helpers.py)
+- Session state service：
+  - [`AI_Frontend_IDE/app/agents/services/session_state_service.py`](../AI_Frontend_IDE/app/agents/services/session_state_service.py)
 
-### 已完成的能力
+## 4. Worker Responsibilities
 
-- `system_preload`
-- `task_triggered_ingest`
-- retrieval policy / rerank
-- citation / grounding
-- anti-decay / freshness
-- cache TTL / freshness / diagnostics
-- benchmark aggregation
+### `retrieval_worker`
+- 查询结构化知识
+- 读取 `knowledge_snapshot/cache`
+- 触发混合检索与联网搜索
+- 读取资料索引
 
-## 6. Frontend Workbench
+### `composition_worker`
+- 修改标题、结论、对比、风险、正文
+- 落地局部重做
+- 生成 `changed_blocks`
 
-```mermaid
-flowchart TD
-    Store[useChatStore] --> Inspector[AgentInspector]
-    Store --> Canvas[PreviewIframe]
-    Store --> Assets[Asset Library]
-    Store --> Benchmark[Benchmark tab]
+### `critique_worker`
+- 内部分析 `knowledge_gap / expression_gap`
+- 输出 revision 建议
+- 不直接打断聊天主流程
 
-    API[chat / workspace API] --> Store
-    ND[NoteDocument] --> Store
-    Trace[turn_trace / inspector_summary] --> Store
-```
+补充：
 
-### 前端现在承担的职责
+- `retrieval_worker` 同时承担原来的知识审查前整理与素材线索补齐职责
+- `composition_worker` 同时承担原来的图片/素材落地职责
 
-- 工作台状态协调
-- 协议可视化
-- 单轮 Inspector
-- 跨会话 Benchmark
-- Prompt Lab / Trace 观测
+## 5. Artifact / Version
 
-### 前端不再承担的职责
+系统正式围绕 artifact/version 工作。
 
-- 旧页面协议兼容
-- DSL 适配
-- 核心业务决策
+### `artifact`
+- `artifact_id`
+- `artifact_type = purchase_decision_note`
+- `current_version_id`
+- `current_snapshot_id`
+- `title`
+- `status`
 
-## 7. Request Flow
+### `artifact_version`
+- `version_id`
+- `parent_version_id`
+- `snapshot_id`
+- `revision_reason`
+- `changed_blocks`
+- `assets_delta`
+- `knowledge_version`
+- `created_at`
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant API as chat.py
-    participant Graph as LangGraph
-    participant Intent as intent_agent
-    participant Planner as planner_agent
-    participant Resolver as outline_resolver
-    participant Builder as component_builder
-    participant Editor as note_editor_agent
-    participant Renderer as renderer
-    participant UI as Workbench
+规则：
 
-    User->>API: 输入需求
-    API->>Graph: invoke
-    Graph->>Intent: gateway routing
-    Intent->>Planner: task_type / edit_scope
-    Planner->>Resolver: block_intents
-    Resolver->>Builder: block skeletons
-    Builder->>Editor: component-ready document
-    Editor->>Renderer: final NoteDocument
-    Renderer->>UI: renderable result
-```
+- 每次成功 turn 生成一个新 `artifact_version`
+- rollback/branch 都围绕 artifact version 对应 snapshot 工作
+- 高亮、最近变更块、diff 都从 artifact version 派生
 
-## 8. Why This Is A Good Interview Story
+## 6. Revision Loop
 
-这套架构对面试最有价值的点不只是“用了 agent”，而是：
+revision 是正式产品能力，不再作为聊天里的强打断卡片。
 
-- 用统一协议解决长期编辑问题
-- 用 LangGraph 解决工作流和状态问题
-- 用少量 agent 解决高价值决策
-- 用 RAG / cache / benchmark 补齐工程闭环
-- 用 Inspector 和 Benchmark 把系统过程真正展示出来
+流程：
 
-## 9. 阅读代码的推荐顺序
+1. critique worker 产出 revision 建议
+2. 输入框旁 `RevisionAssistPanel` 展示一个主建议
+3. 用户点击 `听取意见`
+4. supervisor 生成 `revision_plan`
+5. 动态调 retrieval / composition worker
+6. `revision_service` 校验结果
+7. 成功则生成新 `artifact_version`
+
+只有高风险场景才会升级成 blocking checkpoint。
+
+## 7. Knowledge Chain
+
+正式检索顺序：
+
+1. `user_provided_facts`
+2. `session_kb`
+3. `persistent_kb`
+4. `knowledge_snapshot`
+5. `web_search`
+
+治理规则：
+
+- 所有外部命中先进入 `candidate_session_kb`
+- 审过后才能进入 `session_kb`
+- `persistent_kb` 作为慢入口，只接收已确认知识和长期资料
+
+## 8. Session / Global Separation
+
+### 会话工作台
+- 当前 artifact
+- 当前版本
+- 当前会话知识
+- 当前 trace / revision 状态
+
+### 全局资产中心
+- 正式知识库
+- 长期资料
+- demo packs
+- benchmark / evaluation
+
+全局知识不会直接污染当前会话；只会以快照导入 session，再被 artifact version 引用。
+
+## 9. White-box Observability
+
+诊断面板固定显示：
+
+- 当前 phase
+- 当前 worker
+- 当前 skill
+- 当前工具调用
+- 当前 artifact version
+- 当前 knowledge version
+- 当前 failure point
+
+## 10. Reading Order
+
+推荐按这个顺序读代码：
 
 1. [`README.md`](../README.md)
-2. [`AI_Frontend_IDE/app/agents/graph.py`](../AI_Frontend_IDE/app/agents/graph.py)
-3. [`AI_Frontend_IDE/app/core/note_document.py`](../AI_Frontend_IDE/app/core/note_document.py)
-4. [`AI_Frontend_IDE/app/core/component_manifest.py`](../AI_Frontend_IDE/app/core/component_manifest.py)
-5. [`AI_Frontend_IDE/app/core/context_engineering.py`](../AI_Frontend_IDE/app/core/context_engineering.py)
-6. [`AI_Frontend_IDE/app/core/prompt_engineering.py`](../AI_Frontend_IDE/app/core/prompt_engineering.py)
-7. [`AI_Frontend_IDE/app/agents/nodes/note_editor_node.py`](../AI_Frontend_IDE/app/agents/nodes/note_editor_node.py)
-8. [`AI_Frontend_IDE/app/services/rag_policy.py`](../AI_Frontend_IDE/app/services/rag_policy.py)
-9. [`AI_Frontend_IDE/app/services/cache_service.py`](../AI_Frontend_IDE/app/services/cache_service.py)
+2. [`AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py`](../AI_Frontend_IDE/app/agents/runtime/supervisor_runtime.py)
+3. [`AI_Frontend_IDE/app/agents/runtime/session_state.py`](../AI_Frontend_IDE/app/agents/runtime/session_state.py)
+4. [`AI_Frontend_IDE/app/agents/services/artifact_service.py`](../AI_Frontend_IDE/app/agents/services/artifact_service.py)
+5. [`AI_Frontend_IDE/app/agents/services/revision_service.py`](../AI_Frontend_IDE/app/agents/services/revision_service.py)
+6. [`AI_Frontend_IDE/app/services/knowledge_hub.py`](../AI_Frontend_IDE/app/services/knowledge_hub.py)
+7. [`AI_Frontend_IDE/app/api/chat.py`](../AI_Frontend_IDE/app/api/chat.py)
+8. [`AI_Frontend_IDE/app/api/workspace.py`](../AI_Frontend_IDE/app/api/workspace.py)
+9. [`ai-frontend-ide/src/components/chat/RevisionAssistPanel.vue`](../ai-frontend-ide/src/components/chat/RevisionAssistPanel.vue)
 10. [`ai-frontend-ide/src/components/chat/AgentInspector.vue`](../ai-frontend-ide/src/components/chat/AgentInspector.vue)

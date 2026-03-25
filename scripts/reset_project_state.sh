@@ -17,8 +17,8 @@ usage() {
 
 作用:
   1. 清空 Redis 当前库中的热点/缓存数据
-  2. 清空 PostgreSQL public schema（包括 LangGraph checkpoints、store、PGVector 表）
-  3. 重新创建当前项目运行所需的 store/checkpointer/vector store 表
+  2. 清空 PostgreSQL public schema（包括 session snapshots、runtime store、PGVector 表）
+  3. 重新创建当前项目运行所需的 runtime store / persistence / vector store 表
   4. 默认重新灌入一份基础向量知识（seed_knowledge.py）
 
 参数:
@@ -123,7 +123,7 @@ run_redis_reset_docker() {
 }
 
 run_backend_init_docker() {
-  echo "🏗️ 通过 Docker 重建 store/checkpointer/vector store..."
+  echo "🏗️ 通过 Docker 重建 runtime store / persistence / vector store..."
   docker exec -i xhs-backend python - <<'PY'
 import asyncio
 from app.core.persistence import generate_store, generate_checkpointer, generate_vector_store
@@ -179,7 +179,7 @@ PY
 }
 
 run_backend_init_local() {
-  echo "🏗️ 使用本地 Python 重建 store/checkpointer/vector store..."
+  echo "🏗️ 使用本地 Python 重建 runtime store / persistence / vector store..."
   (
     cd "$BACKEND_DIR"
     "$PYTHON_BIN" - <<'PY'

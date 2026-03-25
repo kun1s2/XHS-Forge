@@ -61,8 +61,15 @@ def create_controlled_agent(
     if _create_agent is None:  # pragma: no cover - env dependent
         raise RuntimeError("langchain.agents.create_agent is unavailable in the current environment")
 
+    prepared_model = model
+    if hasattr(model, "bind"):
+        try:
+            prepared_model = model.bind(parallel_tool_calls=False)
+        except Exception:
+            prepared_model = model
+
     kwargs: dict[str, Any] = {
-        "model": model,
+        "model": prepared_model,
         "tools": tools,
         "name": name,
         "middleware": middleware or [],

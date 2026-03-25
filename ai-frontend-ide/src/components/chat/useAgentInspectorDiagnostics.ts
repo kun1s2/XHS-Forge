@@ -42,8 +42,8 @@ const TRACE_WARNING_LABELS: Record<string, string> = {
 }
 
 const TRACE_EVENT_LABELS: Record<string, string> = {
-  node_start: '节点开始',
-  node_end: '节点完成',
+  worker_start: '角色开始',
+  worker_end: '角色完成',
   tool_start: '工具调用',
 }
 
@@ -521,8 +521,8 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
     return cards
   })
   const getTraceEventTone = (event: string) => {
-    if (event === 'node_start') return 'cyan'
-    if (event === 'node_end') return 'emerald'
+    if (event === 'worker_start') return 'cyan'
+    if (event === 'worker_end') return 'emerald'
     if (event === 'tool_start') return 'violet'
     return 'slate'
   }
@@ -574,7 +574,7 @@ export function useAgentInspectorDiagnostics(options: DiagnosticsOptions) {
       `status: ${structuredStatusLabel.value}`,
       `changed_blocks: ${traceChangedBlocks.value.map((item) => `${item.id}(${item.type})`).join(', ') || 'none'}`,
       `warnings: ${traceWarnings.value.map((item) => humanizeTraceWarning(String(item))).join('；') || 'none'}`,
-      `timeline: ${traceTimeline.value.map((item) => `${item.node}:${item.event}`).join(' -> ') || 'none'}`,
+      `timeline: ${traceTimeline.value.map((item) => `${item.worker}:${item.event}`).join(' -> ') || 'none'}`,
     ]
     if (compositionTrace.value.reason) {
       lines.push(`reason: ${compositionTrace.value.reason}`)

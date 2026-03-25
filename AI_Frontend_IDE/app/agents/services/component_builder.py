@@ -10,15 +10,14 @@ import asyncio
 import random
 import re
 from copy import deepcopy
-from typing import Any, List
+from typing import Any, List, TypedDict
 from app.core.llm_factory import create_llm
-from app.agents.utils.entity_utils import normalize_entity_name
+from app.agents.utils.entity_utils import is_generic_entity_name, mentions_other_specific_entity, normalize_entity_name
 from app.agents.utils.fact_utils import (
     build_conflict_safe_notes,
     build_fact_grounding_context,
     summarize_confirmed_attributes,
 )
-from app.agents.state import ComponentTaskState
 from app.core.config import settings
 from app.core.context_engineering import (
     build_asset_summary,
@@ -43,6 +42,20 @@ from app.core.component_manifest import (
 )
 from app.core.note_document import build_note_document_from_state
 from app.core.prompt_engineering import build_prompt_snapshot, render_string_prompt
+
+
+class ComponentTaskState(TypedDict):
+    component_id: str
+    component_type: str
+    content_brief: str
+    user_query: str
+    active_archetype: str
+    retrieved_knowledge: Any
+    creator_persona: str
+    image_assets: list[dict[str, Any]]
+    planner_policy: dict[str, Any]
+    content_messages: list[Any]
+    user_provided_facts: dict[str, Any]
 
 # 限制并发工兵生成任务数量，避免高峰期把外部模型打爆。
 _github_limiter = asyncio.Semaphore(10)
@@ -162,6 +175,34 @@ def _clip_text(value: Any, limit: int = 220) -> str:
     if len(text) <= limit:
         return text
     return f"{text[: limit - 1].rstrip()}…"
+
+
+def _looks_like_placeholder_copy(value: Any, *, component_type: str = "") -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    placeholders = {
+        "titleblock",
+        "storytext",
+        "productspeccard",
+        "radarchartblock",
+        "pollblock",
+        "versuscard",
+        "coverswiper",
+        "页面标题",
+        "正文叙事",
+        "内容整理中",
+        "亮点整理中",
+        "优势整理中",
+        "短板整理中",
+        "当前主题",
+        "这篇笔记",
+        "xhs-forge note",
+    }
+    if component_type and lowered == str(component_type).lower():
+        return True
+    return lowered in placeholders
 
 
 def _pick_document_guidance_summary(content_msgs: list[Any]) -> str:
@@ -308,12 +349,31 @@ def build_component_fallback(
     """在模型输出不足时，为不同组件生成安全 fallback 数据。"""
     knowledge = retrieved_knowledge if isinstance(retrieved_knowledge, dict) else {}
     entity_name = normalize_entity_name(knowledge.get("entity_name") or user_query)
-    attrs = knowledge.get("core_attributes") or {}
-    selling_points = knowledge.get("key_selling_points") or []
-    known_issues = knowledge.get("known_issues") or []
-    summary = knowledge.get("summary") or content_brief or user_query
-    confirmed_summaries = summarize_confirmed_attributes(knowledge)
-    conflict_safe_notes = build_conflict_safe_notes(knowledge)
+    specific_entity = bool(entity_name and not is_generic_entity_name(entity_name))
+
+    def _is_relevant_text(value: Any) -> bool:
+        text = str(value or "").strip()
+        if not text:
+            return False
+        if _looks_like_placeholder_copy(text, component_type=comp_type):
+            return False
+        if specific_entity and mentions_other_specific_entity(text, entity_name):
+            return False
+        return True
+
+    attrs = {
+        str(key): value
+        for key, value in (knowledge.get("core_attributes") or {}).items()
+        if _is_relevant_text(value)
+    }
+    selling_points = [str(item).strip() for item in (knowledge.get("key_selling_points") or []) if _is_relevant_text(item)]
+    known_issues = [str(item).strip() for item in (knowledge.get("known_issues") or []) if _is_relevant_text(item)]
+    summary = str(knowledge.get("summary") or "").strip()
+    if not _is_relevant_text(summary):
+        summary = ""
+    summary = summary or (selling_points[0] if selling_points else "") or content_brief or user_query
+    confirmed_summaries = [item for item in summarize_confirmed_attributes(knowledge) if _is_relevant_text(item)]
+    conflict_safe_notes = [item for item in build_conflict_safe_notes(knowledge) if _is_relevant_text(item)]
     valid_assets = [
         asset
         for asset in image_assets
@@ -345,16 +405,20 @@ def build_component_fallback(
     slot_summaries = {
         str(key): str((value or {}).get("summary") or "").strip()
         for key, value in (knowledge.get("fact_slots") or {}).items()
-        if isinstance(value, dict) and str((value or {}).get("summary") or "").strip()
+        if isinstance(value, dict) and _is_relevant_text((value or {}).get("summary"))
     }
 
     if comp_type == "TitleBlock":
-        return {"type": comp_type, "title": content_brief or entity_name}
+        title = str(content_brief or "").strip()
+        if _looks_like_placeholder_copy(title, component_type=comp_type) or title in {"页面标题", "标题"}:
+            title = ""
+        title = title or (f"{entity_name} 值不值得买" if specific_entity else entity_name) or "购买决策档案"
+        return {"type": comp_type, "title": title}
     if comp_type == "StoryText":
         paragraphs = []
         paragraph_meta = []
         sections = []
-        if summary:
+        if _is_relevant_text(summary):
             paragraphs.append(summary)
             paragraph_meta.append({"kind": "default", "sources": [], "source_items": [], "hint": "页面摘要"})
             sections.append({
@@ -449,12 +513,16 @@ def build_component_fallback(
                 "source_items": [],
             })
         if not paragraphs:
-            paragraphs.append(content_brief or "内容整理中")
+            fallback_paragraph = (
+                (f"{entity_name} 更适合先从购买结论、关键参数和真实代价三个角度来判断。") if specific_entity
+                else str(content_brief or "").strip()
+            ) or "这页内容会先补齐结论、参数和取舍边界。"
+            paragraphs.append(fallback_paragraph)
             paragraph_meta.append({"kind": "default", "sources": [], "source_items": [], "hint": "基础内容占位"})
             sections.append({
                 "label": "正文",
                 "role": "body",
-                "paragraph": content_brief or "内容整理中",
+                "paragraph": fallback_paragraph,
                 "summary": "等待进一步补齐。",
                 "source_items": [],
             })
@@ -596,7 +664,7 @@ def build_component_fallback(
         option_b = known_issues[0] if known_issues else "价格门槛"
         return {
             "type": comp_type,
-            "question": f"{entity_name} 最打动你的是哪一点？",
+            "question": f"如果你也在看 {entity_name}，最打动你的是哪一点？" if specific_entity else "预算在 4500 元左右时，你最看重哪一点？",
             "option_a": option_a,
             "option_b": option_b,
             "option_cards": [
@@ -616,10 +684,18 @@ def build_component_fallback(
         }
     if comp_type == "VersusCard":
         battle_report = knowledge.get("battle_report") or {}
-        pro_summary = battle_report.get("pros", {}).get("summary") or (selling_points[0] if selling_points else "优势整理中")
-        con_summary = battle_report.get("cons", {}).get("summary") or (known_issues[0] if known_issues else "短板整理中")
-        pro_details = battle_report.get("pros", {}).get("details") or " / ".join(selling_points[:3]) or "适合先讲亮点和主推荐理由。"
-        con_details = battle_report.get("cons", {}).get("details") or " / ".join(known_issues[:3]) or "适合把代价和边界说透。"
+        pro_summary = str(battle_report.get("pros", {}).get("summary") or "").strip()
+        con_summary = str(battle_report.get("cons", {}).get("summary") or "").strip()
+        if not _is_relevant_text(pro_summary):
+            pro_summary = selling_points[0] if selling_points else (f"{entity_name} 的核心优势" if specific_entity else "核心优势")
+        if not _is_relevant_text(con_summary):
+            con_summary = known_issues[0] if known_issues else (f"{entity_name} 的主要代价" if specific_entity else "主要代价")
+        pro_details = str(battle_report.get("pros", {}).get("details") or "").strip()
+        con_details = str(battle_report.get("cons", {}).get("details") or "").strip()
+        if not _is_relevant_text(pro_details):
+            pro_details = " / ".join(selling_points[:3]) or "更适合先把最能支持购买结论的亮点讲清楚。"
+        if not _is_relevant_text(con_details):
+            con_details = " / ".join(known_issues[:3]) or "更适合把预算、妥协点和使用边界说透。"
         return {
             "type": comp_type,
             "title": battle_report.get("title") or "优缺点速览",
@@ -829,7 +905,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                     props=res_data,
                     style=style_data,
                 ),
-                "node_prompts": prompt_snapshot,
+                "worker_prompts": prompt_snapshot,
                 "turn_trace": {
                     "component_builder": {
                         comp_id: {
@@ -893,7 +969,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                          props=merged_data,
                          style={"css_classes": "opacity-90", "inline_styles": {}},
                      ),
-                     "node_prompts": prompt_snapshot,
+                     "worker_prompts": prompt_snapshot,
                      "turn_trace": {
                         "component_builder": {
                             comp_id: {
@@ -927,7 +1003,7 @@ async def component_builder_node(state: ComponentTaskState) -> dict:
                     props=merged_data,
                     style={"css_classes": "", "inline_styles": {}},
                 ),
-                "node_prompts": prompt_snapshot,
+                "worker_prompts": prompt_snapshot,
                 "turn_trace": {
                     "component_builder": {
                         comp_id: {

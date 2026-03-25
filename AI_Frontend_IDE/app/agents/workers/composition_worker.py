@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.agents.services.composition_service import composition_service
-from app.agents.tools_registry import inspect_component_state, inspect_note_state
 from app.core.agent_runtime import create_controlled_agent
 from app.core.config import settings
 from app.core.llm_factory import create_llm
 from app.core.prompt_engineering import build_prompt_snapshot, load_prompt_template, render_string_prompt
-from app.core.request_semantics import latest_user_text_from_messages
+from app.core.request_semantics import latest_user_text_from_state
 from app.services.skill_registry import build_skill_context
 
 _composition_runner = None
@@ -24,7 +24,7 @@ def _get_composition_runner():
                 base_url=settings.LLM_BASE_URL,
                 temperature=0,
             ),
-            tools=[inspect_note_state, inspect_component_state],
+            tools=[],
             name="composition_worker",
             prompt=load_prompt_template("workers/composition_system.md"),
         )
@@ -44,9 +44,27 @@ def _extract_summary(messages: list[Any]) -> str:
     return snippets[-1] if snippets else ""
 
 
+async def _safe_runner_summary(runner, prompt: str) -> tuple[str, str]:
+    try:
+        agent_result = await asyncio.wait_for(
+            runner.ainvoke({"messages": [("user", prompt)]}),
+            timeout=18,
+        )
+        return _extract_summary(agent_result.get("messages") or []), ""
+    except TimeoutError:
+        return "", "composition_worker_agent_runner_timeout"
+    except Exception as exc:
+        return "", f"composition_worker_agent_runner_error:{type(exc).__name__}"
+
+
 async def composition_worker_payload(state: dict[str, Any]) -> dict[str, Any]:
     """Controlled composition worker that edits the decision note and validates visible changes."""
-    user_query = latest_user_text_from_messages(state.get("main_messages") or [])
+    user_query = latest_user_text_from_state(state)
+    if not user_query:
+        user_query = str(state.get("intent_source_query") or "").strip()
+    if not user_query:
+        resume_directive = state.get("resume_directive") if isinstance(state.get("resume_directive"), dict) else {}
+        user_query = str(resume_directive.get("resume_query") or "").strip()
     selected_id = str(state.get("selected_element_id") or "").strip() or "global"
     knowledge_plan = (
         state.get("knowledge_plan")
@@ -68,8 +86,7 @@ async def composition_worker_payload(state: dict[str, Any]) -> dict[str, Any]:
         skill_documents=skill_context.get("skill_documents") or {},
     )
     runner = _get_composition_runner()
-    agent_result = await runner.ainvoke({"messages": [("user", prompt)]})
-    agent_summary = _extract_summary(agent_result.get("messages") or [])
+    agent_summary, runner_failure = await _safe_runner_summary(runner, prompt)
 
     payload = await composition_service(state)
     payload.setdefault("agent_backends", {})
@@ -90,16 +107,16 @@ async def composition_worker_payload(state: dict[str, Any]) -> dict[str, Any]:
         "selected_skills": selected_skills,
         "skill_tool_plan": skill_context.get("tool_plan") or [],
         "skill_execution_result": "success" if (changed_blocks or has_asset_change) else "no_effect",
-        "skill_fallback": [],
+        "skill_fallback": [runner_failure] if runner_failure else [],
     }
     payload["turn_trace"]["agentic_runtime"] = {
         "current_stage": "composition",
         "current_agent": "composition_worker",
         "selected_skills": selected_skills,
-        "failure_point": "" if (changed_blocks or has_asset_change) else "composition_no_effect",
+        "failure_point": runner_failure or ("" if (changed_blocks or has_asset_change) else "composition_no_effect"),
     }
-    payload.setdefault("node_prompts", {})
-    payload["node_prompts"]["composition_worker"] = build_prompt_snapshot(
+    payload.setdefault("worker_prompts", {})
+    payload["worker_prompts"]["composition_worker"] = build_prompt_snapshot(
         "composition_worker",
         system_prompt="Digital Purchase Composition Worker",
         user_prompt=prompt,

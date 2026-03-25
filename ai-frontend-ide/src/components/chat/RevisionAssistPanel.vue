@@ -1,6 +1,7 @@
 <template>
   <div
     v-if="visible"
+    data-testid="revision-assist"
     class="mb-3 rounded-2xl border border-violet-900/30 bg-violet-950/10 px-4 py-3"
   >
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -33,6 +34,7 @@
 
       <button
         v-if="canAccept"
+        data-testid="revision-accept"
         @click="$emit('accept')"
         :disabled="disabled"
         class="shrink-0 rounded-full border border-violet-700/40 bg-violet-900/20 px-3 py-1.5 text-[11px] font-semibold text-violet-100 transition-all hover:border-violet-500/50 hover:bg-violet-900/30 disabled:cursor-not-allowed disabled:border-[#334155] disabled:bg-[#1b2334] disabled:text-gray-500"
@@ -48,6 +50,7 @@ import { computed } from 'vue'
 import type { ArtifactVersion, RevisionPlan, RevisionResult, RevisionStatus } from '../../types/chat'
 
 const props = defineProps<{
+  currentThreadId?: string | null
   artifactVersion?: ArtifactVersion | null
   revisionPlan?: RevisionPlan | null
   revisionResult?: RevisionResult | null
@@ -60,7 +63,15 @@ defineEmits<{
 }>()
 
 const primaryRecipe = computed(() => props.revisionStatus?.primary_recipe || props.revisionPlan?.primary_recipe || null)
-const visible = computed(() => Boolean(primaryRecipe.value || props.revisionResult?.failure_reason || props.revisionResult?.status === 'applied'))
+const ownsCurrentThread = computed(() => {
+  const currentThreadId = String(props.currentThreadId || '').trim()
+  const artifactThreadId = String(props.artifactVersion?.thread_id || '').trim()
+  if (!currentThreadId) return false
+  if (!props.artifactVersion?.version_id) return false
+  if (!artifactThreadId) return false
+  return artifactThreadId === currentThreadId
+})
+const visible = computed(() => ownsCurrentThread.value && Boolean(primaryRecipe.value || props.revisionResult?.failure_reason || props.revisionResult?.status === 'applied'))
 const canAccept = computed(() => Boolean(primaryRecipe.value?.prompt && primaryRecipe.value?.label))
 
 const headline = computed(() => {

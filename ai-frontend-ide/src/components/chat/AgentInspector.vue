@@ -49,7 +49,7 @@ const tabs = computed(() => (
 
 const metaInfo = computed(() => [
   { label: '创作者人设', value: chatStore.creatorPersona || '默认博主', color: 'text-yellow-400' },
-  { label: '意图路由', value: chatStore.currentNode || 'IDLE', color: 'text-pink-400' },
+  { label: '当前执行角色', value: chatStore.activeWorker || 'IDLE', color: 'text-pink-400' },
   { label: 'Checkpoint', value: chatStore.activeCheckpointId?.slice(0, 8) || 'NONE', color: 'text-gray-500' },
 ])
 
@@ -1396,12 +1396,12 @@ const {
           <div v-if="traceTimeline.length" class="space-y-2">
             <div class="text-[10px] text-gray-500 uppercase tracking-widest">本轮时间线</div>
             <div class="relative pl-5 border-l border-[#333] space-y-3">
-              <div v-for="(item, idx) in traceTimeline" :key="item.event + '-' + item.node + '-' + idx" class="relative">
+              <div v-for="(item, idx) in traceTimeline" :key="item.event + '-' + item.worker + '-' + idx" class="relative">
                 <div class="absolute -left-[26px] top-3 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#1e1e1e] text-[9px] font-bold text-[#0b0b0b]" :class="getTraceMarkerClasses(String(item.event || ''))">{{ idx + 1 }}</div>
                 <div class="rounded-2xl border border-[#333] bg-[#252526] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div class="text-[11px] font-bold text-gray-100">{{ item.node }}</div>
+                      <div class="text-[11px] font-bold text-gray-100">{{ item.worker }}</div>
                       <div class="mt-1 text-[10px] text-gray-500">{{ humanizeTraceEvent(String(item.event || '')) }}</div>
                     </div>
                     <span class="rounded-full border px-2 py-0.5 text-[9px] font-bold" :class="getTraceEventToneClasses(String(item.event || ''))">{{ item.event }}</span>

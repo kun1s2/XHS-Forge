@@ -8,11 +8,20 @@ BACKEND="$ROOT/AI_Frontend_IDE"
 FRONTEND="$ROOT/ai-frontend-ide"
 PID_FILE="$ROOT/.start_both.pid"
 
+kill_matching() {
+    local pattern="$1"
+    pkill -f "$pattern" 2>/dev/null || true
+}
+
 echo "🧹 [1/3] 正在清理旧进程与残留变量..."
 # 杀死所有相关的 python 和 node/vite 进程，确保端口 8000 和 5173 释放
-pkill -f "python run.py" || true
-pkill -f "uvicorn app.main:app" || true
-pkill -f "vite" || true
+kill_matching "python run.py"
+kill_matching "uvicorn app.main:app"
+kill_matching "uvicorn AI_Frontend_IDE.app.main:app"
+kill_matching "watchfiles"
+kill_matching "AI_Frontend_IDE.app.main:app"
+kill_matching "vite"
+kill_matching "node .*vite"
 [ -f "$PID_FILE" ] && rm "$PID_FILE"
 
 echo "📂 [2/3] 正在加载运行环境..."
@@ -22,6 +31,7 @@ if command -v conda &>/dev/null; then
 fi
 
 echo "🚀 [3/3] 正在启动 XHS-Forge 锻造炉 (前台模式)..."
+echo "ℹ️ 如果刚升级过运行时/序列化协议，建议先执行: bash scripts/reset_project_state.sh --yes"
 
 # 定义退出函数：当用户按下 Ctrl+C 时，同时杀死前后端子进程
 trap "kill 0" EXIT

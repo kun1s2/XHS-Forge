@@ -12,7 +12,7 @@ class ForkResponse(BaseResponse):
 class CheckpointInfo(BaseModel):
     checkpoint_id: str
     intent: str
-    node: Optional[str] = None
+    worker: Optional[str] = None
     timestamp: Optional[str] = None
 
 class WorkspaceDataResponse(BaseResponse):
@@ -23,7 +23,7 @@ class WorkspaceDataResponse(BaseResponse):
     active_panel: str
     selected_element_id: Optional[str]
     image_assets: List[Dict[str, Any]] = []
-    node_prompts: Dict[str, Any] = {}
+    worker_prompts: Dict[str, Any] = {}
     note_document: Dict[str, Any] = {}
     artifact: Dict[str, Any] = {}
     artifact_version: Dict[str, Any] = {}

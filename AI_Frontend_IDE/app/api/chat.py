@@ -1,29 +1,53 @@
 import json
 import asyncio
 from typing import Any
+from types import SimpleNamespace
 from uuid import uuid4
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks
 from starlette.websockets import WebSocketState
 from pydantic import ValidationError
 from app.schemas.requests import ChatWSPayload
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from app.agents.runtime import apply_supervisor_checkpoint_decision
-from app.agents.services.artifact_service import build_artifact_patch
-from app.agents.services.revision_service import build_revision_plan, build_revision_result, build_revision_status
+from app.agents.runtime.state_helpers import merge_state_patch
+from app.agents.services.artifact_service import build_artifact_patch, ensure_artifact_manifest
+from app.agents.services.artifact_quality_service import apply_artifact_quality_fixes
+from app.agents.services.runtime_protocol_service import (
+    build_revision_resume_directive,
+    PHASE_CHECKPOINT,
+    PHASE_COMMIT,
+    PHASE_DONE,
+    PHASE_FAILED,
+    derive_phase_from_state,
+    should_commit_artifact_version,
+)
+from app.agents.services.revision_service import (
+    build_revision_plan,
+    build_revision_result,
+    build_revision_status,
+    reconcile_revision_result,
+)
+from app.agents.workers.intent_worker import intent_worker
 from app.services.cache_service import get_trend_cache, set_trend_cache, RiskControlCache
 from app.services.trend_pipeline import process_new_trend_background
 from app.services.trend_intelligence import infer_trend_profile
 from app.core.config import settings
 from app.core.note_document import build_note_document_from_state
 from app.core.capability_response import build_capability_reply
-from app.core.query_heuristics import looks_like_capability_query, looks_like_existing_canvas_edit
+from app.core.query_heuristics import (
+    looks_like_append_block_request,
+    looks_like_capability_query,
+    looks_like_existing_canvas_edit,
+    looks_like_revision_review_request,
+)
 from app.core.request_semantics import payload_requests_create
 from app.agents.utils.entity_utils import normalize_entity_name
 from app.core.runtime_log import (
     append_latest_console_log,
     append_log_divider,
     reset_latest_console_log,
-    summarize_node_output,
+    summarize_worker_output,
     summarize_turn_completion,
     truncate_text,
 )
@@ -34,9 +58,7 @@ router = APIRouter()
 NODE_THOUGHT_MAP = {
     "supervisor_agent": "🧭 正在为你安排这一轮最合理的推进顺序...",
     "intent_worker": "🔍 正在判断你这轮真正要改什么...",
-    "retrieval_worker": "🧠 正在补齐这轮最关键的事实和证据...",
-    "review_worker": "🧾 正在整理待审知识并准备确认卡...",
-    "asset_worker": "🖼️ 正在判断缺图并补搜素材...",
+    "retrieval_worker": "🧠 正在补齐这轮最关键的事实、待审知识或素材线索...",
     "composition_worker": "✍️ 正在把这轮判断和证据落成成品...",
     "critique_worker": "🔍 正在复盘当前成品还差什么...",
     "tools": "🔧 正在调用专业工具执行任务...",
@@ -55,9 +77,7 @@ TOOL_THOUGHT_MAP = {
     "enrich_product_tool": "📊 正在核实商品参数与最新定价...",
     "enrich_location_tool": "📍 正在通过高德地图精准定位坐标...",
     "generate_images_tool": "🎨 正在调用 CogView 绘制视觉素材...",
-    "retrieval_worker": "🧠 正在补齐这轮最关键的事实和证据...",
-    "review_worker": "🧾 正在整理待审知识并准备确认卡...",
-    "asset_worker": "🖼️ 正在判断缺图并补搜素材...",
+    "retrieval_worker": "🧠 正在补齐这轮最关键的事实、待审知识或素材线索...",
     "composition_worker": "✍️ 正在把这轮判断和证据落成成品...",
     "critique_worker": "🔍 正在复盘当前成品还差什么...",
 }
@@ -134,12 +154,12 @@ def _build_status_timeline(timeline: list[dict[str, Any]] | None) -> list[str]:
         if not isinstance(item, dict):
             continue
         event_type = str(item.get("event") or "")
-        node_name = str(item.get("node") or "")
+        worker_name = str(item.get("worker") or "")
         status = ""
         if event_type == "tool_start":
-            status = TOOL_THOUGHT_MAP.get(node_name, f"我正在调用工具补齐这轮关键信息。")
-        elif event_type == "node_start":
-            status = NODE_THOUGHT_MAP.get(node_name, "")
+            status = TOOL_THOUGHT_MAP.get(worker_name, f"我正在调用工具补齐这轮关键信息。")
+        elif event_type == "worker_start":
+            status = NODE_THOUGHT_MAP.get(worker_name, "")
         normalized = str(status or "").strip()
         if normalized and normalized not in seen:
             seen.add(normalized)
@@ -154,7 +174,7 @@ def _build_agent_plan(turn_context: dict[str, Any] | None, after_values: dict[st
     message_kind = str(context.get("message_kind") or "user_prompt").strip() or "user_prompt"
     selected_element_id = str(context.get("selected_element_id") or "").strip()
     active = str(values.get("active_archetype") or "").strip()
-    if message_kind == "critique_action":
+    if message_kind == "revision_action":
         return {
             "title": "我先按你刚才选中的复盘建议继续收口",
             "summary": "这次我会沿着最需要优先处理的问题继续优化当前页面，而不是重新起一版。",
@@ -314,6 +334,224 @@ async def _aupdate_state_compat(agent, config, values, *, as_node: str):
         return await agent.aupdate_state(config, values)
 
 
+def _turn_has_explicit_user_input(inputs: dict[str, Any] | None, turn_context: dict[str, Any] | None) -> bool:
+    if str((turn_context or {}).get("user_query") or "").strip():
+        return True
+    payload = inputs or {}
+    for key in ("messages", "main_messages"):
+        value = payload.get(key)
+        if isinstance(value, list) and value:
+            return True
+    return False
+
+
+def _sanitize_persistent_conversation_messages(messages: list[BaseMessage] | None) -> list[BaseMessage]:
+    sanitized: list[BaseMessage] = []
+    for msg in list(messages or []):
+        if isinstance(msg, HumanMessage):
+            sanitized.append(msg)
+            continue
+        if isinstance(msg, SystemMessage):
+            sanitized.append(msg)
+            continue
+        if isinstance(msg, AIMessage):
+            if getattr(msg, "tool_calls", None):
+                continue
+            sanitized.append(msg)
+            continue
+        if isinstance(msg, ToolMessage):
+            continue
+    return sanitized
+
+
+async def _sanitize_agent_message_state(agent, config, values: dict[str, Any] | None):
+    state_values = values or {}
+    raw_messages = state_values.get("messages") if isinstance(state_values.get("messages"), list) else []
+    raw_main_messages = state_values.get("main_messages") if isinstance(state_values.get("main_messages"), list) else []
+    raw_user_messages = state_values.get("user_messages") if isinstance(state_values.get("user_messages"), list) else []
+    safe_messages = _sanitize_persistent_conversation_messages(raw_messages)
+    safe_main_messages = _sanitize_persistent_conversation_messages(raw_main_messages) or safe_messages
+    safe_user_messages = [msg for msg in _sanitize_persistent_conversation_messages(raw_user_messages) if isinstance(msg, HumanMessage)]
+    if not safe_user_messages:
+        safe_user_messages = [msg for msg in safe_main_messages if isinstance(msg, HumanMessage)]
+
+    if safe_messages == raw_messages and safe_main_messages == raw_main_messages and safe_user_messages == raw_user_messages:
+        return
+
+    patch = {
+        "messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *safe_messages],
+        "main_messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *safe_main_messages],
+        "user_messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *safe_user_messages],
+    }
+    await _aupdate_state_compat(agent, config, patch, as_node=TRACE_STATE_NODE)
+
+
+def _has_visible_note_blocks(values: dict[str, Any] | None) -> bool:
+    doc = _extract_note_document(values or {})
+    return bool(_get_document_blocks(doc))
+
+
+def _build_materialize_resume_directive(values: dict[str, Any] | None) -> dict[str, Any]:
+    current = (values or {}).get("resume_directive") if isinstance((values or {}).get("resume_directive"), dict) else {}
+    if current:
+        return dict(current)
+    intent_decision = (values or {}).get("intent_decision") if isinstance((values or {}).get("intent_decision"), dict) else {}
+    operation_type = str(intent_decision.get("operation_type") or "").strip().lower()
+    needs_assets = bool(intent_decision.get("needs_assets"))
+    if operation_type == "asset_edit" or needs_assets:
+        return {
+            "source": "post_turn_materialize",
+            "preferred_worker": "composition_worker",
+            "resume_query": "继续把这轮已经找到的图片和素材落到当前购买决策档案里，不要停在分析阶段，也不要重复请求同一类素材确认。",
+            "decision": "auto_materialize_assets",
+        }
+    retrieved = (values or {}).get("retrieved_knowledge") if isinstance((values or {}).get("retrieved_knowledge"), dict) else {}
+    planner_output = (values or {}).get("planner_output") if isinstance((values or {}).get("planner_output"), dict) else {}
+    has_retrieval_context = bool(retrieved) or bool(planner_output.get("block_intents"))
+    if has_retrieval_context:
+        return {
+            "source": "post_turn_materialize",
+            "preferred_worker": "composition_worker",
+            "resume_query": "继续把已确认的结构、知识和素材落成购买决策档案，不要停在分析阶段。",
+            "decision": "auto_materialize",
+        }
+    return {
+        "source": "post_turn_materialize",
+        "preferred_worker": "retrieval_worker",
+        "resume_query": "继续先补齐关键事实，再把购买决策档案落成可见页面，不要停在分析阶段。",
+        "decision": "auto_materialize",
+    }
+
+
+def _should_force_materialize(values: dict[str, Any] | None, turn_context: dict[str, Any] | None) -> bool:
+    state = values or {}
+    if derive_phase_from_state(state) in {PHASE_COMMIT, PHASE_DONE, PHASE_FAILED}:
+        return False
+    if _normalize_checkpoint_action_payload(state.get("pending_checkpoint")):
+        return False
+    last_worker_result = state.get("last_worker_result") if isinstance(state.get("last_worker_result"), dict) else {}
+    if (
+        str(last_worker_result.get("worker_name") or "").strip() == "composition_worker"
+        and str(last_worker_result.get("status") or "").strip() == "failed"
+    ):
+        return False
+    intent_decision = state.get("intent_decision") if isinstance(state.get("intent_decision"), dict) else {}
+    task_type = str(intent_decision.get("task_type") or "").strip().lower()
+    operation_type = str(intent_decision.get("operation_type") or "").strip().lower()
+    message_kind = str((turn_context or {}).get("message_kind") or "").strip().lower()
+    has_visible_blocks = _has_visible_note_blocks(state)
+    retrieval_succeeded = (
+        str(last_worker_result.get("worker_name") or "").strip() == "retrieval_worker"
+        and str(last_worker_result.get("status") or "").strip() == "success"
+        and not str(last_worker_result.get("failure_reason") or "").strip()
+    )
+    composition_applied = (
+        str(last_worker_result.get("worker_name") or "").strip() == "composition_worker"
+        and str(last_worker_result.get("status") or "").strip() == "success"
+        and bool((last_worker_result.get("changed_blocks") or []) or (last_worker_result.get("assets_delta") or []))
+    )
+    if message_kind == "checkpoint_decision":
+        return True
+    if message_kind == "revision_action":
+        return not composition_applied
+    if has_visible_blocks:
+        if operation_type == "asset_edit" and retrieval_succeeded:
+            return True
+        return False
+    if task_type in {"create", "edit"} and operation_type in {"generate", "text_edit", "asset_edit", "layout_edit", "fact_review"}:
+        retrieved = state.get("retrieved_knowledge") if isinstance(state.get("retrieved_knowledge"), dict) else {}
+        planner_output = state.get("planner_output") if isinstance(state.get("planner_output"), dict) else {}
+        return bool(retrieved or planner_output.get("block_intents") or state.get("resume_directive"))
+    return False
+
+
+def _graph_runtime_finalized(values: dict[str, Any] | None) -> bool:
+    state = values or {}
+    phase = derive_phase_from_state(state)
+    if phase in {PHASE_DONE, PHASE_FAILED}:
+        return True
+    if phase != PHASE_COMMIT:
+        return False
+    return any(
+        isinstance(state.get(key), dict) and state.get(key)
+        for key in ("artifact_quality", "revision_plan", "revision_result", "revision_status", "artifact_version")
+    )
+
+
+def _resume_worker_sequence(values: dict[str, Any] | None) -> list[str]:
+    directive = (values or {}).get("resume_directive") if isinstance((values or {}).get("resume_directive"), dict) else {}
+    preferred_worker = str(directive.get("preferred_worker") or "").strip()
+    if preferred_worker == "retrieval_worker":
+        return ["retrieval_worker", "composition_worker"]
+    if preferred_worker == "composition_worker":
+        return ["composition_worker"]
+    if preferred_worker == "critique_worker":
+        return ["critique_worker"]
+    return []
+
+
+async def _execute_resume_protocol(agent, config, websocket, *, values: dict[str, Any], timeline: list[dict[str, Any]]) -> bool:
+    from app.agents.runtime import supervisor_runtime as supervisor_runtime_module
+
+    current_values = dict(values or {})
+    sequence = _resume_worker_sequence(current_values)
+    if not sequence:
+        return False
+    fallback_resume_directive = current_values.get("resume_directive") if isinstance(current_values.get("resume_directive"), dict) else {}
+
+    for worker_name in sequence:
+        if websocket.client_state != WebSocketState.CONNECTED:
+            return True
+        if _normalize_checkpoint_action_payload(current_values.get("pending_checkpoint")):
+            return True
+
+        tool = getattr(supervisor_runtime_module, worker_name, None)
+        coroutine = getattr(tool, "coroutine", None)
+        if coroutine is None:
+            return False
+
+        thought = NODE_THOUGHT_MAP.get(worker_name)
+        if thought:
+            await websocket.send_json({"event": "thought", "data": thought})
+        timeline.append({"event": "worker_start", "worker": worker_name})
+        append_latest_console_log(f"▶️  [RESUME START]: {worker_name}")
+
+        runtime_like = SimpleNamespace(
+            state=current_values,
+            config=config,
+            tool_call_id=f"resume::{worker_name}",
+        )
+        active_resume_directive = (
+            current_values.get("resume_directive")
+            if isinstance(current_values.get("resume_directive"), dict)
+            else fallback_resume_directive
+        )
+        command = await coroutine(
+            focus=str(((active_resume_directive or {}).get("resume_query")) or ""),
+            runtime=runtime_like,
+        )
+        update = getattr(command, "update", None) if command is not None else None
+        if isinstance(update, dict) and update:
+            await _aupdate_state_compat(agent, config, update, as_node=TRACE_STATE_NODE)
+
+        latest_snapshot = await agent.aget_state(config)
+        current_values = latest_snapshot.values or {}
+        if isinstance(current_values.get("resume_directive"), dict) and current_values.get("resume_directive"):
+            fallback_resume_directive = current_values.get("resume_directive")
+        timeline.append({"event": "worker_end", "worker": worker_name})
+        append_latest_console_log(
+            f"✅ [RESUME END]: {worker_name} -> {summarize_worker_output(worker_name, update or {})}"
+        )
+
+        last_worker_result = current_values.get("last_worker_result") if isinstance(current_values.get("last_worker_result"), dict) else {}
+        if str(last_worker_result.get("status") or "").strip() == "failed":
+            break
+        if worker_name == "retrieval_worker" and _normalize_checkpoint_action_payload(current_values.get("pending_checkpoint")):
+            break
+
+    return True
+
+
 def _latest_thread_config(config: dict | None) -> dict:
     configurable = dict((config or {}).get("configurable") or {})
     configurable.pop("checkpoint_id", None)
@@ -326,7 +564,7 @@ def _build_turn_end_payload(
     oss_url,
     image_assets,
     source_code,
-    node_prompts=None,
+    worker_prompts=None,
     note_document=None,
     planner_output=None,
     planner_policy=None,
@@ -354,9 +592,9 @@ def _build_turn_end_payload(
         "sourceCode": source_code or "",
         "htmlPreview": source_code or "",
     }
-    if node_prompts is not None:
-        payload["node_prompts"] = node_prompts
-        payload["nodePrompts"] = node_prompts
+    if worker_prompts is not None:
+        payload["worker_prompts"] = worker_prompts
+        payload["workerPrompts"] = worker_prompts
     resolved_note_document = note_document or build_note_document_from_state({
         "note_document": note_document or {},
         "image_assets": image_assets or [],
@@ -428,6 +666,13 @@ def _payload_has_runtime_assets(payload: "ChatWSPayload") -> bool:
     )
 
 
+def _looks_like_explicit_asset_edit_request(query: str) -> bool:
+    normalized = str(query or "").strip()
+    if not normalized:
+        return False
+    return any(token in normalized for token in ("图片", "配图", "真机图", "封面", "海报", "大图", "补图", "加图"))
+
+
 def _can_use_trend_cache_fast_path(payload: "ChatWSPayload") -> bool:
     """判断当前请求是否适合直接旁路到热词缓存页。
 
@@ -492,6 +737,7 @@ async def _send_capability_reply(
         {
             "messages": [human_msg, AIMessage(content=reply)],
             msg_key: [human_msg, AIMessage(content=reply)],
+            "user_messages": [human_msg],
             "intent_route": "supervisor_agent",
             "agent_backends": {
                 "intent_worker": "deterministic_capability_fast_path",
@@ -508,10 +754,10 @@ async def _send_capability_reply(
         "selected_element_id": payload.selected_element_id or "无 (全局修改)",
         "panel": payload.panel,
         "timeline": [
-            {"event": "node_start", "node": "intent_worker"},
-            {"event": "node_end", "node": "intent_worker"},
-            {"event": "node_start", "node": "supervisor_agent"},
-            {"event": "node_end", "node": "supervisor_agent"},
+            {"event": "worker_start", "worker": "intent_worker"},
+            {"event": "worker_end", "worker": "intent_worker"},
+            {"event": "worker_start", "worker": "supervisor_agent"},
+            {"event": "worker_end", "worker": "supervisor_agent"},
         ],
         "status_timeline": ["我先直接告诉你我现在能怎么配合。"],
         "route": {
@@ -534,7 +780,7 @@ async def _send_capability_reply(
 
     append_latest_console_log("🧭 [DIRECT CHAT] 命中能力问答，直接走聊天答复，不触发页面生成。")
     await websocket.send_json({"event": "thought", "data": "🧭 我先直接告诉你我现在能怎么配合。"})
-    await websocket.send_json({"event": "token", "node": "supervisor_agent", "data": reply})
+    await websocket.send_json({"event": "token", "worker": "supervisor_agent", "data": reply})
     await websocket.send_json(
         {
             "event": "turn_end",
@@ -543,7 +789,7 @@ async def _send_capability_reply(
                 oss_url=snapshot.values.get("final_oss_url"),
                 image_assets=snapshot.values.get("image_assets", []),
                 source_code=snapshot.values.get("final_html", ""),
-                node_prompts=snapshot.values.get("node_prompts"),
+                worker_prompts=snapshot.values.get("worker_prompts"),
                 note_document=snapshot.values.get("note_document"),
                 planner_output=snapshot.values.get("planner_output"),
                 planner_policy=snapshot.values.get("planner_policy"),
@@ -554,20 +800,20 @@ async def _send_capability_reply(
     )
 
 
-def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] | None:
-    """把 LangGraph interrupt value 归一化成聊天区 action_required 载荷。"""
-    if not isinstance(raw_interrupt, dict):
+def _normalize_checkpoint_action_payload(raw_checkpoint: Any) -> dict[str, Any] | None:
+    """把运行时 checkpoint 数据归一化成聊天区 action_required 载荷。"""
+    if not isinstance(raw_checkpoint, dict):
         return None
     action_type = str(
-        raw_interrupt.get("checkpoint_type")
-        or raw_interrupt.get("action_type")
-        or raw_interrupt.get("action")
+        raw_checkpoint.get("checkpoint_type")
+        or raw_checkpoint.get("action_type")
+        or raw_checkpoint.get("action")
         or ""
     ).strip()
     if not action_type:
         return None
     options = []
-    for item in raw_interrupt.get("options") or []:
+    for item in raw_checkpoint.get("options") or []:
         if not isinstance(item, dict):
             continue
         options.append(
@@ -586,18 +832,18 @@ def _normalize_checkpoint_action_payload(raw_interrupt: Any) -> dict[str, Any] |
         "checkpoint_type": action_type,
         "action_type": action_type,
         "action": action_type,
-        "checkpoint_id": str(raw_interrupt.get("checkpoint_id") or action_type),
-        "resume_token": str(raw_interrupt.get("resume_token") or ""),
-        "title": str(raw_interrupt.get("title") or raw_interrupt.get("message") or "需要你确认一个关键决策"),
-        "summary": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
-        "message": str(raw_interrupt.get("summary") or raw_interrupt.get("message") or ""),
-        "recommended_option": str(raw_interrupt.get("recommended_option") or ""),
-        "recommended_reason": str(raw_interrupt.get("recommended_reason") or ""),
-        "proposal_summary": str(raw_interrupt.get("proposal_summary") or ""),
-        "other_allowed": bool(raw_interrupt.get("other_allowed")),
-        "other_placeholder": str(raw_interrupt.get("other_placeholder") or "") or None,
-        "blocking": bool(raw_interrupt.get("blocking", True)),
-        "input_schema": raw_interrupt.get("input_schema") if isinstance(raw_interrupt.get("input_schema"), dict) else None,
+        "checkpoint_id": str(raw_checkpoint.get("checkpoint_id") or action_type),
+        "resume_token": str(raw_checkpoint.get("resume_token") or ""),
+        "title": str(raw_checkpoint.get("title") or raw_checkpoint.get("message") or "需要你确认一个关键决策"),
+        "summary": str(raw_checkpoint.get("summary") or raw_checkpoint.get("message") or ""),
+        "message": str(raw_checkpoint.get("summary") or raw_checkpoint.get("message") or ""),
+        "recommended_option": str(raw_checkpoint.get("recommended_option") or ""),
+        "recommended_reason": str(raw_checkpoint.get("recommended_reason") or ""),
+        "proposal_summary": str(raw_checkpoint.get("proposal_summary") or ""),
+        "other_allowed": bool(raw_checkpoint.get("other_allowed")),
+        "other_placeholder": str(raw_checkpoint.get("other_placeholder") or "") or None,
+        "blocking": bool(raw_checkpoint.get("blocking", True)),
+        "input_schema": raw_checkpoint.get("input_schema") if isinstance(raw_checkpoint.get("input_schema"), dict) else None,
         "options": options,
     }
 
@@ -651,7 +897,8 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                             patch.setdefault("user_provided_facts", {})
                             patch["user_provided_facts"]["custom_note"] = payload_dict.get("custom_note")
                         await _aupdate_state_compat(agent, config, patch, as_node=TRACE_STATE_NODE)
-                        await _run_graph_loop(
+                        merged_preflight_values = merge_state_patch(latest_state.values or {}, patch)
+                        await _run_supervisor_turn(
                             agent,
                             {"messages": [], "main_messages": []},
                             config,
@@ -662,6 +909,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                                 "panel": payload_dict.get("panel", "main"),
                                 "message_kind": payload_dict.get("message_kind") or "checkpoint_decision",
                                 "before_values": latest_state.values or {},
+                                "preflight_values_override": merged_preflight_values,
                             },
                         )
                         continue
@@ -675,7 +923,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                         })
                     
                     # 续火执行
-                    await _run_graph_loop(agent, None, config, websocket, turn_context={"user_query": "", "selected_element_id": payload_dict.get("selected_element_id"), "panel": payload_dict.get("panel", "main"), "before_values": {}})
+                    await _run_supervisor_turn(agent, None, config, websocket, turn_context={"user_query": "", "selected_element_id": payload_dict.get("selected_element_id"), "panel": payload_dict.get("panel", "main"), "before_values": {}})
                     continue
 
                 # 2. 正常消息解析
@@ -763,7 +1011,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                         "ui_state": {"selected_element_id": None, "active_panel": payload.panel, "patch_tracks": {}},
                         "planner": {},
                     }
-                    await websocket.send_json({"event": "token", "node": "risk_gateway", "data": "\n🛡️ 系统检测到高危/敏感内容，风控拦截已生效！"})
+                    await websocket.send_json({"event": "token", "worker": "risk_gateway", "data": "\n🛡️ 系统检测到高危/敏感内容，风控拦截已生效！"})
                     await websocket.send_json({
                         "event": "turn_end",
                         "data": _build_turn_end_payload(
@@ -778,6 +1026,8 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
 
                 # --- 2. 【第二阶段：极速嗅探】去 Redis 查缓存 ---
                 selected_el = payload.selected_element_id or "无 (全局修改)"
+                if looks_like_append_block_request(user_query_str):
+                    selected_el = "无 (全局修改)"
                 candidate_topic = normalize_entity_name(user_query_str)
                 if (
                     candidate_topic
@@ -800,7 +1050,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 cached_result = await get_trend_cache(user_query_str, selected_el)
                 if cached_result and _can_use_trend_cache_fast_path(payload) and not awaiting_user_facts:
                     print(f"🚀 [语义缓存] 命中热点: {user_query_str[:15]}")
-                    await websocket.send_json({"event": "token", "node": "cache", "data": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"})
+                    await websocket.send_json({"event": "token", "worker": "cache", "data": "\n🚀 [语义缓存] 命中高相似度热点，大模型已旁路！"})
                     await websocket.send_json({
                         "event": "turn_end",
                         "data": _build_turn_end_payload(
@@ -836,8 +1086,9 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 inputs = {
                     "messages": [new_msg],
                     msg_key: [new_msg],
+                    "user_messages": [new_msg],
                     "active_panel": payload.panel,
-                    "selected_element_id": payload.selected_element_id or "无 (全局修改)",
+                    "selected_element_id": selected_el,
                     "creator_persona": payload.creator_persona or "硬核数码博主",
                     "image_assets": _build_runtime_image_assets(payload),
                     "pending_images": pending_urls,
@@ -857,19 +1108,20 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                         }
                     }
                 
+                # 普通用户新消息永远基于当前 thread 的最新 head 继续，不允许前端用旧 checkpoint
+                # 把这轮编辑悄悄分叉到历史快照上。checkpoint 决策、rollback、branch 走各自显式协议。
                 config = {"configurable": {"thread_id": thread_id, "vector_store": websocket.app.state.vector_store}}
-                if payload.parent_checkpoint_id: config["configurable"]["checkpoint_id"] = payload.parent_checkpoint_id
 
-                # 执行图循环
+                # 执行 supervisor 单轮
                 before_state = await agent.aget_state(config)
-                await _run_graph_loop(
+                await _run_supervisor_turn(
                     agent,
                     inputs,
                     config,
                     websocket,
                     turn_context={
                         "user_query": user_query_str,
-                        "selected_element_id": payload.selected_element_id or "无 (全局修改)",
+                        "selected_element_id": selected_el,
                         "panel": payload.panel,
                         "message_kind": payload.message_kind or "user_prompt",
                         "before_values": before_state.values or {},
@@ -887,7 +1139,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
     except WebSocketDisconnect as e:
         print(f"[WS] Client {thread_id} disconnected (code={getattr(e, 'code', '')}, reason={getattr(e, 'reason', '') or '(none)'}).")
 
-async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
+async def _run_supervisor_turn(agent, inputs, config, websocket, turn_context=None):
     """Supervisor runtime 单轮执行器。"""
     if websocket.client_state != WebSocketState.CONNECTED:
         print("🛑 [自动熔断] 客户端已断开")
@@ -896,67 +1148,338 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
     final_oss_url = None
     final_html = ""
     trace_timeline = []
+    latest_config = _latest_thread_config(config)
+    preflight_snapshot = await agent.aget_state(latest_config)
+    await _sanitize_agent_message_state(agent, latest_config, preflight_snapshot.values or {})
+    preflight_snapshot = await agent.aget_state(latest_config)
+    preflight_override = (turn_context or {}).get("preflight_values_override")
+    if isinstance(preflight_override, dict) and preflight_override:
+        preflight_values = dict(preflight_override)
+    else:
+        preflight_values = preflight_snapshot.values or {}
 
-    async for event in agent.astream_events(inputs or {}, config=config, version="v2"):
-        if websocket.client_state != WebSocketState.CONNECTED:
+    pending_checkpoint = _normalize_checkpoint_action_payload(preflight_values.get("pending_checkpoint"))
+    if pending_checkpoint:
+        await websocket.send_json({"event": "action_required", "data": pending_checkpoint})
+        return
+
+    handled_resume_protocol = False
+    explicit_user_query = str((turn_context or {}).get("user_query") or "").strip()
+    message_kind = str((turn_context or {}).get("message_kind") or "user_prompt").strip().lower()
+    selected_element_id = str((turn_context or {}).get("selected_element_id") or "").strip()
+    has_visible_blocks = _has_visible_note_blocks(preflight_values)
+    if (
+        _turn_has_explicit_user_input(inputs or {}, turn_context or {})
+        and has_visible_blocks
+        and message_kind == "user_prompt"
+        and looks_like_append_block_request(explicit_user_query)
+    ):
+        await _aupdate_state_compat(agent, latest_config, inputs or {}, as_node="supervisor_agent")
+        latest_after_input = await agent.aget_state(latest_config)
+        deterministic_values = latest_after_input.values or {}
+        deterministic_values = merge_state_patch(
+            deterministic_values,
+            {
+                "selected_element_id": "无 (全局修改)",
+                "resume_directive": {
+                    "source": "explicit_append_block",
+                    "preferred_worker": "composition_worker",
+                    "resume_query": explicit_user_query,
+                    "decision": "auto_append_block_apply",
+                },
+            },
+        )
+        handled_resume_protocol = await _execute_resume_protocol(
+            agent,
+            latest_config,
+            websocket,
+            values=deterministic_values,
+            timeline=trace_timeline,
+        )
+    if (
+        not handled_resume_protocol
+        and _turn_has_explicit_user_input(inputs or {}, turn_context or {})
+        and has_visible_blocks
+        and message_kind == "user_prompt"
+        and selected_element_id
+        and selected_element_id not in {"无", "无 (全局修改)", "none", "global"}
+        and looks_like_existing_canvas_edit(explicit_user_query)
+        and not looks_like_revision_review_request(explicit_user_query)
+        and not _looks_like_explicit_asset_edit_request(explicit_user_query)
+    ):
+        await _aupdate_state_compat(agent, latest_config, inputs or {}, as_node="supervisor_agent")
+        latest_after_input = await agent.aget_state(latest_config)
+        deterministic_values = latest_after_input.values or {}
+        deterministic_intent_patch = await intent_worker(deterministic_values)
+        if deterministic_intent_patch:
+            await _aupdate_state_compat(agent, latest_config, deterministic_intent_patch, as_node=TRACE_STATE_NODE)
+            latest_after_input = await agent.aget_state(latest_config)
+            deterministic_values = latest_after_input.values or {}
+        deterministic_values = merge_state_patch(
+            deterministic_values,
+            {
+                "selected_element_id": selected_element_id,
+                "resume_directive": {
+                    "source": "explicit_local_edit",
+                    "preferred_worker": "composition_worker",
+                    "resume_query": explicit_user_query,
+                    "decision": "auto_local_edit_apply",
+                },
+            },
+        )
+        handled_resume_protocol = await _execute_resume_protocol(
+            agent,
+            latest_config,
+            websocket,
+            values=deterministic_values,
+            timeline=trace_timeline,
+        )
+    if (
+        not handled_resume_protocol
+        and _turn_has_explicit_user_input(inputs or {}, turn_context or {})
+        and has_visible_blocks
+        and message_kind == "user_prompt"
+    ):
+        await _aupdate_state_compat(agent, latest_config, inputs or {}, as_node="supervisor_agent")
+        latest_after_input = await agent.aget_state(latest_config)
+        deterministic_values = latest_after_input.values or {}
+        deterministic_intent_patch = await intent_worker(deterministic_values)
+        if deterministic_intent_patch:
+            await _aupdate_state_compat(agent, latest_config, deterministic_intent_patch, as_node=TRACE_STATE_NODE)
+            latest_after_input = await agent.aget_state(latest_config)
+            deterministic_values = latest_after_input.values or {}
+        if str((deterministic_values.get("intent_route") or "")).strip() == "critique_worker":
+            deterministic_values = merge_state_patch(
+                deterministic_values,
+                {
+                    "resume_directive": {
+                        "source": "explicit_review_request",
+                        "preferred_worker": "critique_worker",
+                        "resume_query": explicit_user_query or "继续复盘当前购买决策档案并给出一条主修订建议。",
+                        "decision": "auto_review_apply",
+                    }
+                },
+            )
+            handled_resume_protocol = await _execute_resume_protocol(
+                agent,
+                latest_config,
+                websocket,
+                values=deterministic_values,
+                timeline=trace_timeline,
+            )
+    if (
+        not handled_resume_protocol
+        and _turn_has_explicit_user_input(inputs or {}, turn_context or {})
+        and has_visible_blocks
+        and message_kind == "revision_action"
+    ):
+        await _aupdate_state_compat(agent, latest_config, inputs or {}, as_node="supervisor_agent")
+        latest_after_input = await agent.aget_state(latest_config)
+        deterministic_values = latest_after_input.values or {}
+        revision_plan = build_revision_plan(deterministic_values)
+        if revision_plan:
+            if revision_plan.get("target_block_id"):
+                deterministic_values = merge_state_patch(
+                    deterministic_values,
+                    {"selected_element_id": revision_plan.get("target_block_id")},
+                )
+            deterministic_values = merge_state_patch(
+                deterministic_values,
+                {
+                    "resume_directive": build_revision_resume_directive(
+                        state=deterministic_values,
+                        revision_plan=revision_plan,
+                    ),
+                    "revision_plan": revision_plan,
+                },
+            )
+            handled_resume_protocol = await _execute_resume_protocol(
+                agent,
+                latest_config,
+                websocket,
+                values=deterministic_values,
+                timeline=trace_timeline,
+            )
+    if (
+        not handled_resume_protocol
+        and _turn_has_explicit_user_input(inputs or {}, turn_context or {})
+        and has_visible_blocks
+        and message_kind != "revision_action"
+        and _looks_like_explicit_asset_edit_request(explicit_user_query)
+    ):
+        await _aupdate_state_compat(agent, latest_config, inputs or {}, as_node="supervisor_agent")
+        latest_after_input = await agent.aget_state(latest_config)
+        deterministic_values = latest_after_input.values or {}
+        deterministic_intent_patch = await intent_worker(deterministic_values)
+        if deterministic_intent_patch:
+            await _aupdate_state_compat(agent, latest_config, deterministic_intent_patch, as_node=TRACE_STATE_NODE)
+            latest_after_input = await agent.aget_state(latest_config)
+            deterministic_values = latest_after_input.values or {}
+        deterministic_values = merge_state_patch(
+            deterministic_values,
+            {
+                "resume_directive": {
+                    "source": "explicit_asset_edit",
+                    "preferred_worker": "retrieval_worker",
+                    "resume_query": explicit_user_query or "继续先搜图，再把素材落到当前购买决策档案中。",
+                    "decision": "auto_asset_apply",
+                }
+            },
+        )
+        handled_resume_protocol = await _execute_resume_protocol(
+            agent,
+            latest_config,
+            websocket,
+            values=deterministic_values,
+            timeline=trace_timeline,
+        )
+
+    if not _turn_has_explicit_user_input(inputs or {}, turn_context or {}):
+        resume_directive = preflight_values.get("resume_directive") if isinstance(preflight_values.get("resume_directive"), dict) else {}
+        if resume_directive:
+            handled_resume_protocol = await _execute_resume_protocol(
+                agent,
+                latest_config,
+                websocket,
+                values=preflight_values,
+                timeline=trace_timeline,
+            )
+
+    if not handled_resume_protocol:
+        async for event in agent.astream_events(inputs or {}, config=config):
+            if websocket.client_state != WebSocketState.CONNECTED:
+                return
+
+            kind = event["event"]
+            name = str(event.get("name") or "")
+
+            if kind == "on_chain_end" and name in {"composition_worker", "supervisor_agent"}:
+                output = event.get("data", {}).get("output", {}) or {}
+                final_oss_url = output.get("final_oss_url")
+                final_html = output.get("final_html", "")
+                if settings.XHS_FORGE_DEBUG:
+                    message = f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else None}..."
+                    print(message)
+                    append_latest_console_log(message)
+
+            if settings.XHS_FORGE_DEBUG:
+                if kind == "on_chain_start" and name not in {"LangGraph", "supervisor_agent"}:
+                    message = f"▶️  [NODE START]: {name}"
+                    print(f"\033[1;36m{message}\033[0m")
+                    append_latest_console_log(message)
+                    trace_timeline.append({"event": "worker_start", "worker": name})
+                elif kind == "on_chain_end" and name not in {"LangGraph", "supervisor_agent"}:
+                    output = event.get("data", {}).get("output", {}) or {}
+                    out_str = summarize_worker_output(name, output)
+                    message = f"✅ [NODE END]: {name} -> {out_str}"
+                    print(f"\033[1;32m{message}\033[0m")
+                    append_latest_console_log(message)
+                    trace_timeline.append({"event": "worker_end", "worker": name})
+
+            if kind == "on_chain_end":
+                output = event.get("data", {}).get("output")
+                thought = _extract_thought(output)
+                if thought:
+                    await websocket.send_json({"event": "thought_process", "data": {"worker": name, "content": thought}})
+
+            if kind == "on_chat_model_stream":
+                metadata = event.get("metadata", {}) or {}
+                worker_name = metadata.get("langgraph_node") or metadata.get("worker") or name or ""
+                chunk = event["data"]["chunk"]
+                content = chunk.content or ""
+                if getattr(chunk, "tool_call_chunks", None):
+                    for tc in chunk.tool_call_chunks:
+                        content += (tc.get("args") or "")
+                if content:
+                    await websocket.send_json({"event": "token", "data": content, "worker": worker_name})
+
+            elif kind == "on_chain_start":
+                if name in NODE_THOUGHT_MAP:
+                    await websocket.send_json({"event": "thought", "data": NODE_THOUGHT_MAP[name]})
+            elif kind == "on_tool_start":
+                tool_name = name
+                thought = TOOL_THOUGHT_MAP.get(tool_name, f"🔧 正在执行工具: {tool_name}...")
+                trace_timeline.append({"event": "tool_start", "worker": tool_name})
+                append_latest_console_log(f"🔧 [TOOL START]: {tool_name}")
+                await websocket.send_json({"event": "thought", "data": thought})
+
+        latest_snapshot = await agent.aget_state(latest_config)
+        latest_values = latest_snapshot.values or {}
+        pending_checkpoint = _normalize_checkpoint_action_payload(latest_values.get("pending_checkpoint"))
+        if pending_checkpoint:
+            await websocket.send_json({"event": "action_required", "data": pending_checkpoint})
+            return
+        if _graph_runtime_finalized(latest_values):
+            turn_trace = latest_values.get("turn_trace") if isinstance(latest_values.get("turn_trace"), dict) else _build_turn_trace(
+                turn_context=turn_context or {},
+                before_values=(turn_context or {}).get("before_values") or {},
+                after_values=latest_values,
+                timeline=trace_timeline,
+            )
+            append_log_divider('TURN END')
+            append_latest_console_log(f"🏁 [TURN END]: {summarize_turn_completion(turn_trace, latest_values)}")
+            await websocket.send_json({
+                "event": "turn_end",
+                "data": _build_turn_end_payload(
+                    latest_snapshot.config["configurable"]["checkpoint_id"],
+                    oss_url=final_oss_url or latest_values.get("final_oss_url"),
+                    image_assets=latest_values.get("image_assets", []),
+                    source_code=final_html or latest_values.get("final_html", ""),
+                    worker_prompts=latest_values.get("worker_prompts"),
+                    note_document=latest_values.get("note_document"),
+                    planner_output=latest_values.get("planner_output"),
+                    planner_policy=latest_values.get("planner_policy"),
+                    turn_trace=turn_trace,
+                    agent_backends=latest_values.get("agent_backends"),
+                    artifact=latest_values.get("artifact"),
+                    artifact_version=latest_values.get("artifact_version"),
+                    revision_plan=latest_values.get("revision_plan"),
+                    revision_result=latest_values.get("revision_result"),
+                    revision_status=latest_values.get("revision_status"),
+                    revision_reason=str((latest_values.get("artifact_version") or {}).get("revision_reason") or (latest_values.get("revision_plan") or {}).get("reason") or ""),
+                ),
+            })
             return
 
-        kind = event["event"]
-        name = str(event.get("name") or "")
+    materialize_attempts = 0
+    while materialize_attempts < 2:
+        latest_snapshot = await agent.aget_state(latest_config)
+        latest_values = latest_snapshot.values or {}
+        pending_checkpoint = _normalize_checkpoint_action_payload(latest_values.get("pending_checkpoint"))
+        if pending_checkpoint:
+            await websocket.send_json({"event": "action_required", "data": pending_checkpoint})
+            return
+        if not _should_force_materialize(latest_values, turn_context):
+            break
+        materialize_directive = _build_materialize_resume_directive(latest_values)
+        await _aupdate_state_compat(
+            agent,
+            latest_config,
+            {"resume_directive": materialize_directive},
+            as_node=TRACE_STATE_NODE,
+        )
+        append_latest_console_log(
+            f"🔁 [AUTO MATERIALIZE]: preferred_worker={materialize_directive.get('preferred_worker')} | source={materialize_directive.get('source')}"
+        )
+        handled = await _execute_resume_protocol(
+            agent,
+            latest_config,
+            websocket,
+            values=merge_state_patch(latest_values, {"resume_directive": materialize_directive}),
+            timeline=trace_timeline,
+        )
+        materialize_attempts += 1
+        if not handled:
+            break
 
-        if kind == "on_chain_end" and name in {"composition_worker", "supervisor_agent"}:
-            output = event.get("data", {}).get("output", {}) or {}
-            final_oss_url = output.get("final_oss_url")
-            final_html = output.get("final_html", "")
-            if settings.XHS_FORGE_DEBUG:
-                message = f"📺 [渲染监控] 成功捕获最终 OSS 链接: {final_oss_url[:50] if final_oss_url else None}..."
-                print(message)
-                append_latest_console_log(message)
-
-        if settings.XHS_FORGE_DEBUG:
-            if kind == "on_chain_start" and name not in {"LangGraph", "supervisor_agent"}:
-                message = f"▶️  [NODE START]: {name}"
-                print(f"\033[1;36m{message}\033[0m")
-                append_latest_console_log(message)
-                trace_timeline.append({"event": "node_start", "node": name})
-            elif kind == "on_chain_end" and name not in {"LangGraph", "supervisor_agent"}:
-                output = event.get("data", {}).get("output", {}) or {}
-                out_str = summarize_node_output(name, output)
-                message = f"✅ [NODE END]: {name} -> {out_str}"
-                print(f"\033[1;32m{message}\033[0m")
-                append_latest_console_log(message)
-                trace_timeline.append({"event": "node_end", "node": name})
-
-        if kind == "on_chain_end":
-            output = event.get("data", {}).get("output")
-            thought = _extract_thought(output)
-            if thought:
-                await websocket.send_json({"event": "thought_process", "data": {"node": name, "content": thought}})
-
-        if kind == "on_chat_model_stream":
-            metadata = event.get("metadata", {}) or {}
-            node_name = metadata.get("langgraph_node") or metadata.get("node") or name or ""
-            chunk = event["data"]["chunk"]
-            content = chunk.content or ""
-            if getattr(chunk, "tool_call_chunks", None):
-                for tc in chunk.tool_call_chunks:
-                    content += (tc.get("args") or "")
-            if content:
-                await websocket.send_json({"event": "token", "data": content, "node": node_name})
-
-        elif kind == "on_chain_start":
-            if name in NODE_THOUGHT_MAP:
-                await websocket.send_json({"event": "thought", "data": NODE_THOUGHT_MAP[name]})
-        elif kind == "on_tool_start":
-            tool_name = name
-            thought = TOOL_THOUGHT_MAP.get(tool_name, f"🔧 正在执行工具: {tool_name}...")
-            trace_timeline.append({"event": "tool_start", "node": tool_name})
-            append_latest_console_log(f"🔧 [TOOL START]: {tool_name}")
-            await websocket.send_json({"event": "thought", "data": thought})
-
-    latest_config = _latest_thread_config(config)
     latest_snapshot = await agent.aget_state(latest_config)
     latest_values = latest_snapshot.values or {}
+    quality_patch = apply_artifact_quality_fixes(latest_values)
+    if quality_patch:
+        latest_values = merge_state_patch(latest_values, quality_patch)
+        await _aupdate_state_compat(agent, latest_config, quality_patch, as_node=TRACE_STATE_NODE)
+        latest_snapshot = await agent.aget_state(latest_config)
+        latest_values = latest_snapshot.values or {}
     turn_trace = _build_turn_trace(
         turn_context=turn_context or {},
         before_values=(turn_context or {}).get("before_values") or {},
@@ -966,6 +1489,7 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
 
     revision_plan = build_revision_plan(latest_values)
     revision_result = build_revision_result({**latest_values, "revision_plan": revision_plan})
+    revision_result = reconcile_revision_result(revision_result, turn_trace=turn_trace)
     revision_status = build_revision_status(
         {
             **latest_values,
@@ -975,24 +1499,40 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
     )
     session_snapshot_id = f"snapshot_{uuid4().hex[:16]}"
     try:
-        trace_patch = {
+        artifact_state = {
+            **latest_values,
             "turn_trace": turn_trace,
             "revision_plan": revision_plan,
             "revision_result": revision_result,
             "revision_status": revision_status,
         }
-        trace_patch.update(
-            build_artifact_patch(
-                {
-                    **latest_values,
-                    "turn_trace": turn_trace,
-                    "revision_plan": revision_plan,
-                    "revision_result": revision_result,
-                    "revision_status": revision_status,
-                },
-                snapshot_id=session_snapshot_id,
-                checkpoint_id=str(((latest_snapshot.config or {}).get("configurable") or {}).get("checkpoint_id") or ""),
+        trace_patch = {
+            "turn_trace": turn_trace,
+            "revision_plan": revision_plan,
+            "revision_result": revision_result,
+            "revision_status": revision_status,
+            "artifact": ensure_artifact_manifest(artifact_state),
+            "artifact_version": latest_values.get("artifact_version") if isinstance(latest_values.get("artifact_version"), dict) else {},
+            "version_history_head": latest_values.get("version_history_head") if isinstance(latest_values.get("version_history_head"), list) else [],
+        }
+        committed = should_commit_artifact_version(artifact_state)
+        if committed:
+            trace_patch.update(
+                build_artifact_patch(
+                    artifact_state,
+                    snapshot_id=session_snapshot_id,
+                    checkpoint_id=str(((latest_snapshot.config or {}).get("configurable") or {}).get("checkpoint_id") or ""),
+                    thread_id=str(((latest_config or {}).get("configurable") or {}).get("thread_id") or ""),
+                )
             )
+        current_phase = PHASE_DONE if committed else (
+            PHASE_CHECKPOINT if _normalize_checkpoint_action_payload(latest_values.get("pending_checkpoint")) else (
+                PHASE_FAILED if str((revision_result or {}).get("status") or "").strip() == "failed" else PHASE_COMMIT
+            )
+        )
+        trace_patch["current_phase"] = current_phase
+        trace_patch["active_worker"] = "supervisor_agent" if current_phase in {PHASE_COMMIT, PHASE_DONE} else str(
+            latest_values.get("active_worker") or "supervisor_agent"
         )
         trace_patch.update(
             _build_turn_anchor_patch(
@@ -1023,7 +1563,7 @@ async def _run_graph_loop(agent, inputs, config, websocket, turn_context=None):
             oss_url=final_oss_url or latest_values.get("final_oss_url"),
             image_assets=latest_values.get("image_assets", []),
             source_code=final_html or latest_values.get("final_html", ""),
-            node_prompts=latest_values.get("node_prompts"),
+            worker_prompts=latest_values.get("worker_prompts"),
             note_document=latest_values.get("note_document"),
             planner_output=latest_values.get("planner_output"),
             planner_policy=latest_values.get("planner_policy"),

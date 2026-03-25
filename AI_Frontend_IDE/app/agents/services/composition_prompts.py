@@ -35,6 +35,7 @@ from app.agents.services.composition_support import (
     _summarize_note_document_blocks,
 )
 from app.core.query_heuristics import wants_before_position, wants_image_search
+from app.core.request_semantics import latest_user_text_from_state
 
 
 class CompositionPromptState(TypedDict):
@@ -270,7 +271,7 @@ def default_canvas_block_intents(state: dict[str, Any]) -> list[dict[str, Any]]:
 
     knowledge = state.get("retrieved_knowledge") or {}
     scenario_scores = (state.get("scenario_scores") or planner_output.get("scenario_scores") or {})
-    user_query = str(getattr((state.get("main_messages") or [])[-1], "content", "") or "") if state.get("main_messages") else ""
+    user_query = latest_user_text_from_state(state)
     has_images = bool(state.get("image_assets"))
     intents: list[dict[str, Any]] = [
         {"intent_type": "heading", "goal": "页面标题", "preferred_component": "TitleBlock", "required": True},
