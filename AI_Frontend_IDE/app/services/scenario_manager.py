@@ -1,14 +1,14 @@
-import os
+﻿import os
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 
-FORMAL_PRODUCT_SCENARIOS = ("seeding",)
+FORMAL_PRODUCT_SCENARIOS = ("notes",)
 
 
 class ScenarioManager:
-    """正式产品场景管理器：当前只开放数码购买决策主场景。"""
+    """正式产品场景管理器：当前只开放持续笔记主场景。"""
     def __init__(self):
         self.base_path = Path(__file__).parents[1] / "scenarios"
         self.scenarios: Dict[str, Dict[str, Any]] = {}
@@ -43,7 +43,7 @@ class ScenarioManager:
                 print(f"📦 [场景管理器] 已挂载正式场景: {name}")
 
     def _fallback_scenario(self) -> str:
-        return "seeding" if "seeding" in self.scenarios else next(iter(self.scenarios.keys()), "")
+        return "notes" if "notes" in self.scenarios else next(iter(self.scenarios.keys()), "")
 
     def get_config(self, scenario_id: str) -> Dict[str, Any]:
         """【通用配置网关】：获取场景插件的原始 JSON 配置"""
@@ -76,3 +76,4 @@ class ScenarioManager:
 
 # 全局单例
 scenario_manager = ScenarioManager()
+

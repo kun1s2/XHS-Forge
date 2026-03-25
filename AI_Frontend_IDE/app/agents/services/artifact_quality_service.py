@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
@@ -493,7 +493,7 @@ def apply_artifact_quality_fixes(state: dict[str, Any]) -> dict[str, Any]:
     document_meta = _as_dict(note_document.get("document_meta"))
     title = str(document_meta.get("title") or "").strip()
     if entity_anchor and (not title or title == "XHS-Forge Note" or mentions_other_specific_entity(title, entity_anchor)):
-        document_meta["title"] = f"{entity_anchor} 购买决策档案"
+        document_meta["title"] = f"{entity_anchor} 持续笔记"
         note_document["document_meta"] = document_meta
     note_document, repaired_blocks = _repair_content_quality_blocks(note_document, state)
     changed_blocks.extend(repaired_blocks)
@@ -585,7 +585,7 @@ def apply_artifact_quality_fixes(state: dict[str, Any]) -> dict[str, Any]:
             if not hero_ok:
                 issues.append("首屏图片没有真实绑定到页面。")
             elif not hero_entity_ok:
-                issues.append("首屏图片与当前数码实体不匹配。")
+                issues.append("首屏图片与当前笔记实体不匹配。")
             validated_images = hero_ok and hero_entity_ok
 
     if "fact_list" in required_intents and "fact_list" not in coverage:
@@ -617,3 +617,4 @@ def apply_artifact_quality_fixes(state: dict[str, Any]) -> dict[str, Any]:
 
 
 __all__ = ["apply_artifact_quality_fixes"]
+

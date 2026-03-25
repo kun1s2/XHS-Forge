@@ -1,0 +1,25 @@
+{
+  "scenario_id": "notes",
+  "name": "持续笔记工作台",
+  "description": "围绕同一份笔记持续新增、修改、整理和回顾的正式主场景",
+  "contract": {
+    "required_components": ["TitleBlock", "StoryText"],
+    "suggested_order": ["TitleBlock", "StoryText", "ProductSpecCard", "QuoteBlock", "TimelineBlock", "PollBlock"]
+  },
+  "visual_rules": {
+    "variant": {
+      "workspace-clean": "bg-white rounded-[28px] shadow-[0_12px_40px_rgba(15,23,42,0.08)] border border-slate-100 p-6",
+      "workspace-soft": "bg-slate-50 rounded-[28px] p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+    },
+    "animation": {
+      "steady-fade": "animate-in fade-in duration-500 slide-in-from-bottom-2",
+      "gentle-pop": "hover:translate-y-[-1px] transition-all duration-250"
+    }
+  },
+  "allowed_tools": ["network_search", "google_images", "image_generation"],
+  "visual_preference": {
+    "variant": "workspace-clean",
+    "color_palette": "#2563eb",
+    "bg_color": "#f8fafc"
+  }
+}

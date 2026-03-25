@@ -1,4 +1,4 @@
-from app.services.knowledge_hub import build_knowledge_plan
+﻿from app.services.knowledge_hub import build_knowledge_plan
 from app.services.skill_registry import (
     build_skill_context,
     load_skill_markdown,
@@ -12,7 +12,7 @@ def test_skill_files_are_present_and_snapshot_is_readable():
     snapshot = load_skills_snapshot()
     assert "product-search" in snapshot
     assert "decision-note-compose" in snapshot
-    assert "数码购买决策 Agent" in snapshot
+    assert "持续笔记协作 Agent" in snapshot
 
     assert "product-search" in load_skill_markdown("product-search")
     assert "product-images" in load_skill_markdown("product-images")
@@ -21,7 +21,7 @@ def test_skill_files_are_present_and_snapshot_is_readable():
 def test_build_knowledge_plan_contains_recommended_skills_for_digital_purchase():
     state = {
         "main_messages": [{"content": "写一篇华为 Mate 60 值不值得买的测评，顺便补几张图片"}],
-        "active_archetype": "seeding",
+        "active_archetype": "notes",
         "intent_decision": {
             "task_type": "create",
             "operation_type": "generate",
@@ -96,3 +96,4 @@ def test_build_skill_context_returns_tool_plan_and_selected_skills():
 def test_recommend_skills_for_knowledge_plan_defaults_to_product_search():
     selected = recommend_skills_for_knowledge_plan(intent_decision={}, knowledge_plan={})
     assert selected == ["product-search"]
+

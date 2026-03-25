@@ -1,4 +1,4 @@
-"""正式的 NoteDocument 桥接层。
+﻿"""正式的 NoteDocument 桥接层。
 
 这个文件是运行时状态折叠成 `NoteDocument` 的唯一入口。主链节点如果需要
 正式文档协议、紧凑编辑视图、布局投影或文档级 patch，都应该优先复用这里
@@ -203,7 +203,7 @@ def _representation_mode_for_block(
         preferred = str(representation_preferences.get("spec_card") or props.get("mode") or "")
         if preferred:
             return preferred
-        if active_archetype == "seeding":
+        if active_archetype == "notes":
             return "purchase_judgment"
         if active_archetype in {"gourmet", "food"}:
             return "store_facts"
@@ -637,7 +637,7 @@ def _apply_representation_safety_to_document(
     user_provided_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     document = deepcopy(note_document or {})
-    active_archetype = str(((document.get("document_meta") or {}).get("active_archetype")) or "seeding")
+    active_archetype = str(((document.get("document_meta") or {}).get("active_archetype")) or "notes")
     safe_preferences = deepcopy(representation_preferences or {})
     safe_user_facts = normalize_user_provided_facts(user_provided_facts or {})
     blocks = []
@@ -759,9 +759,9 @@ def build_note_document(
 
     document = {
         "document_meta": {
-            "title": data.get("page_title") or "XHS-Forge Note",
-            "active_archetype": active_archetype or "seeding",
-            "scenarios": list(scenarios or [active_archetype or "seeding"]),
+            "title": data.get("page_title") or "Forge Notes",
+            "active_archetype": active_archetype or "notes",
+            "scenarios": list(scenarios or [active_archetype or "notes"]),
         },
         "theme": {
             "page_theme": deepcopy(data.get("page_theme") or {}),
@@ -796,7 +796,7 @@ def note_document_to_document_view(note_document: dict[str, Any] | None) -> tupl
     """把正式 NoteDocument 投影回紧凑 document_view + style_map + assets。"""
     note_document = deepcopy(note_document or {})
     document_view: dict[str, Any] = {
-        "page_title": ((note_document.get("document_meta") or {}).get("title") or "XHS-Forge Note"),
+        "page_title": ((note_document.get("document_meta") or {}).get("title") or "Forge Notes"),
         "page_theme": deepcopy(((note_document.get("theme") or {}).get("page_theme") or {})),
         "blocks": [],
     }
@@ -859,7 +859,7 @@ def build_note_document_layout(note_document: dict[str, Any] | None) -> dict[str
         })
 
     return {
-        "page_title": ((note_document.get("document_meta") or {}).get("title") or "XHS-Forge Note"),
+        "page_title": ((note_document.get("document_meta") or {}).get("title") or "Forge Notes"),
         "page_theme": deepcopy(((note_document.get("theme") or {}).get("page_theme") or {})),
         "global_vars": deepcopy(((note_document.get("theme") or {}).get("global_vars") or {})),
         "blocks": blocks,
@@ -924,9 +924,9 @@ def build_note_document_from_state(state: dict[str, Any] | None) -> dict[str, An
 
     document = {
         "document_meta": {
-            "title": "XHS-Forge Note",
-            "active_archetype": state.get("active_archetype") or "seeding",
-            "scenarios": list(state.get("scenarios") or [state.get("active_archetype") or "seeding"]),
+            "title": "Forge Notes",
+            "active_archetype": state.get("active_archetype") or "notes",
+            "scenarios": list(state.get("scenarios") or [state.get("active_archetype") or "notes"]),
         },
         "theme": {
             "page_theme": {},
@@ -1301,5 +1301,6 @@ def build_note_document_from_structure_patch(
     document["blocks"] = next_blocks
     if page_title is not None:
         meta = document.setdefault("document_meta", {})
-        meta["title"] = page_title or "XHS-Forge Note"
+        meta["title"] = page_title or "Forge Notes"
     return document
+

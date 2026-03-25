@@ -17,8 +17,18 @@ def _to_asyncpg_url(url: str) -> str:
     return url
 
 
-# 使用 PGVector_URL（与 LangChain 向量库一致），并转为 asyncpg 驱动
-_engine = create_async_engine(_to_asyncpg_url(settings.PGVector_URL))
+_engine = None
+
+
+def _get_engine():
+    global _engine
+    if _engine is not None:
+        return _engine
+    database_url = str(settings.PGVector_URL or "").strip()
+    if not database_url:
+        return None
+    _engine = create_async_engine(_to_asyncpg_url(database_url))
+    return _engine
 
 async def hybrid_search_rrf(
     query: str, 
@@ -69,7 +79,11 @@ async def hybrid_search_rrf(
     """)
 
     try:
-        async with _engine.connect() as conn:
+        engine = _get_engine()
+        if engine is None:
+            logger.info("混合召回已跳过：PGVector_URL 未配置。")
+            return []
+        async with engine.connect() as conn:
             # Postgres 的 vector 类型需要特殊处理，这里将 list 转为字符串格式 '[...]'
             vector_str = "[" + ",".join(map(str, query_vector)) + "]"
             

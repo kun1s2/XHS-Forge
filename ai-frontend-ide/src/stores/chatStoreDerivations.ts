@@ -1,4 +1,4 @@
-// Pure derivation helpers for the chat/workspace store.
+﻿// Pure derivation helpers for the chat/workspace store.
 // Keep protocol picking, NoteDocument summaries, and lightweight text summaries
 // here so `useChatStore.ts` can remain the orchestration entrypoint.
 import type {
@@ -74,14 +74,14 @@ const componentLabelMap: Record<string, string> = {
 }
 
 const archetypeLabels: Record<string, string> = {
-  seeding: '数码购买决策档案',
+  notes: '持续笔记工作台',
 }
 
 const statusFallbackByWorker: Record<string, string> = {
   supervisor_agent: '我正在判断这轮最该先推进哪一步。',
   intent_worker: '我正在理解你这轮到底想把档案往哪个方向推进。',
   retrieval_worker: '我正在补搜这轮最关键的参数、证据、待审知识或图片线索。',
-  composition_worker: '我正在按你的要求定向修改购买决策档案。',
+  composition_worker: '我正在按你的要求定向修改持续笔记。',
   critique_worker: '我正在复盘当前成品还有哪些缺口。',
 }
 
@@ -172,7 +172,7 @@ export const buildAgentPlanCard = (params: {
     }
   }
 
-  const active = String(trace.route?.active_archetype || 'seeding')
+  const active = String(trace.route?.active_archetype || 'notes')
   const archetypeLabel = archetypeLabels[active] || '内容页'
   return {
     title: `我先按${archetypeLabel}的思路把这页搭起来`,
@@ -425,7 +425,7 @@ export const getPreferredScenarioTags = (
       .map(([name]) => String(name))
     if (inferred.length) return inferred
   }
-  return ['seeding']
+  return ['notes']
 }
 
 export const getPreferredPatchTracks = (
@@ -466,7 +466,7 @@ export const buildRenderablePageDataFromDocument = (doc?: NoteDocument | null) =
   }))
   const payloadMap = Object.fromEntries(blocks.map((block: Record<string, any>) => [block.id, block.props || {}]))
   return {
-    page_title: doc?.document_meta?.title || 'XHS-Forge Note',
+    page_title: doc?.document_meta?.title || 'Forge Notes',
     page_theme: doc?.theme?.page_theme || {},
     archetype_tags: doc?.document_meta?.scenarios || [],
     blocks: mappedBlocks,
@@ -479,7 +479,7 @@ const buildComparablePageFromDocument = (doc?: NoteDocument | null) => {
   if (!blocks.length) return {} as Record<string, any>
   const payloadMap = Object.fromEntries(blocks.map((block: Record<string, any>) => [block.id, block.props || {}]))
   return {
-    page_title: doc?.document_meta?.title || 'XHS-Forge Note',
+    page_title: doc?.document_meta?.title || 'Forge Notes',
     page_theme: doc?.theme?.page_theme || {},
     archetype_tags: doc?.document_meta?.scenarios || [],
     blocks: blocks.map((block: Record<string, any>) => ({
@@ -664,7 +664,7 @@ export const normalizeShowcaseProfile = (profile: Record<string, any>): Showcase
   id: profile.id,
   scenarioId: profile.scenario_id ?? profile.scenarioId ?? '',
   title: profile.title ?? '',
-  persona: profile.persona ?? '硬核数码博主',
+  persona: profile.persona ?? '结构化笔记助手',
   whyThisMatters: profile.why_this_matters ?? profile.whyThisMatters ?? '',
   highlightFeatures: profile.highlight_features ?? profile.highlightFeatures ?? [],
   talkingPoints: profile.talking_points ?? profile.talkingPoints ?? [],
@@ -674,3 +674,5 @@ export const normalizeShowcaseProfile = (profile: Record<string, any>): Showcase
   themePrompt: profile.theme_prompt ?? profile.themePrompt ?? '',
   branchPrompt: profile.branch_prompt ?? profile.branchPrompt ?? ''
 })
+
+

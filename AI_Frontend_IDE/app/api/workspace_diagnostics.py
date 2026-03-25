@@ -1,4 +1,4 @@
-"""工作台诊断与评估面板的展示模型构造器。
+﻿"""工作台诊断与评估面板的展示模型构造器。
 
 这里统一负责把运行时 state、会话快照和追踪信息压缩成 Inspector 与
 Benchmark 需要的展示数据，避免 `workspace.py` 同时承担 API 路由和
@@ -572,7 +572,7 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
             "updated_at": updated_at,
             "block_count": block_count,
             "asset_count": asset_count,
-            "scenario": scenarios[0] if scenarios else "seeding",
+            "scenario": scenarios[0] if scenarios else "notes",
             "theme_preset": theme_preset,
             "entity_name": entity_name or "未识别主体",
             "grounding_status": str(retrieval.get("grounding_status") or "unknown"),
@@ -591,7 +591,7 @@ def build_benchmark_overview(session_snapshots: list[dict], title_resolver) -> d
     warning_rate = _ratio(warning_session_count, session_count)
 
     if retrieval_session_count == 0:
-        recommendation_pool.append("目前还没有足够的检索样本，先围绕数码购买决策主链多跑几轮再看 benchmark。")
+        recommendation_pool.append("目前还没有足够的检索样本，先围绕持续笔记协作主链多跑几轮再看 benchmark。")
     if retrieval_session_count and cache_hit_rate < 0.35:
         recommendation_pool.append("缓存命中率偏低，建议继续扩 system_preload 覆盖面，优先预热高频 entity 和热点 topic。")
     if retrieval_session_count and citation_coverage_avg < 0.65:
@@ -735,7 +735,7 @@ def build_evaluation_overview(session_snapshots: list[dict], title_resolver) -> 
             },
             "categories": [],
             "sessions": [],
-            "recommendations": ["先围绕数码购买决策主链生成几轮页面，再观察评估面板。"],
+            "recommendations": ["先围绕持续笔记协作主链生成几轮页面，再观察评估面板。"],
         }
 
     route_decision_count = 0
@@ -1065,3 +1065,4 @@ async def fetch_latest_session_snapshots(agent, title_resolver) -> list[dict]:
         print(f"Error fetching benchmark snapshots from DB: {e}")
         return []
     return snapshots
+

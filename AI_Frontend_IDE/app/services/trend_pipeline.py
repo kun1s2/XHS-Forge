@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 from typing import List, Dict, Any
 from app.services.cache_service import cache_service
 from app.services.rag_ingestion import ingest_retrieved_knowledge
@@ -63,8 +63,8 @@ class TrendPipeline:
         # 构造调研状态
         mock_state: RuntimeState = {
             "main_messages": [HumanMessage(content=prompt)],
-            "scenarios": [profile["scenario_hint"]] if profile["scenario_hint"] != "general" else ["seeding"],
-            "active_archetype": "seeding",
+            "scenarios": [profile["scenario_hint"]] if profile["scenario_hint"] != "general" else ["notes"],
+            "active_archetype": "notes",
             "intent_decision": {
                 "task_type": "create",
                 "operation_type": "generate",
@@ -86,7 +86,7 @@ class TrendPipeline:
                 # 调研成功，写入 Redis 供所有用户共享
                 ingest_result = await ingest_retrieved_knowledge(
                     entity_name=topic,
-                    scenario=profile["scenario_hint"] if profile["scenario_hint"] != "general" else "seeding",
+                    scenario=profile["scenario_hint"] if profile["scenario_hint"] != "general" else "notes",
                     ingest_mode="system_preload",
                     knowledge=knowledge,
                 )
@@ -149,3 +149,4 @@ async def process_new_trend_background(query_str: str, websocket=None):
         await trend_pipeline._pre_research_topic(topic, deep_scan=True)
     finally:
         trend_pipeline._inflight_topics.discard(topic)
+

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from copy import deepcopy
@@ -240,7 +240,7 @@ async def retrieval_worker(
     focus: str = "",
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """检索数码购买决策所需的结构化知识、混合检索证据和候选事实。"""
+    """检索持续笔记协作所需的结构化知识、混合检索证据和候选事实。"""
     state = dict(runtime.state or {})
     try:
         payload = await _run_retrieval_payload(state)
@@ -316,7 +316,7 @@ async def composition_worker(
     focus: str = "",
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """根据已审知识与素材修改购买决策档案，并返回可验证的区块变化。"""
+    """根据已审知识与素材修改持续笔记，并返回可验证的区块变化。"""
     state = dict(runtime.state or {})
     try:
         payload = await composition_worker_payload(state)
@@ -386,7 +386,7 @@ async def critique_worker(
     focus: str = "",
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """复盘当前购买决策档案，区分知识缺口和表达缺口，并给出下一步建议。"""
+    """复盘当前持续笔记，区分知识缺口和表达缺口，并给出下一步建议。"""
     state = dict(runtime.state or {})
     try:
         payload = await critique_worker_payload(state)
@@ -792,3 +792,4 @@ def build_supervisor_runtime(checkpointer, store: BaseStore | None = None):
         response_format=SupervisorStructuredResponse,
         name="supervisor_agent",
     )
+

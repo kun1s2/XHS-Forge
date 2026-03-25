@@ -1,4 +1,4 @@
-"""聊天流内的高频协作 checkpoint 辅助模块。
+﻿"""聊天流内的高频协作 checkpoint 辅助模块。
 
 这里集中管理 supervisor 主动向用户发起的结构化协作卡：
 - 结构协商
@@ -166,7 +166,7 @@ def _fact_gap_signature(
 
 
 def _asset_checkpoint_signature(*, state: RuntimeState, mode: str, asset_urls: list[str]) -> str:
-    active = str(state.get("active_archetype") or "seeding")
+    active = str(state.get("active_archetype") or "notes")
     normalized_urls = "|".join(sorted({str(url).strip() for url in asset_urls if str(url).strip()}))
     return f"asset::{active}::{mode}::{normalized_urls}"
 
@@ -245,7 +245,7 @@ def _truth_focus_options(kind: str, active: str) -> list[dict[str, Any]]:
 
 
 def _truth_form_fields(state: RuntimeState, kind: str) -> list[dict[str, Any]]:
-    active = str(state.get("active_archetype") or "seeding")
+    active = str(state.get("active_archetype") or "notes")
     if kind == "quote_capture":
         return [
             {
@@ -404,7 +404,7 @@ def build_truth_mode_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     if has_user_provided_facts(state.get("user_provided_facts")):
         return None
     kind = _truth_mode_kind(state)
-    active = str(state.get("active_archetype") or "seeding")
+    active = str(state.get("active_archetype") or "notes")
     helper_text = {
         "quote_capture": "先选清楚你想保留的是原话、语气，还是只保留意思；不确定的项可以留空。",
         "precise_schedule": "先勾你手里真的有的时间节点；如果没有具体分钟，也可以只选时间段。",
@@ -496,7 +496,7 @@ def apply_truth_mode_checkpoint_decision(state: RuntimeState, decision: dict[str
             "quote": "user_quote" if has_inline_user_facts else ("source_quote" if decision_value == "confirmed_only" else "summary"),
             "spec_card": (
                 "purchase_judgment"
-                if str(state.get("active_archetype") or "") == "seeding"
+                if str(state.get("active_archetype") or "") == "notes"
                 else "neutral_facts"
             ),
             "radar": "judgment_summary",
@@ -565,7 +565,7 @@ def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
     """根据当前场景生成 2~3 个页面骨架候选。"""
     planner_output = state.get("planner_output") or {}
     scenario_scores = planner_output.get("scenario_scores") or {}
-    active = str(state.get("active_archetype") or "seeding")
+    active = str(state.get("active_archetype") or "notes")
     has_images = bool(state.get("image_assets"))
     wants_visual = _has_visual_lead(state) or has_images
 
@@ -612,12 +612,12 @@ def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
     def _compose(defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _expand([*base_prefix, *defs])
 
-    if active == "seeding":
+    if active == "notes":
         return [
             {
-                "label": "更像对比测评",
-                "value": "seeding_compare",
-                "description": "先讲结论，再给参数和对比，适合做购买分流。",
+                "label": "更像结构化笔记",
+                "value": "notes_compare",
+                "description": "先讲结论，再给参数和对比，适合做阅读分流。",
                 "recommended": True,
                 "block_intents": _compose([
                     _make_block_intent("heading", 1, required=True, preferred_component="TitleBlock", goal="标题"),
@@ -628,21 +628,21 @@ def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
                 ]),
             },
             {
-                "label": "更像参数测评",
-                "value": "seeding_specs",
-                "description": "参数和判断依据更靠前，适合想快速比较重点的人看。",
+                "label": "更像资料整理",
+                "value": "notes_reference",
+                "description": "事实和依据更靠前，适合先快速扫清关键背景。",
                 "block_intents": _compose([
                     _make_block_intent("heading", 1, required=True, preferred_component="TitleBlock", goal="标题"),
                     _make_block_intent("fact_list", 2, preferred_component="ProductSpecCard", goal="参数重点"),
                     _make_block_intent("decision_summary", 3, preferred_component="RadarChartBlock", goal="维度说明"),
-                    _make_block_intent("narrative_text", 4, required=True, preferred_component="StoryText", goal="购买建议"),
+                    _make_block_intent("narrative_text", 4, required=True, preferred_component="StoryText", goal="行动建议"),
                     _make_block_intent("comparison", 5, preferred_component="VersusCard", goal="对比结论"),
                 ]),
             },
             {
-                "label": "更像体验分享",
-                "value": "seeding_experience",
-                "description": "更重手感、真实体验和站队表达，不那么参数堆砌。",
+                "label": "更像过程记录",
+                "value": "notes_experience",
+                "description": "更重一手记录、体验感受和个人观察，不那么强调条目堆砌。",
                 "block_intents": _compose([
                     _make_block_intent("heading", 1, required=True, preferred_component="TitleBlock", goal="标题"),
                     _make_block_intent("narrative_text", 2, required=True, preferred_component="StoryText", goal="真实体验"),
@@ -655,8 +655,8 @@ def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
 
     return [
         {
-            "label": "更像判断型评测",
-            "value": "seeding_structured",
+            "label": "更像清单式笔记",
+            "value": "notes_structured",
             "description": "先把结论、关键参数和判断边界讲清楚。",
             "recommended": True,
             "block_intents": _compose([
@@ -667,8 +667,8 @@ def _recommended_structure_options(state: RuntimeState) -> list[dict[str, Any]]:
             ]),
         },
         {
-            "label": "更像体验型评测",
-            "value": "seeding_opinion",
+            "label": "更像叙事式笔记",
+            "value": "notes_story",
             "description": "先讲真实体验，再补对比和互动，更像一篇完整评测笔记。",
             "block_intents": _compose([
                 _make_block_intent("heading", 1, required=True, preferred_component="TitleBlock", goal="标题"),
@@ -704,7 +704,7 @@ def build_structure_checkpoint(state: RuntimeState) -> dict[str, Any] | None:
     if not options:
         return None
     recommended = next((item.get("value") for item in options if item.get("recommended")), options[0].get("value"))
-    active = str(state.get("active_archetype") or "seeding")
+    active = str(state.get("active_archetype") or "notes")
     return {
         "action_type": "structure_checkpoint",
         "checkpoint_id": f"structure::{active}",
@@ -1421,3 +1421,5 @@ def apply_fact_conflict_checkpoint_decision(state: RuntimeState, decision: dict[
             }, note=custom_note),
         }
     return {}
+
+

@@ -1,4 +1,4 @@
-"""组件清单辅助模块。
+﻿"""组件清单辅助模块。
 
 `componentManifest.json` 是积木能力的唯一真相源。这里把常用读取逻辑收成
 辅助函数，避免 resolver、builder、editor、renderer 在各处重复硬编码
@@ -154,12 +154,15 @@ def list_components_for_semantic_role(
     if not semantic_role:
         return []
     scenario_names = [str(item) for item in (scenario_names or []) if str(item)]
+    expanded_scenarios = set(scenario_names)
+    if "notes" in expanded_scenarios:
+        expanded_scenarios.add("seeding")
     candidates = []
     for entry in list_component_entries(stable_only=stable_only):
         if str(entry.get("semantic_role") or "") != semantic_role:
             continue
         supported = [str(item) for item in list(entry.get("supported_scenarios") or []) if str(item)]
-        if scenario_names and supported and not any(name in supported for name in scenario_names):
+        if expanded_scenarios and supported and not any(name in supported for name in expanded_scenarios):
             continue
         candidates.append(entry)
     return candidates
@@ -215,8 +218,8 @@ def resolve_component_for_block_intent(
 
     if intent_type == "fact_list":
         role_candidates = list_components_for_semantic_role("evidence_summary", scenario_names=ranked_scenarios)
-        seeding_weight = float(scores.get("seeding", 0.0))
-        if seeding_weight >= 0.6:
+        notes_weight = float(scores.get("notes", 0.0))
+        if notes_weight >= 0.6:
             spec_like = next((entry for entry in role_candidates if str(entry.get("type") or "") == "ProductSpecCard"), None)
             if spec_like:
                 return str(spec_like.get("type"))
@@ -303,7 +306,7 @@ def _context_supports_specialty_component(
     has_battle = bool(knowledge.get("battle_report"))
 
     if intent_type in {"fact_list", "decision_summary"}:
-        if active_archetype == "seeding":
+        if active_archetype == "notes":
             return True
         return any(token in query for token in ("价格", "预算", "参数", "配置", "规格", "门票", "人均", "套餐", "值不值得", "怎么选")) or len(core_attributes) >= 2 or len(confirmed_facts) >= 2
     if intent_type == "risk_boundary":
@@ -393,3 +396,4 @@ def is_component_supported_for_html(component_type: str | None) -> bool:
     """判断组件是否进入 HTML 导出的正式支持范围。"""
     entry = get_component_entry(component_type)
     return bool(entry) and bool(entry.get("html_renderer"))
+

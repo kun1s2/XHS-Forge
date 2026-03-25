@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from unittest.mock import AsyncMock, patch
 
 from app.services.trend_pipeline import TrendPipeline
@@ -18,8 +18,8 @@ async def test_trend_pipeline_primes_research_with_intent_decision():
     state = mock_research.await_args.args[0]
     assert state["intent_decision"]["needs_assets"] is True
     assert state["intent_decision"]["needs_research"] is True
-    assert state["active_archetype"] == "seeding"
-    assert state["scenarios"] == ["seeding"]
+    assert state["active_archetype"] == "notes"
+    assert state["scenarios"] == ["notes"]
     mock_set.assert_awaited_once()
 
 
@@ -30,10 +30,11 @@ async def test_cache_service_returns_structured_trend_items_without_hardcoded_fa
     items = await cache.get_top_trend_items(limit=5)
     assert items == []
 
-    await cache.update_trend_rank("华为 Mate 60", score_increment=3.0, scenario_hint="seeding", source="user_query")
+    await cache.update_trend_rank("华为 Mate 60", score_increment=3.0, scenario_hint="notes", source="user_query")
     items = await cache.get_top_trend_items(limit=5)
 
     assert len(items) == 1
     assert items[0]["keyword"] == "华为 Mate 60"
-    assert items[0]["scenario_hint"] == "seeding"
+    assert items[0]["scenario_hint"] == "notes"
     assert items[0]["recommended_prompt"]
+

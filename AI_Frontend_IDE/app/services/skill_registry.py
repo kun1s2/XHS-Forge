@@ -1,4 +1,4 @@
-"""Skill registry for the digital purchase agent workbench.
+﻿"""Skill registry for the digital purchase agent workbench.
 
 Skills are file-backed task recipes. They do not replace tool
 implementations or LangGraph orchestration; they only make the agent's
@@ -30,7 +30,7 @@ SKILL_SPECS: dict[str, SkillSpec] = {
     "product-search": SkillSpec(
         name="product-search",
         path=SKILLS_ROOT / "product-search" / "SKILL.md",
-        summary="查询数码产品参数、价格、竞品证据，优先结构化知识，再补混合检索。",
+        summary="查询主题背景、来源证据和补充资料，优先结构化知识，再补混合检索。",
         role_targets=("retrieval_worker",),
         tool_hints=("query_structured_knowledge", "retrieve_knowledge_hits", "network_search"),
         fallback="如果结构化命中不足，就补混合检索并把结果写成候选知识；仍不足时要求用户补资料。",
@@ -46,7 +46,7 @@ SKILL_SPECS: dict[str, SkillSpec] = {
     "spec-sheet-ingest": SkillSpec(
         name="spec-sheet-ingest",
         path=SKILLS_ROOT / "spec-sheet-ingest" / "SKILL.md",
-        summary="导入参数表/产品资料包，切块、抽候选知识并送入会话审查流。",
+        summary="导入文档、附件或资料包，切块、抽候选知识并送入会话审查流。",
         role_targets=("retrieval_worker",),
         tool_hints=("ingest_user_material", "index_chunks", "extract_candidate_records"),
         fallback="如果解析失败，返回可见失败原因和建议的替代输入格式。",
@@ -54,7 +54,7 @@ SKILL_SPECS: dict[str, SkillSpec] = {
     "decision-note-compose": SkillSpec(
         name="decision-note-compose",
         path=SKILLS_ROOT / "decision-note-compose" / "SKILL.md",
-        summary="把已审知识组织成数码购买决策档案：结论、事实、对比、风险和图片。",
+        summary="把已审知识组织成持续笔记：标题、正文、摘要、引用、附件说明和结构块。",
         role_targets=("composition_worker", "critique_worker"),
         tool_hints=("inspect_note_state", "inspect_component_state", "composition_service"),
         fallback="如果这轮没有实际改动，返回显式失败反馈并指出缺少的知识或块级目标。",
@@ -176,3 +176,5 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
         seen.add(value)
         output.append(value)
     return output
+
+

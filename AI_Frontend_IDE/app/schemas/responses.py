@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+﻿from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 class BaseResponse(BaseModel):
@@ -55,7 +55,7 @@ class TraceExportResponse(BaseResponse):
 class TrendItemResponse(BaseModel):
     keyword: str
     score: float = 0.0
-    scenario_hint: str = "seeding"
+    scenario_hint: str = "notes"
     entity_type: str = "product/model"
     source: str = "organic"
     freshness: str = "unknown"
@@ -94,3 +94,4 @@ class BlockGalleryComponentPayloadResponse(BaseResponse):
 
 class BlockGalleryScenarioPayloadResponse(BaseResponse):
     data: Dict[str, Any] = {}
+

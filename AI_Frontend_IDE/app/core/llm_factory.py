@@ -11,6 +11,8 @@ def create_llm(
     LLM 工厂方法：全站统一使用 ChatOpenAI 驱动。
     支持所有兼容 OpenAI 协议的供应商（如 GitHub Models, DeepSeek, 阿里云兼容模式等）。
     """
+    settings.require("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL")
+
     # 物理隔离：确保调用方传参不会干扰核心凭证
     kwargs.pop("api_key", None)
     kwargs.pop("base_url", None)

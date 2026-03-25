@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.api.chat import _normalize_checkpoint_action_payload
 from app.services.conversational_checkpoints import (
@@ -17,10 +17,10 @@ from app.services.conversational_checkpoints import (
 
 def _base_state() -> dict:
     return {
-        "active_archetype": "seeding",
+        "active_archetype": "notes",
         "main_messages": [],
         "planner_output": {
-            "scenario_scores": {"seeding": 1.0},
+            "scenario_scores": {"notes": 1.0},
             "block_intents": [],
         },
         "planner_policy": {
@@ -42,7 +42,7 @@ def test_build_structure_checkpoint_for_digital_create_request():
 def test_build_fact_gap_checkpoint_for_digital_missing_fields():
     state = {
         **_base_state(),
-        "main_messages": [{"content": "帮我做一篇华为 Mate 60 的购买决策档案"}],
+        "main_messages": [{"content": "帮我做一篇华为 Mate 60 的持续笔记"}],
         "retrieved_knowledge": {
             "entity_name": "华为 Mate 60",
             "fact_slots": {"display": {"summary": "屏幕素质不错"}},
@@ -64,7 +64,7 @@ def test_build_fact_gap_checkpoint_is_skipped_for_asset_edit_on_existing_artifac
             "needs_assets": True,
         },
         "note_document": {
-            "document_meta": {"title": "华为 Mate 60 购买决策档案"},
+            "document_meta": {"title": "华为 Mate 60 持续笔记"},
             "blocks": [{"id": "title_1", "type": "TitleBlock", "props": {"title": "华为 Mate 60"}}],
         },
         "retrieved_knowledge": {
@@ -83,7 +83,7 @@ def test_build_asset_checkpoint_for_multiple_images():
             {"url": "https://img.example/detail.jpg", "desc": "细节图"},
         ],
         "planner_output": {
-            "scenario_scores": {"seeding": 1.0},
+            "scenario_scores": {"notes": 1.0},
             "block_intents": [{"intent_type": "hero_media", "preferred_component": "CoverSwiper"}],
         },
     }
@@ -140,8 +140,8 @@ def test_fact_conflict_resolution_accepts_selected_value():
 
 
 def test_structure_checkpoint_decision_updates_layout_policy():
-    patch = apply_structure_checkpoint_decision({**_base_state(), "intent_decision": {"task_type": "create"}}, {"decision": "seeding_compare"})
-    assert patch["planner_policy"]["layout_policy"]["confirmed_structure_mode"] == "seeding_compare"
+    patch = apply_structure_checkpoint_decision({**_base_state(), "intent_decision": {"task_type": "create"}}, {"decision": "notes_compare"})
+    assert patch["planner_policy"]["layout_policy"]["confirmed_structure_mode"] == "notes_compare"
     assert patch["checkpoint_progress"]["structure"]["resolved"] is True
 
 
@@ -152,13 +152,13 @@ def test_build_structure_checkpoint_is_suppressed_after_resolution():
         "planner_policy": {
             "layout_policy": {
                 "preferred_block_intents": ["decision_summary", "fact_list"],
-                "confirmed_structure_mode": "seeding_compare",
+                "confirmed_structure_mode": "notes_compare",
             }
         },
         "checkpoint_progress": {
             "structure": {
                 "resolved": True,
-                "selected": "seeding_compare",
+                "selected": "notes_compare",
             }
         },
     }
@@ -209,7 +209,7 @@ def test_build_knowledge_review_checkpoint_is_suppressed_after_resolution():
 def test_build_fact_gap_checkpoint_is_suppressed_after_resolution():
     state = {
         **_base_state(),
-        "main_messages": [{"content": "帮我做一篇华为 Mate 60 的购买决策档案"}],
+        "main_messages": [{"content": "帮我做一篇华为 Mate 60 的持续笔记"}],
         "retrieved_knowledge": {
             "entity_name": "华为 Mate 60",
             "fact_slots": {"display": {"summary": "屏幕素质不错"}},
@@ -230,7 +230,7 @@ def test_build_asset_checkpoint_is_suppressed_after_resolution():
             {"url": "https://img.example/detail.jpg", "desc": "细节图"},
         ],
         "planner_output": {
-            "scenario_scores": {"seeding": 1.0},
+            "scenario_scores": {"notes": 1.0},
             "block_intents": [{"intent_type": "hero_media", "preferred_component": "CoverSwiper"}],
         },
     }
@@ -252,7 +252,7 @@ def test_apply_asset_checkpoint_search_images_marks_progress():
     state = {
         **_base_state(),
         "planner_output": {
-            "scenario_scores": {"seeding": 1.0},
+            "scenario_scores": {"notes": 1.0},
             "block_intents": [{"intent_type": "hero_media", "preferred_component": "CoverSwiper"}],
         },
     }
@@ -283,3 +283,4 @@ def test_build_fact_conflict_checkpoint_is_suppressed_after_resolution():
     patch = apply_fact_conflict_checkpoint_decision(state, {"decision": "keep_cautious"})
     next_state = {**state, **patch}
     assert build_fact_conflict_checkpoint(next_state) is None
+

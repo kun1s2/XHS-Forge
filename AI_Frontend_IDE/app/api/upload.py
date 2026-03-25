@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from copy import deepcopy
 from typing import Any, List
 
@@ -259,7 +259,7 @@ async def upload_knowledge_file(
             kb_scope=scope,
             source_type="user_kb_curated" if scope == KNOWLEDGE_SCOPE_PERSISTENT else "user_kb",
             entity_hint=entity_hint,
-            scene_hint=scene_hint or "seeding",
+            scene_hint=scene_hint or "notes",
             thread_id=thread_id,
         )
         result = await _ingest_parsed_source(request, thread_id=thread_id, parsed=parsed)
@@ -286,7 +286,7 @@ async def upload_knowledge_text(request: Request, payload: KnowledgeTextUploadRe
             kb_scope=scope,
             source_type="user_kb_curated" if scope == KNOWLEDGE_SCOPE_PERSISTENT else "user_kb",
             entity_hint=payload.entity_hint,
-            scene_hint=payload.scene_hint or "seeding",
+            scene_hint=payload.scene_hint or "notes",
             thread_id=payload.thread_id,
         )
         result = await _ingest_parsed_source(request, thread_id=payload.thread_id, parsed=parsed)
@@ -311,7 +311,7 @@ async def upload_knowledge_url(request: Request, payload: KnowledgeUrlUploadRequ
             url=payload.url,
             kb_scope=scope,
             entity_hint=payload.entity_hint,
-            scene_hint=payload.scene_hint or "seeding",
+            scene_hint=payload.scene_hint or "notes",
             thread_id=payload.thread_id,
         )
         result = await _ingest_parsed_source(request, thread_id=payload.thread_id, parsed=parsed)
@@ -419,7 +419,7 @@ async def import_demo_pack(request: Request, payload: KnowledgeDemoPackRequest):
             kb_scope=scope,
             source_type="user_kb_curated" if scope == KNOWLEDGE_SCOPE_PERSISTENT else "user_kb",
             entity_hint=str(document.get("entity_hint") or ""),
-            scene_hint=str(pack.get("scenario") or "seeding"),
+            scene_hint=str(pack.get("scenario") or "notes"),
             thread_id=payload.thread_id,
         )
         indexed_chunks += await knowledge_hub_service.index_chunks(parsed.chunks, getattr(request.app.state, "vector_store", None))
@@ -445,3 +445,4 @@ async def import_demo_pack(request: Request, payload: KnowledgeDemoPackRequest):
         "record_count": len(candidate_records),
         "knowledge": next_knowledge,
     }
+

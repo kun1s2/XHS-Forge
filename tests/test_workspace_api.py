@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from types import SimpleNamespace
 
 from app.schemas.responses import BlockGalleryOverviewResponse, EvaluationOverviewResponse, TraceExportResponse, TrendListResponse, WorkspaceDataResponse
@@ -197,8 +197,8 @@ def test_build_trace_export_bundle_contains_planner_retrieval_and_document_outli
             "active_panel": "main",
             "selected_element_id": None,
             "intent_route": "retrieval_worker",
-            "active_archetype": "seeding",
-            "scenarios": ["seeding"],
+            "active_archetype": "notes",
+            "scenarios": ["notes"],
             "planner_output": {"block_intents": [{"intent_type": "comparison"}]},
             "planner_policy": {"layout_policy": {"preferred_block_intents": ["comparison"]}},
             "turn_trace": {"query": "帮我判断 Mate 60 值不值得买", "changed_blocks": [{"id": "vs_1", "type": "VersusCard"}]},
@@ -305,7 +305,7 @@ def test_trend_list_response_accepts_structured_trend_items():
             {
                 "keyword": "华为 Mate 60",
                 "score": 12.0,
-                "scenario_hint": "seeding",
+                "scenario_hint": "notes",
                 "entity_type": "product_topic",
                 "source": "system_preload",
                 "freshness": "fresh",
@@ -317,7 +317,7 @@ def test_trend_list_response_accepts_structured_trend_items():
     )
 
     assert response.trends[0].keyword == "华为 Mate 60"
-    assert response.trends[0].scenario_hint == "seeding"
+    assert response.trends[0].scenario_hint == "notes"
     assert response.trends[0].recommended_prompt
 
 
@@ -332,7 +332,7 @@ def test_block_gallery_overview_response_accepts_structured_payload():
 
 def test_block_gallery_component_and_scenario_fixtures_are_accessible():
     component = get_block_gallery_component("VersusCard")
-    scenario = get_block_gallery_scenario("seeding_compare")
+    scenario = get_block_gallery_scenario("notes_compare")
 
     assert component is not None
     assert component["fixture"]["note_document"]["blocks"][0]["type"] == "VersusCard"
@@ -344,8 +344,8 @@ def test_block_gallery_component_and_scenario_fixtures_are_accessible():
 def test_build_inspector_summary_highlights_attention_signals():
     summary = _build_inspector_summary({
         "note_document": {
-            "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
-            "theme": {"preset": "seeding_hot"},
+            "document_meta": {"title": "Mate 60 页面", "scenarios": ["notes"]},
+            "theme": {"preset": "notes_hot"},
             "blocks": [{"id": "poll_1", "type": "PollBlock"}],
             "assets": [{"url": "https://img.example/1.jpg", "role": "cover", "used_by_blocks": ["poll_1"]}],
             "fact_bindings": [{"block_id": "poll_1", "bindings": [{"field": "summary"}]}],
@@ -379,7 +379,7 @@ def test_build_inspector_summary_highlights_attention_signals():
 def test_build_inspector_summary_prefers_workspace_action_when_composition_trace_absent():
     summary = _build_inspector_summary({
         "note_document": {
-            "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+            "document_meta": {"title": "Mate 60 页面", "scenarios": ["notes"]},
             "blocks": [{"id": "story_1", "type": "StoryText"}],
             "assets": [],
             "fact_bindings": [],
@@ -400,7 +400,7 @@ def test_build_inspector_summary_prefers_workspace_action_when_composition_trace
 def test_build_inspector_summary_includes_component_builder_overview():
     summary = _build_inspector_summary({
         "note_document": {
-            "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+            "document_meta": {"title": "Mate 60 页面", "scenarios": ["notes"]},
             "blocks": [{"id": "poll_1", "type": "PollBlock"}],
             "assets": [],
             "fact_bindings": [],
@@ -439,7 +439,7 @@ def test_build_inspector_summary_includes_component_builder_overview():
 def test_build_inspector_summary_includes_retrieval_overview():
     summary = _build_inspector_summary({
         "note_document": {
-            "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+            "document_meta": {"title": "Mate 60 页面", "scenarios": ["notes"]},
             "blocks": [{"id": "spec_1", "type": "ProductSpecCard"}],
             "assets": [],
             "fact_bindings": [],
@@ -526,7 +526,7 @@ def test_build_inspector_summary_and_trace_export_include_agentic_skill_view():
             },
         },
         "note_document": {
-            "document_meta": {"title": "Mate 60 决策档案", "scenarios": ["seeding"]},
+            "document_meta": {"title": "Mate 60 决策档案", "scenarios": ["notes"]},
             "blocks": [{"id": "hero_1", "type": "CoverSwiper"}],
             "assets": [{"url": "https://img.example/mate.jpg", "role": "cover"}],
             "fact_bindings": [],
@@ -582,8 +582,8 @@ def test_build_benchmark_overview_aggregates_sessions():
             "updated_at": "2026-03-21T10:00:00",
             "values": {
                 "note_document": {
-                    "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
-                    "theme": {"preset": "seeding_hot"},
+                    "document_meta": {"title": "Mate 60 页面", "scenarios": ["notes"]},
+                    "theme": {"preset": "notes_hot"},
                     "blocks": [
                         {"id": "spec_1", "type": "ProductSpecCard"},
                         {"id": "poll_1", "type": "PollBlock"},
@@ -631,8 +631,8 @@ def test_build_benchmark_overview_aggregates_sessions():
             "updated_at": "2026-03-21T09:00:00",
             "values": {
                 "note_document": {
-                    "document_meta": {"title": "小米 14 决策页", "scenarios": ["seeding"]},
-                    "theme": {"preset": "seeding_hot"},
+                    "document_meta": {"title": "小米 14 决策页", "scenarios": ["notes"]},
+                    "theme": {"preset": "notes_hot"},
                     "blocks": [{"id": "vs_1", "type": "VersusCard"}],
                     "assets": [],
                     "fact_bindings": [],
@@ -682,7 +682,7 @@ def test_build_benchmark_overview_aggregates_sessions():
     assert overview["cache"]["rerank_rate"] == 0.5
     assert overview["execution"]["builder_fallback_total"] == 1
     assert overview["execution"]["warning_session_count"] == 1
-    assert overview["distributions"]["scenarios"][0]["scenario"] == "seeding"
+    assert overview["distributions"]["scenarios"][0]["scenario"] == "notes"
     assert overview["distributions"]["components"][0]["component_type"] in {"ProductSpecCard", "PollBlock", "VersusCard"}
     assert len(overview["sessions"]) == 2
     assert overview["recommendations"]
@@ -718,7 +718,7 @@ def test_build_evaluation_overview_aggregates_six_dimensions():
                     "asset_policy": {"mode": "cover_first"},
                 },
                 "note_document": {
-                    "document_meta": {"title": "Mate 60 页面", "scenarios": ["seeding"]},
+                    "document_meta": {"title": "Mate 60 页面", "scenarios": ["notes"]},
                     "blocks": [
                         {"id": "cover_1", "type": "CoverSwiper"},
                         {"id": "spec_1", "type": "ProductSpecCard"},
@@ -763,3 +763,4 @@ def test_build_evaluation_overview_aggregates_six_dimensions():
     assert overview["suite"]["case_count"] >= 6
     assert overview["sessions"][0]["intent_route"] == "composition_worker"
     assert overview["recommendations"]
+

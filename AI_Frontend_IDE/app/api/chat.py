@@ -1,4 +1,4 @@
-import json
+﻿import json
 import asyncio
 from typing import Any
 from types import SimpleNamespace
@@ -107,7 +107,7 @@ def _summarize_document(values):
     doc = _extract_note_document(values)
     blocks = _get_document_blocks(doc)
     return {
-        "title": ((doc.get("document_meta") or {}).get("title") or "XHS-Forge Note"),
+        "title": ((doc.get("document_meta") or {}).get("title") or "Forge Notes"),
         "block_count": len(blocks),
         "block_order": [
             {"id": str(block.get("id") or ""), "type": str(block.get("type") or "")}
@@ -197,7 +197,7 @@ def _build_agent_plan(turn_context: dict[str, Any] | None, after_values: dict[st
             "watch_points": ["如果这块和别的区域强耦合，我会尽量保持其它部分不被顺手改乱。"],
         }
 
-    if active == "seeding":
+    if active == "notes":
         steps = [
             "先判断这页更适合购买判断、参数对比还是体验分流",
             "再补足影响判断的关键信息和图片",
@@ -206,7 +206,7 @@ def _build_agent_plan(turn_context: dict[str, Any] | None, after_values: dict[st
         watch_points = ["如果事实或素材不够稳，我会先给你推荐方案，再继续往下搭。"]
     else:
         steps = [
-            "先把这轮内容收成更像数码购买决策档案的判断结构",
+            "先把这轮内容收成更像持续笔记协作档案的判断结构",
             "再补当前最影响结论可信度的关键信息",
             "最后把判断、事实和素材收成完整版本",
         ]
@@ -402,7 +402,7 @@ def _build_materialize_resume_directive(values: dict[str, Any] | None) -> dict[s
         return {
             "source": "post_turn_materialize",
             "preferred_worker": "composition_worker",
-            "resume_query": "继续把这轮已经找到的图片和素材落到当前购买决策档案里，不要停在分析阶段，也不要重复请求同一类素材确认。",
+            "resume_query": "继续把这轮已经找到的图片和素材落到当前持续笔记里，不要停在分析阶段，也不要重复请求同一类素材确认。",
             "decision": "auto_materialize_assets",
         }
     retrieved = (values or {}).get("retrieved_knowledge") if isinstance((values or {}).get("retrieved_knowledge"), dict) else {}
@@ -412,13 +412,13 @@ def _build_materialize_resume_directive(values: dict[str, Any] | None) -> dict[s
         return {
             "source": "post_turn_materialize",
             "preferred_worker": "composition_worker",
-            "resume_query": "继续把已确认的结构、知识和素材落成购买决策档案，不要停在分析阶段。",
+            "resume_query": "继续把已确认的结构、知识和素材落成持续笔记，不要停在分析阶段。",
             "decision": "auto_materialize",
         }
     return {
         "source": "post_turn_materialize",
         "preferred_worker": "retrieval_worker",
-        "resume_query": "继续先补齐关键事实，再把购买决策档案落成可见页面，不要停在分析阶段。",
+        "resume_query": "继续先补齐关键事实，再把持续笔记落成可见页面，不要停在分析阶段。",
         "decision": "auto_materialize",
     }
 
@@ -762,7 +762,7 @@ async def _send_capability_reply(
         "status_timeline": ["我先直接告诉你我现在能怎么配合。"],
         "route": {
             "intent_route": "supervisor_agent",
-            "active_archetype": snapshot.values.get("active_archetype", "seeding"),
+            "active_archetype": snapshot.values.get("active_archetype", "notes"),
         },
         "changed_blocks": [],
         "warnings": [],
@@ -965,7 +965,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                 if is_vetoed:
                     print(f"🛑 [绝对防御] 发现违规内容，已在入口点阻断: {user_query_str[:15]}")
                     veto_note_document = {
-                        "document_meta": {"title": "🚫 触发系统安全保护", "active_archetype": "seeding", "scenarios": ["seeding"]},
+                        "document_meta": {"title": "🚫 触发系统安全保护", "active_archetype": "notes", "scenarios": ["notes"]},
                         "theme": {"page_theme": {}, "global_vars": {"--primary-vibe": "#ff2442"}},
                         "blocks": [
                             {
@@ -1089,7 +1089,7 @@ async def websocket_chat(websocket: WebSocket, thread_id: str):
                     "user_messages": [new_msg],
                     "active_panel": payload.panel,
                     "selected_element_id": selected_el,
-                    "creator_persona": payload.creator_persona or "硬核数码博主",
+                    "creator_persona": payload.creator_persona or "结构化笔记助手",
                     "image_assets": _build_runtime_image_assets(payload),
                     "pending_images": pending_urls,
                 }
@@ -1255,7 +1255,7 @@ async def _run_supervisor_turn(agent, inputs, config, websocket, turn_context=No
                     "resume_directive": {
                         "source": "explicit_review_request",
                         "preferred_worker": "critique_worker",
-                        "resume_query": explicit_user_query or "继续复盘当前购买决策档案并给出一条主修订建议。",
+                        "resume_query": explicit_user_query or "继续复盘当前持续笔记并给出一条主修订建议。",
                         "decision": "auto_review_apply",
                     }
                 },
@@ -1321,7 +1321,7 @@ async def _run_supervisor_turn(agent, inputs, config, websocket, turn_context=No
                 "resume_directive": {
                     "source": "explicit_asset_edit",
                     "preferred_worker": "retrieval_worker",
-                    "resume_query": explicit_user_query or "继续先搜图，再把素材落到当前购买决策档案中。",
+                    "resume_query": explicit_user_query or "继续先搜图，再把素材落到当前持续笔记中。",
                     "decision": "auto_asset_apply",
                 }
             },
@@ -1589,3 +1589,4 @@ def _extract_thought(output):
         if res_obj is not None:
             return getattr(res_obj, "thought_process", None)
     return None
+

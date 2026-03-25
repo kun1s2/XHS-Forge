@@ -78,24 +78,27 @@ APPEND_BLOCK_REQUEST_TOKENS = (
     "增加一个新块",
     "加一个新块",
     "插入一个新块",
-    "在现有档案后面",
+    "新增一节",
+    "补一个章节",
+    "补一节",
+    "在现有笔记后面",
     "继续补一个新块",
     "再补一个新块",
 )
 
 APPEND_BLOCK_TOPIC_TOKENS = (
-    "销量",
-    "销量表现",
-    "卖了多少",
-    "销售表现",
-    "发展史",
-    "历史",
-    "演进",
-    "历代",
-    "适合什么人群",
-    "适合人群",
-    "适合谁",
-    "目标人群",
+    "补充",
+    "总结",
+    "背景",
+    "说明",
+    "引用",
+    "附件",
+    "来源",
+    "待办",
+    "结论",
+    "复盘",
+    "记录",
+    "章节",
 )
 
 IMAGE_REQUEST_TOKENS = (
@@ -189,8 +192,8 @@ def looks_like_append_block_request(user_text: str | None) -> bool:
     raw_text = str(user_text or "").strip()
     if not raw_text:
         return False
-    return contains_any_token(raw_text, APPEND_BLOCK_REQUEST_TOKENS) and contains_any_token(
-        raw_text, APPEND_BLOCK_TOPIC_TOKENS
+    return contains_any_token(raw_text, APPEND_BLOCK_REQUEST_TOKENS) and (
+        contains_any_token(raw_text, APPEND_BLOCK_TOPIC_TOKENS) or len(raw_text) <= 80
     )
 
 

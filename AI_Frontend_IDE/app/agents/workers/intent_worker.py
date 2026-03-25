@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import json
 import os
 from datetime import datetime
@@ -93,7 +93,7 @@ def _build_fast_path_result(
     has_existing_canvas: bool,
     route: str,
 ) -> dict:
-    scenario = str(active_archetype or "seeding")
+    scenario = str(active_archetype or "notes")
     operation_type = _infer_operation_type(
         user_query=user_query,
         active_panel=active_panel,
@@ -169,11 +169,11 @@ def _derive_route_from_intent_decision(intent_decision: dict, *, user_query: str
 
 
 async def intent_worker(state: dict[str, object]) -> dict:
-    """数字购买决策工作台的统一意图网关。"""
-    valid_scenarios = scenario_manager.list_all_scenarios() or ["seeding"]
+    """持续笔记工作台的统一意图网关。"""
+    valid_scenarios = scenario_manager.list_all_scenarios() or ["notes"]
     execution_view = build_note_document_layout_from_state(state)
     selected_id = state.get("selected_element_id")
-    active_archetype = "seeding"
+    active_archetype = "notes"
     note_document = state.get("note_document") if isinstance(state.get("note_document"), dict) else {}
     has_existing_canvas = bool(execution_view.get("blocks")) or bool(note_document.get("blocks"))
     active_panel = str(state.get("active_panel", "main") or "main")
@@ -251,9 +251,9 @@ async def intent_worker(state: dict[str, object]) -> dict:
             ).model_dump(),
             "intent_route": "critique_worker",
             "selected_element_id": selected_id,
-            "scenarios": ["seeding"],
-            "scenario_scores": {"seeding": 1.0},
-            "active_archetype": "seeding",
+            "scenarios": ["notes"],
+            "scenario_scores": {"notes": 1.0},
+            "active_archetype": "notes",
             "worker_prompts": {
                 "intent_worker": [
                     {
@@ -291,9 +291,9 @@ async def intent_worker(state: dict[str, object]) -> dict:
             ).model_dump(),
             "intent_route": "supervisor_agent",
             "selected_element_id": selected_id,
-            "scenarios": ["seeding"],
-            "scenario_scores": {"seeding": 1.0},
-            "active_archetype": "seeding",
+            "scenarios": ["notes"],
+            "scenario_scores": {"notes": 1.0},
+            "active_archetype": "notes",
             "agent_backends": {"intent_worker": "deterministic_capability_fast_path"},
         }
 
@@ -306,7 +306,7 @@ async def intent_worker(state: dict[str, object]) -> dict:
     current_time = datetime.now().strftime("%Y-%m-%d %A")
     prompt = build_chat_prompt(
         system_template_name="workers/intent_system.md",
-        human_template="【当前时间】: {{ current_time }}\n【正式业务】: 数码购买决策\n【用户指令】: {{ query }}",
+        human_template="【当前时间】: {{ current_time }}\n【正式业务】: 持续笔记协作\n【用户指令】: {{ query }}",
     )
     structured_llm = llm.with_structured_output(IntentDecision, method="function_calling")
 
@@ -345,9 +345,9 @@ async def intent_worker(state: dict[str, object]) -> dict:
             "intent_decision": intent_decision,
             "intent_route": derived_route,
             "selected_element_id": selected_id,
-            "scenarios": ["seeding"],
-            "scenario_scores": {"seeding": 1.0},
-            "active_archetype": "seeding",
+            "scenarios": ["notes"],
+            "scenario_scores": {"notes": 1.0},
+            "active_archetype": "notes",
             "thought_process": result.thought_process,
             "worker_prompts": build_prompt_snapshot("intent_worker", messages=prompt_messages),
             "agent_backends": {"intent_worker": "structured_function_calling"},
@@ -356,8 +356,10 @@ async def intent_worker(state: dict[str, object]) -> dict:
         print(f"❌ Intent Agent 失败: {error}")
         return {
             "intent_route": "retrieval_worker",
-            "scenarios": ["seeding"],
-            "scenario_scores": {"seeding": 1.0},
-            "active_archetype": "seeding",
+            "scenarios": ["notes"],
+            "scenario_scores": {"notes": 1.0},
+            "active_archetype": "notes",
             "agent_backends": {"intent_worker": "fallback_route"},
         }
+
+

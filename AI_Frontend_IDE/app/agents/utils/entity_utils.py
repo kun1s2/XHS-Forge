@@ -1,4 +1,4 @@
-import re
+﻿import re
 
 
 _QUOTED_PATTERNS = (
@@ -35,7 +35,7 @@ _GENERIC_ENTITY_CUES = (
     "左右的笔记本",
     "主要看重",
     "值不值得买",
-    "购买决策档案",
+    "持续笔记",
     "这篇笔记",
     "当前主题",
 )
@@ -45,10 +45,10 @@ _GENERIC_ENTITY_EXACT = {
     "平板",
     "耳机",
     "笔记本",
-    "数码产品",
+    "笔记主题",
     "这篇笔记",
     "当前主题",
-    "数码购买决策档案",
+    "持续笔记协作档案",
 }
 
 
@@ -163,3 +163,4 @@ def resolve_state_entity_name(state: dict | None, fallback_query: str = "") -> s
         if normalized and not is_generic_entity_name(normalized):
             return normalized
     return normalize_entity_name(fallback_query)
+

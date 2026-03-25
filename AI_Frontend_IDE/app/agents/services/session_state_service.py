@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
@@ -49,9 +49,9 @@ def ensure_session_runtime_defaults(state: dict[str, Any]) -> dict[str, Any]:
         revision_status = {}
     defaults = {
         "active_panel": str(state.get("active_panel") or "main"),
-        "active_archetype": str(state.get("active_archetype") or "seeding"),
-        "scenarios": list(state.get("scenarios") or ["seeding"]),
-        "creator_persona": str(state.get("creator_persona") or "硬核数码博主"),
+        "active_archetype": str(state.get("active_archetype") or "notes"),
+        "scenarios": list(state.get("scenarios") or ["notes"]),
+        "creator_persona": str(state.get("creator_persona") or "结构化笔记助手"),
         "current_phase": normalize_phase_name(state.get("current_phase") or PHASE_INTENT),
         "active_worker": state.get("active_worker") or "supervisor",
         "note_document": note_document,
@@ -63,3 +63,4 @@ def ensure_session_runtime_defaults(state: dict[str, Any]) -> dict[str, Any]:
         "revision_status": revision_status,
     }
     return defaults
+

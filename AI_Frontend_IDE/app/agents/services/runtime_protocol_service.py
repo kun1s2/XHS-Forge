@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
@@ -90,7 +90,7 @@ def _resume_entity_anchor(state: dict[str, Any] | None) -> str:
     for candidate in candidates:
         if candidate:
             return candidate
-    return "当前购买决策档案"
+    return "当前持续笔记"
 
 
 def build_worker_result(
@@ -145,7 +145,7 @@ def build_checkpoint_resume_directive(
 
     if checkpoint_type == "structure_checkpoint":
         preferred_worker = "retrieval_worker"
-        resume_query = f"已确认页面骨架方向，继续围绕「{entity_anchor}」补齐关键事实并开始搭建购买决策档案，不要再次请求结构确认。"
+        resume_query = f"已确认页面骨架方向，继续围绕「{entity_anchor}」补齐关键事实并开始搭建持续笔记，不要再次请求结构确认。"
     elif checkpoint_type in {
         "knowledge_review_checkpoint",
         "truth_mode_checkpoint",
@@ -172,13 +172,13 @@ def build_checkpoint_resume_directive(
     elif checkpoint_type == "asset_checkpoint":
         if decision_choice == "search_images_for_cover":
             preferred_worker = "retrieval_worker"
-            resume_query = f"继续为「{entity_anchor}」搜索更贴题的图片素材，再把素材落到当前购买决策档案中。"
+            resume_query = f"继续为「{entity_anchor}」搜索更贴题的图片素材，再把素材落到当前持续笔记中。"
         else:
             preferred_worker = "composition_worker"
-            resume_query = f"已确认素材方案，继续把素材落到「{entity_anchor}」的购买决策档案中，不要再次请求同一个素材确认。"
+            resume_query = f"已确认素材方案，继续把素材落到「{entity_anchor}」的持续笔记中，不要再次请求同一个素材确认。"
     else:
         preferred_worker = "composition_worker" if has_visible_blocks else "retrieval_worker"
-        resume_query = f"已完成这轮确认，继续推进「{entity_anchor}」当前的购买决策档案。"
+        resume_query = f"已完成这轮确认，继续推进「{entity_anchor}」当前的持续笔记。"
 
     return {
         "source": checkpoint_type,
@@ -207,13 +207,13 @@ def build_revision_resume_directive(
         if plan_prompt:
             resume_query = plan_prompt
         else:
-            resume_query = f"继续为「{entity_anchor}」补图并把素材落到当前购买决策档案中，不要重新走复盘或泛化检索。"
+            resume_query = f"继续为「{entity_anchor}」补图并把素材落到当前持续笔记中，不要重新走复盘或泛化检索。"
     else:
         scope_hint = f"优先修改区块 {target_block_id}。" if target_block_id else "优先沿当前结构继续收口。"
         detail_parts = [part for part in (reason, expected_effect) if part]
         detail_line = " ".join(detail_parts).strip()
         resume_query = (
-            f"继续优化「{entity_anchor}」当前购买决策档案，{scope_hint}"
+            f"继续优化「{entity_anchor}」当前持续笔记，{scope_hint}"
             f"{detail_line or '按这轮修订建议继续把内容收紧，不要重新起草，也不要重新进入检索流程。'}"
         )
 
@@ -282,7 +282,7 @@ def derive_followup_resume_directive(state: dict[str, Any]) -> dict[str, Any] | 
     return {
         "source": "protocol_followup",
         "preferred_worker": "composition_worker",
-        "resume_query": "结构和知识已经准备好，继续把购买决策档案落成可见页面，不要停在分析阶段。",
+        "resume_query": "结构和知识已经准备好，继续把持续笔记落成可见页面，不要停在分析阶段。",
         "decision": "auto_followup",
     }
 
@@ -363,3 +363,4 @@ __all__ = [
     "should_commit_artifact_version",
     "transition_phase",
 ]
+

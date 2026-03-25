@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Literal, Any, Union
+﻿from typing import List, Dict, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field, field_validator
 import re
 
@@ -29,7 +29,7 @@ class OutlineOutput(BaseModel):
     blocks: List[UIBlock] = Field(..., description="自上而下、一维线性排布的 UI 积木区块列表")
     
     # ✅ 已重构：ArchetypeEnum -> str
-    detected_archetype: str = Field(default="seeding", description="本次排版最终确定的业务原型 ID")
+    detected_archetype: str = Field(default="notes", description="本次排版最终确定的业务原型 ID")
 
 class ComponentData(BaseModel):
     """组件参数规范 (ComponentPayload)"""
@@ -157,7 +157,7 @@ class StructurePatchOutput(BaseModel):
     components: Dict[str, ComponentData] = Field(..., description="组件的具体数据负载")
     
     # ✅ 已重构：ArchetypeEnum -> str
-    detected_archetype: str = Field(default="seeding", description="本次排版最终确定的业务原型 ID")
+    detected_archetype: str = Field(default="notes", description="本次排版最终确定的业务原型 ID")
 
 class SurgicalPatchOutput(BaseModel):
     """【手术刀模式】专用输出模型：仅修改单个组件内容"""
@@ -307,3 +307,4 @@ class IntentDecision(BaseModel):
     confidence: float = Field(default=0.85, ge=0.0, le=1.0)
     fallback_required: bool = False
     risk_flags: List[str] = Field(default_factory=list)
+

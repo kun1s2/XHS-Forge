@@ -1,4 +1,4 @@
-// src/stores/useChatStore.ts
+﻿// src/stores/useChatStore.ts
 // Main workspace store: persistent state, websocket/workspace sync, and user actions.
 // Pure protocol pickers and derived-data helpers live in `chatStoreDerivations.ts`
 // so this file stays focused on orchestration rather than data-shaping details.
@@ -196,8 +196,8 @@ const normalizeConversationCheckpointAction = (raw: Record<string, unknown>): Co
 
   if (rawActionType === 'stance_decision' && options.length === 0) {
     options = [
-      { label: '🔴 黑榜', value: 'negative_stance', description: '按黑榜吐槽方向继续。' },
-      { label: '🟢 红榜', value: 'positive_stance', description: '按红榜种草方向继续。' },
+      { label: '🔵 保守版', value: 'negative_stance', description: '按更保守、更克制的版本继续。' },
+      { label: '🟢 完整版', value: 'positive_stance', description: '按更完整、更积极的版本继续。' },
     ]
   }
 
@@ -1094,7 +1094,7 @@ export const useChatStore = defineStore('chat', () => {
     
     sessions.value.unshift({
       thread_id: newId,
-      title: '新的种草页面',
+      title: '新的笔记',
       updated_at: new Date().toISOString()
     })
     
@@ -1228,7 +1228,7 @@ export const useChatStore = defineStore('chat', () => {
       ...currentDoc,
       document_meta: {
         ...((currentDoc.document_meta || {}) as Record<string, any>),
-        title: (currentDoc.document_meta as any)?.title || 'XHS-Forge Note',
+        title: (currentDoc.document_meta as any)?.title || 'Forge Notes',
       },
       blocks: getDocumentBlocks(currentDoc).map((block, index) => ({ ...block, order: index })),
       assets: normalizedAssets,
@@ -2182,3 +2182,5 @@ export const useChatStore = defineStore('chat', () => {
     rollbackComponent
   }
 })
+
+

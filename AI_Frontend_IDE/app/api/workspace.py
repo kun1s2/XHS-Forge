@@ -1,4 +1,4 @@
-import json
+﻿import json
 import uuid
 from copy import deepcopy
 from pydantic import BaseModel
@@ -54,7 +54,7 @@ router = APIRouter(prefix="/workspace", tags=["Workspace Operations"])
 class SessionInfo(BaseModel):
     thread_id: str
     updated_at: str
-    title: str = "未命名种草页面"
+    title: str = "未命名笔记页面"
 
 class SessionListResponse(BaseModel):
     sessions: List[SessionInfo]
@@ -126,7 +126,7 @@ def _extract_session_title(values: dict, thread_id: str) -> str:
             return compact[:24] + ("..." if len(compact) > 24 else "")
 
     document_title = str((((values.get("note_document") or {}).get("document_meta") or {}).get("title")) or "").strip()
-    if document_title and document_title != "XHS-Forge Note":
+    if document_title and document_title != "Forge Notes":
         return document_title[:24] + ("..." if len(document_title) > 24 else "")
 
     return f"项目 {thread_id[:8]}"
@@ -167,7 +167,7 @@ def _summarize_document_state(values: dict | None) -> dict:
     note_document = (values or {}).get("note_document") or build_note_document_from_state(values or {})
     blocks = _extract_document_blocks(note_document)
     return {
-        "title": str(((note_document or {}).get("document_meta") or {}).get("title") or "XHS-Forge Note"),
+        "title": str(((note_document or {}).get("document_meta") or {}).get("title") or "Forge Notes"),
         "block_count": len(blocks),
         "block_order": [
             {"id": str(block.get("id") or ""), "type": str(block.get("type") or "")}
@@ -1085,3 +1085,4 @@ async def select_region(req: SelectRegionRequest, request: Request):
     await _record_workspace_operation(agent, config, action="workspace_select_region", reason=f"锁定区块: {req.element_id}", before_values=values, selected_element_id=req.element_id)
     
     return BaseResponse(message=f"已成功锁定前端元素: {req.element_id}")
+

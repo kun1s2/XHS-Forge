@@ -1,4 +1,4 @@
-"""Note Quality Critique Agent."""
+﻿"""Note Quality Critique Agent."""
 
 import json
 import re
@@ -477,3 +477,4 @@ async def critique_worker_payload(state: dict[str, Any]) -> Dict[str, Any]:
 
 
 gaicritique_node = critique_worker_payload
+

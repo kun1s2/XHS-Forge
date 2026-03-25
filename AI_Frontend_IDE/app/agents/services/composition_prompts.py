@@ -1,4 +1,4 @@
-"""Prompt/context builders for the composition service.
+﻿"""Prompt/context builders for the composition service.
 
 Keeping prompt assembly here helps `composition_service.py` stay focused on the
 execution pipeline instead of carrying long prompt templates inline.
@@ -93,7 +93,7 @@ def build_composition_prompt(state: CompositionPromptState) -> str:
     _note_document, document_view, block_style_map, image_assets = build_note_document_editing_context(state)
     knowledge = state.get("retrieved_knowledge", {}) or {}
     selected_element_id = state.get("selected_element_id")
-    creator_persona = state.get("creator_persona", "硬核数码博主")
+    creator_persona = state.get("creator_persona", "结构化笔记助手")
     has_controversy = state.get("has_controversy", False)
     current_blocks = document_view.get("blocks", [])
     local_mode = selected_element_id not in [None, "", "无", "无 (全局修改)", "none"]
@@ -118,7 +118,7 @@ def build_composition_prompt(state: CompositionPromptState) -> str:
     )
     asset_summary = build_asset_summary(image_assets, limit=4)
 
-    return f"""你是 XHS-Forge 的数码购买决策 Composition Agent。
+    return f"""你是 XHS-Forge 的持续笔记协作 Composition Agent。
 你的职责不是走流水线，而是像真正的编辑器一样，直接把用户自然语言改成一张可渲染的笔记。
 
 【最高目标】
@@ -534,3 +534,4 @@ def infer_append_insert_index(user_query: str, target_index: int | None, block_c
     if wants_before_position(user_query):
         return max(0, target_index)
     return min(block_count, target_index + 1)
+

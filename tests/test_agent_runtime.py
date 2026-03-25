@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -153,14 +153,14 @@ async def test_composition_worker_payload_uses_resume_directive_when_no_user_que
     await composition_worker_module.composition_worker_payload(
         {
             "main_messages": [],
-            "resume_directive": {"resume_query": "继续把已确认的结构落成购买决策档案"},
+            "resume_directive": {"resume_query": "继续把已确认的结构落成持续笔记"},
             "intent_decision": {"task_type": "create", "operation_type": "generate"},
             "knowledge_plan": {"required_fields": ["price"]},
         }
     )
 
     rendered = captured["messages"][0][1]
-    assert "继续把已确认的结构落成购买决策档案" in rendered
+    assert "继续把已确认的结构落成持续笔记" in rendered
 
 
 @pytest.mark.asyncio
@@ -195,3 +195,4 @@ async def test_composition_worker_payload_prefers_latest_human_query_over_traili
     rendered = captured["messages"][0][1]
     assert "销量" in rendered
     assert "素材落到页面中" not in rendered
+

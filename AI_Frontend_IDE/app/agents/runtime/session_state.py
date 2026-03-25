@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any, Optional
 
@@ -74,3 +74,4 @@ class SupervisorSessionState(AgentState[dict[str, Any]]):
     current_phase: NotRequired[Annotated[str, overwrite_state_value]]
     active_worker: NotRequired[Annotated[Optional[str], overwrite_state_value]]
     version_history_head: NotRequired[list[dict[str, Any]]]
+

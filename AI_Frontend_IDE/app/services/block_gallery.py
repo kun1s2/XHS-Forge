@@ -1,4 +1,4 @@
-"""积木大全固定样例。
+﻿"""积木大全固定样例。
 
 这里提供两类数据：
 1. 单积木真实样例：让每个积木都能在“像真实内容”的状态下被查看。
@@ -76,7 +76,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "TitleBlock",
         "label": "标题块",
         "semantic_role": "heading",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "适合承接页面总判断，别把它写成无意义的大口号。",
         "fixture": {
             "id": "component_title_block",
@@ -93,7 +93,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="标题块真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -103,7 +103,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "StoryText",
         "label": "正文块",
         "semantic_role": "narrative_text",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "更适合分成“开场判断 / 事实补充 / 边界提醒”，不要退化成长文墙。",
         "fixture": {
             "id": "component_story_text",
@@ -128,7 +128,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="正文块真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -138,7 +138,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "ProductSpecCard",
         "label": "参数卡",
         "semantic_role": "evidence_summary",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "参数卡更适合回答“为什么重要”，不适合只堆字符串。",
         "fixture": {
             "id": "component_product_spec",
@@ -158,7 +158,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="参数卡真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -168,7 +168,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "RadarChartBlock",
         "label": "雷达图",
         "semantic_role": "score_overview",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "雷达图应该解释每个维度为什么高低，而不是只当装饰。",
         "fixture": {
             "id": "component_radar_chart",
@@ -193,7 +193,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="雷达图真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -203,7 +203,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "VersusCard",
         "label": "对比卡",
         "semantic_role": "comparison",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "更像购买分流卡，不该再退化成左右两坨长文。",
         "fixture": {
             "id": "component_versus_card",
@@ -243,7 +243,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="对比卡真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -253,7 +253,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "PollBlock",
         "label": "投票卡",
         "semantic_role": "interactive_opinion",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "投票卡应该承接表达和分流，而不是伪装真实平台票仓。",
         "fixture": {
             "id": "component_poll_block",
@@ -276,7 +276,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="投票卡真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -286,7 +286,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "CoverSwiper",
         "label": "封面轮播",
         "semantic_role": "hero_media",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "封面块要负责定调，不应该只有空壳或跑题图。",
         "fixture": {
             "id": "component_cover_swiper",
@@ -300,7 +300,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     "props": {"image_urls": [MATE_HERO_A, MATE_HERO_B]},
                 },
                 title="封面轮播真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#ff5b7f", "#ffd7de"),
             ),
         },
@@ -310,7 +310,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "LocationBlock",
         "label": "地点卡",
         "semantic_role": "location_info",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "地点卡在正式产品里只作为线下看机或购买地点补充，不作为主内容承载。",
         "fixture": {
             "id": "component_location_block",
@@ -327,7 +327,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="地点卡真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#2563eb", "#dbeafe", "#f8fbff"),
             ),
         },
@@ -337,7 +337,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "WeatherPolaroid",
         "label": "氛围拍立得",
         "semantic_role": "ambience_snapshot",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "氛围块应该补情绪和现场感，不该冒出无关风景图。",
         "fixture": {
             "id": "component_weather_polaroid",
@@ -357,7 +357,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
                     },
                 },
                 title="氛围拍立得真实样例",
-                scenarios=["seeding"],
+                scenarios=["notes"],
                 theme=_build_theme("#4f46e5", "#dbeafe", "#f6f7ff"),
             ),
         },
@@ -367,7 +367,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "QuoteBlock",
         "label": "金句块",
         "semantic_role": "quote_highlight",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "金句块适合承接观点，不适合凭空端一句空话。",
         "fixture": {
             "id": "component_quote_block",
@@ -394,7 +394,7 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
         "component_type": "TimelineBlock",
         "label": "时间轴",
         "semantic_role": "timeline",
-        "supported_scenarios": ["seeding"],
+        "supported_scenarios": ["notes"],
         "summary": "时间轴适合讲过程和节奏，不适合只挂几个无意义时间点。",
         "fixture": {
             "id": "component_timeline_block",
@@ -424,15 +424,15 @@ COMPONENT_FIXTURES: list[dict[str, Any]] = [
 
 SCENARIO_FIXTURES: list[dict[str, Any]] = [
     {
-        "scenario_id": "seeding_compare",
-        "title": "数码对比种草",
+        "scenario_id": "notes_compare",
+        "title": "结构化对比笔记",
         "description": "高频对比块、雷达块和互动块一起看，适合锁定比例和信息层级。",
         "fixture": {
-            "id": "seeding_compare",
-            "title": "数码对比种草",
+            "id": "notes_compare",
+            "title": "结构化对比笔记",
             "description": "高频对比块、雷达块和互动块一起看，适合锁定比例和信息层级。",
             "note_document": {
-                "document_meta": {"title": "华为 Mate 60：超预期与代价并存的真实结论", "scenarios": ["seeding"]},
+                "document_meta": {"title": "华为 Mate 60：超预期与代价并存的真实结论", "scenarios": ["notes"]},
                 "theme": _build_theme("#ff5b7f", "#ffd7de"),
                 "blocks": [
                     {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [MATE_HERO_A, MATE_HERO_B]}},
@@ -477,15 +477,15 @@ SCENARIO_FIXTURES: list[dict[str, Any]] = [
         },
     },
     {
-        "scenario_id": "seeding_budget_pick",
+        "scenario_id": "notes_budget_pick",
         "title": "预算优先决策页",
         "description": "重点观察价格、参数和取舍边界是否能自然落成一页。",
         "fixture": {
-            "id": "seeding_budget_pick",
+            "id": "notes_budget_pick",
             "title": "预算优先决策页",
             "description": "重点观察价格、参数和取舍边界是否能自然落成一页。",
             "note_document": {
-                "document_meta": {"title": "小米 14：预算优先时更容易给出明确结论", "scenarios": ["seeding"]},
+                "document_meta": {"title": "小米 14：预算优先时更容易给出明确结论", "scenarios": ["notes"]},
                 "theme": _build_theme("#2563eb", "#dbeafe", "#f8fbff"),
                 "blocks": [
                     {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [PHONE_ALT_A, PHONE_ALT_B]}},
@@ -512,15 +512,15 @@ SCENARIO_FIXTURES: list[dict[str, Any]] = [
         },
     },
     {
-        "scenario_id": "seeding_camera_focus",
+        "scenario_id": "notes_camera_focus",
         "title": "影像优先决策页",
         "description": "更强调影像、质感和偏好分流，重点看判断是否足够鲜明。",
         "fixture": {
-            "id": "seeding_camera_focus",
+            "id": "notes_camera_focus",
             "title": "影像优先决策页",
             "description": "更强调影像、质感和偏好分流，重点看判断是否足够鲜明。",
             "note_document": {
-                "document_meta": {"title": "iPhone 17：如果你只看影像和系统质感", "scenarios": ["seeding"]},
+                "document_meta": {"title": "iPhone 17：如果你只看影像和系统质感", "scenarios": ["notes"]},
                 "theme": _build_theme("#f59e0b", "#fde68a", "#fffdf6"),
                 "blocks": [
                     {"id": "cover_1", "type": "CoverSwiper", "semantic_role": "hero_media", "props": {"image_urls": [LAPTOP_ALT, EARBUD_ALT]}},
@@ -564,8 +564,8 @@ SCENARIO_FIXTURES: list[dict[str, Any]] = [
 
 
 def get_block_gallery_overview() -> dict[str, Any]:
-    allowed_components = [item for item in COMPONENT_FIXTURES if "seeding" in list(item.get("supported_scenarios") or [])]
-    allowed_scenarios = [item for item in SCENARIO_FIXTURES if str(item.get("scenario_id") or "").startswith("seeding_")]
+    allowed_components = [item for item in COMPONENT_FIXTURES if "notes" in list(item.get("supported_scenarios") or [])]
+    allowed_scenarios = [item for item in SCENARIO_FIXTURES if str(item.get("scenario_id") or "").startswith("notes_")]
     fixtures = [deepcopy(item["fixture"]) for item in allowed_components] + [deepcopy(item["fixture"]) for item in allowed_scenarios]
     return {
         "generated_at": "2026-03-22T16:00:00+08:00",
@@ -574,7 +574,7 @@ def get_block_gallery_overview() -> dict[str, Any]:
                 "component_type": item["component_type"],
                 "label": item["label"],
                 "semantic_role": item["semantic_role"],
-                "supported_scenarios": ["seeding"],
+                "supported_scenarios": ["notes"],
                 "summary": item["summary"],
                 "fixture": deepcopy(item["fixture"]),
             }
@@ -591,7 +591,7 @@ def get_block_gallery_overview() -> dict[str, Any]:
         ],
         "fixtures": fixtures,
         "recommendations": [
-            "先看单积木，再看整页购买决策场景，能更快判断是数据问题还是比例问题。",
+            "先看单积木，再看整页笔记场景，能更快判断是数据问题还是比例问题。",
             "优先用场景页观察结论、事实、对比和风险边界的节奏，不要只看单块细节。",
             "当某个积木需要改结构时，先更新它的 fixture，再更新视觉回归基线。",
         ],
@@ -601,12 +601,12 @@ def get_block_gallery_overview() -> dict[str, Any]:
 def get_block_gallery_component(component_type: str) -> dict[str, Any] | None:
     normalized = str(component_type or "").strip()
     for item in COMPONENT_FIXTURES:
-        if item["component_type"] == normalized and "seeding" in list(item.get("supported_scenarios") or []):
+        if item["component_type"] == normalized and "notes" in list(item.get("supported_scenarios") or []):
             return deepcopy({
                 "component_type": item["component_type"],
                 "label": item["label"],
                 "semantic_role": item["semantic_role"],
-                "supported_scenarios": ["seeding"],
+                "supported_scenarios": ["notes"],
                 "summary": item["summary"],
                 "fixture": item["fixture"],
             })
@@ -616,7 +616,7 @@ def get_block_gallery_component(component_type: str) -> dict[str, Any] | None:
 def get_block_gallery_scenario(scenario_id: str) -> dict[str, Any] | None:
     normalized = str(scenario_id or "").strip()
     for item in SCENARIO_FIXTURES:
-        if item["scenario_id"] == normalized and str(item["scenario_id"]).startswith("seeding_"):
+        if item["scenario_id"] == normalized and str(item["scenario_id"]).startswith("notes_"):
             return deepcopy({
                 "scenario_id": item["scenario_id"],
                 "title": item["title"],
@@ -624,3 +624,6 @@ def get_block_gallery_scenario(scenario_id: str) -> dict[str, Any] | None:
                 "fixture": item["fixture"],
             })
     return None
+
+
+

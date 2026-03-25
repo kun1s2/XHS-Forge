@@ -1,4 +1,4 @@
-"""长期 NoteDocument 画布的主编辑服务。
+﻿"""长期 NoteDocument 画布的主编辑服务。
 
 这个文件只保留顶层编辑编排：
 - 读取当前文档和用户请求
@@ -676,7 +676,7 @@ def _apply_canvas_creation_plan(
     if _looks_like_placeholder_generation(page_title) or (
         target_entity and not is_generic_entity_name(target_entity) and mentions_other_specific_entity(page_title, target_entity)
     ):
-        page_title = f"{target_entity} 购买决策档案" if target_entity else "购买决策档案"
+        page_title = f"{target_entity} 持续笔记" if target_entity else "持续笔记"
     final_document_view["page_title"] = page_title or "XHS-Forge Note"
     final_document_view["blocks"] = []
 
@@ -1544,7 +1544,7 @@ async def composition_service(state: RuntimeState) -> dict:
     knowledge = state.get("retrieved_knowledge", {})
     note_document = build_note_document_from_state(state)
     planner_policy = state.get("planner_policy", {}) or {}
-    creator_persona = state.get("creator_persona", "硬核数码博主")
+    creator_persona = state.get("creator_persona", "结构化笔记助手")
     has_controversy = state.get("has_controversy", False)
     local_mode = _has_local_selection(selected_element_id)
     target_exists = any(
@@ -1689,3 +1689,4 @@ async def composition_service(state: RuntimeState) -> dict:
             "turn_trace": {"composition_worker": {"mode": "global", "action": "error", "structured": True, "fallback_used": False, "selected_element_id": selected_element_id, "error": str(e)}},
             "agent_backends": {"composition_worker": "structured_function_calling"},
         }
+

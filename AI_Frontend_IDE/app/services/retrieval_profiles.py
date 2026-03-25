@@ -1,4 +1,4 @@
-"""数码购买决策场景的正式检索 profile。"""
+﻿"""持续笔记协作场景的正式检索 profile。"""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def infer_retrieval_profile(*, user_query: str, entity_name: str, active_archety
     archetype = _normalize(active_archetype or "")
     combined = f"{query} {entity}".strip()
 
-    if archetype == "seeding" or any(token in combined for token in _DIGITAL_HINTS):
+    if archetype == "notes" or any(token in combined for token in _DIGITAL_HINTS):
         return {
             "profile_name": "digital_review",
             "domain": "digital_review",
@@ -248,3 +248,4 @@ def get_component_required_slot_keys(
                 required.append(normalized_slot)
 
     return required
+

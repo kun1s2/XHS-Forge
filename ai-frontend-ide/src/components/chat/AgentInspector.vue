@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/useChatStore'
@@ -215,7 +215,7 @@ const {
           </div>
           <div class="text-[14px] font-bold text-gray-100">{{ inspectorHeadline }}</div>
           <div class="text-[10px] leading-relaxed text-gray-400 max-w-3xl">
-            当前焦点：{{ inspectorFocus.entity_name || '未识别主体' }} · 场景 {{ (inspectorFocus.scenarios || []).join(' / ') || 'seeding' }} · 命中 {{ inspectorExecution.target_block_id || inspectorFocus.selected_block_id || 'global' }}
+            当前焦点：{{ inspectorFocus.entity_name || '未识别主体' }} · 场景 {{ (inspectorFocus.scenarios || []).join(' / ') || 'notes' }} · 命中 {{ inspectorExecution.target_block_id || inspectorFocus.selected_block_id || 'global' }}
           </div>
         </div>
         <div class="grid min-w-[240px] grid-cols-2 gap-2 sm:min-w-[320px]">
@@ -1543,3 +1543,4 @@ const {
   border-radius: 10px;
 }
 </style>
+

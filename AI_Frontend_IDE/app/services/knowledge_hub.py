@@ -1,4 +1,4 @@
-"""Knowledge ingestion, review, and persistence helpers.
+﻿"""Knowledge ingestion, review, and persistence helpers.
 
 This module turns uploaded documents and retrieved evidence into a layered
 knowledge model that the chat workflow can review before generation.
@@ -227,7 +227,7 @@ def _build_document_index_markdown(parsed: "ParsedKnowledgeSource") -> str:
         f"# {parsed.title or parsed.file_name or parsed.document_id}",
         "",
         f"- document_id: `{parsed.document_id}`",
-        f"- scene_hint: `{parsed.scene_hint or 'seeding'}`",
+        f"- scene_hint: `{parsed.scene_hint or 'notes'}`",
         f"- entity_hint: `{parsed.entity_hint or parsed.title}`",
         f"- normalized_entity: `{normalized_entity}`",
         f"- chunk_count: `{len(parsed.chunks)}`",
@@ -403,7 +403,7 @@ def _choose_entity_type(entity_name: str, scene_hint: str) -> str:
         return "product/model"
     if any(token in text for token in ("公司", "brand", "品牌")):
         return "brand/company"
-    return "product/model" if scene_hint == "seeding" else "topic"
+    return "product/model" if scene_hint == "notes" else "topic"
 
 
 def _estimate_review_recommendation(source_type: str, field_or_topic: str) -> bool:
@@ -434,7 +434,7 @@ def _extract_field_records(
     text = chunk_text.strip()
 
     for field, patterns in FIELD_PATTERNS.items():
-        if scene_hint == "seeding" and field in {"location", "route", "hours", "transport", "ticket"}:
+        if scene_hint == "notes" and field in {"location", "route", "hours", "transport", "ticket"}:
             continue
         for pattern in patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -729,7 +729,7 @@ def filter_records(
 
 def build_knowledge_plan(state: RuntimeState) -> dict[str, Any]:
     query = latest_user_text_from_state(state)
-    active_archetype = str(state.get("active_archetype") or "seeding")
+    active_archetype = str(state.get("active_archetype") or "notes")
     existing_knowledge = state.get("retrieved_knowledge") or {}
     entity_name = normalize_entity_name((existing_knowledge or {}).get("entity_name") or query)
     profile = infer_retrieval_profile(
@@ -1291,8 +1291,8 @@ class KnowledgeHubService:
         return [
             {
                 "pack_id": "digital_mate60",
-                "title": "数码测评 Demo 包",
-                "scenario": "seeding",
+                "title": "笔记工作台 Demo 包",
+                "scenario": "notes",
                 "documents": [
                     {
                         "title": "Mate 60 参数表",
@@ -1308,8 +1308,8 @@ class KnowledgeHubService:
             },
             {
                 "pack_id": "digital_xiaomi14",
-                "title": "数码对比 Demo 包",
-                "scenario": "seeding",
+                "title": "笔记对比 Demo 包",
+                "scenario": "notes",
                 "documents": [
                     {
                         "title": "小米 14 参数表",
@@ -1329,8 +1329,8 @@ class KnowledgeHubService:
         return [
             {
                 "pack_id": "digital_mate60",
-                "title": "数码测评 Golden Eval Set",
-                "scenario": "seeding",
+                "title": "笔记测评 Golden Eval Set",
+                "scenario": "notes",
                 "questions": [
                     {
                         "id": "mate60_worth_buying",
@@ -1354,8 +1354,8 @@ class KnowledgeHubService:
             },
             {
                 "pack_id": "digital_xiaomi14",
-                "title": "数码对比 Golden Eval Set",
-                "scenario": "seeding",
+                "title": "笔记对比 Golden Eval Set",
+                "scenario": "notes",
                 "questions": [
                     {
                         "id": "xiaomi14_compare",
@@ -1587,3 +1587,4 @@ def select_records_from_session(
             continue
         selected.append(item)
     return selected
+

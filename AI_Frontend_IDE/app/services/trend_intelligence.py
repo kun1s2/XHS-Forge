@@ -1,4 +1,4 @@
-"""热点主题识别与快捷入口语义。
+﻿"""热点主题识别与快捷入口语义。
 
 这层不负责检索或缓存，只负责把一个热点关键词解释成：
 - 更稳定的展示标签
@@ -56,12 +56,12 @@ def infer_trend_profile(keyword: str, *, scenario_hint: str | None = None) -> di
     label = normalize_trend_keyword(keyword)
     lowered = label.lower()
     forced = str(scenario_hint or "").strip().lower()
-    if forced == "seeding":
+    if forced == "notes":
         scenario = forced
     elif any(token in lowered for token in SEEDING_HINTS) or any(token in label for token in SEEDING_HINTS):
-        scenario = "seeding"
+        scenario = "notes"
     else:
-        scenario = "seeding"
+        scenario = "notes"
 
     entity_type = "product_topic"
 
@@ -76,9 +76,9 @@ def build_trend_prompt(keyword: str, *, scenario_hint: str | None = None) -> str
     label = normalize_trend_keyword(keyword)
     profile = infer_trend_profile(label, scenario_hint=scenario_hint)
     scenario = profile["scenario_hint"]
-    if scenario == "seeding":
-        return f"帮我生成一篇关于「{label}」的数码购买决策笔记，信息要靠谱，结论要鲜明，并优先补价格、参数、续航和图片证据。"
-    return f"帮我围绕「{label}」生成一篇结构清晰、信息可靠的数码购买决策笔记。"
+    if scenario == "notes":
+        return f"帮我围绕「{label}」创建一份持续笔记，先整理结构，再补关键背景、来源和可执行结论。"
+    return f"帮我围绕「{label}」生成一份结构清晰、信息可靠的持续笔记。"
 
 
 def build_trend_item(
@@ -105,3 +105,6 @@ def build_trend_item(
         "record_count": int(record_count or 0),
         "recommended_prompt": build_trend_prompt(label, scenario_hint=profile["scenario_hint"]),
     }
+
+
+

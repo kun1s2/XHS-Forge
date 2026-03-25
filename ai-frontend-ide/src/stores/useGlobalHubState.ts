@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+﻿import { ref } from 'vue'
 import type {
   BenchmarkOverview,
   BlockGalleryOverview,
@@ -12,7 +12,7 @@ export const createGlobalHubState = () => {
   const evaluationOverview = ref<EvaluationOverview>({})
   const blockGalleryOverview = ref<BlockGalleryOverview>({})
   const showcaseProfiles = ref<ShowcaseProfile[]>([])
-  const creatorPersona = ref<string>('硬核数码博主')
+  const creatorPersona = ref<string>('结构化笔记助手')
 
   return {
     sessions,
@@ -23,3 +23,4 @@ export const createGlobalHubState = () => {
     creatorPersona,
   }
 }
+

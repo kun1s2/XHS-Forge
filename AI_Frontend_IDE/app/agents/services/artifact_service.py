@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
@@ -8,7 +8,7 @@ from uuid import uuid4
 from app.core.request_semantics import latest_user_text_from_state
 
 
-ARTIFACT_TYPE = "purchase_decision_note"
+ARTIFACT_TYPE = "note_workspace"
 ARTIFACT_STATUS = "active"
 
 
@@ -29,8 +29,8 @@ def _document_title(state: dict[str, Any]) -> str:
     retrieved_knowledge = _as_dict(state.get("retrieved_knowledge"))
     entity_name = str(retrieved_knowledge.get("entity_name") or "").strip()
     if entity_name:
-        return f"{entity_name} 购买决策档案"
-    return "数码购买决策档案"
+        return f"{entity_name} 工作笔记"
+    return "持续笔记工作台"
 
 
 def get_knowledge_version(state: dict[str, Any]) -> str:
@@ -174,3 +174,4 @@ def build_artifact_patch(
         "artifact_version": version,
         "version_history_head": build_version_history_head(state, latest_version=version),
     }
+
